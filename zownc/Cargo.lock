@@ -3,12 +3,26 @@
 version = 4
 
 [[package]]
+name = "zown-ast"
+version = "0.1.0"
+
+[[package]]
 name = "zown-cli"
 version = "0.1.0"
 dependencies = [
+ "zown-ast",
  "zown-lexer",
+ "zown-parser",
 ]
 
 [[package]]
 name = "zown-lexer"
 version = "0.1.0"
+
+[[package]]
+name = "zown-parser"
+version = "0.1.0"
+dependencies = [
+ "zown-ast",
+ "zown-lexer",
+]

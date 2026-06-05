@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/zown-lexer",
+    "crates/zown-ast",
+    "crates/zown-parser",
     "crates/zown-cli",
 ]
 

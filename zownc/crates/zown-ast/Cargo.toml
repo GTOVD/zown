@@ -1,0 +1,10 @@
+[package]
+name = "zown-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Zown AST node definitions + JSON rendering (parity with the Python reference)."
+
+[lib]
+path = "src/lib.rs"

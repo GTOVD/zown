@@ -37,10 +37,10 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | # | Milestone | State | Notes |
 |---|-----------|-------|-------|
 | M0 | Reference interpreter (Python) | ✅ | lexer/parser/VM/stdlib/CLI/manifest/.zerr/tests |
-| M1 | Spec hardening + conformance suite | ⏳ | freeze v0.1 semantics as golden tests |
+| M1 | Spec hardening + conformance suite | ✅ | 13 cases + 7 error cases, golden runner (`conformance/`) |
 | M2 | Rust toolchain + `zownc` skeleton | ✅ | Rust 1.96 installed; `zownc lex` works + tests pass |
-| M3 | Rust frontend (lexer+parser+AST) parity | 🔄 | lexer ported + tested; parser/AST next |
-| M4 | Tree-walking Rust VM parity | ⬜ | `zownc run` matches oracle byte-for-byte |
+| M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
+| M4 | Tree-walking Rust VM parity | ⏳ | `zownc run` matches oracle byte-for-byte |
 | M5 | Bytecode + register/stack IR | ⬜ | stable IR the backends consume |
 | M6 | WASM backend (`-o .wasm`) | ⬜ | runs in wasmtime + browser |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
@@ -144,17 +144,17 @@ every stdlib word, and at least one error per recovery code.
 
 ---
 
-### M3 — Rust frontend parity
+### M3 — Rust frontend parity  ✅
 **Goal:** Rust lexer+parser produce an AST equivalent to Python's.
 
 **Tasks**
-- [ ] Port the two-state lexer (code/literal), exact token kinds + spans.
-- [ ] Port number/`.`-print disambiguation and the reserved-`|` rule.
-- [ ] Port the parser + nested blocks + the same parse errors (codes/positions).
-- [ ] Snapshot-test AST against Python's `zown ast --json` for every example +
-      conformance case.
+- [x] Port the two-state lexer (code/literal), exact token kinds + spans.
+- [x] Port number/`.`-print disambiguation and the reserved-`|` rule.
+- [x] Port the parser + nested blocks + the same parse errors (codes/positions).
+- [x] `zownc ast` emits JSON shape-compatible with Python `zown ast`.
+- [x] `conformance/ast_parity.py` diffs both frontends on every program.
 
-**Acceptance:** for all conformance `.zn`, Rust AST JSON == Python AST JSON.
+**Acceptance:** for all conformance `.zn`, Rust AST == Python AST. ✅ (16/16)
 
 ---
 
@@ -297,6 +297,10 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M1:** stand up `conformance/` + `run.py`, port existing tests to cases.
-2. **M2:** finish `zownc lex` parity (skeleton already in `zownc/`).
-3. **M3:** port lexer to Rust, snapshot AST against Python.
+1. **M4:** port the stack VM to Rust (`zown-vm` crate) — operand stack, env,
+   `Block` value, truthiness, all operators, the full stdlib `WORDS`, and `.zerr`
+   emission. Add `zownc run <file>`.
+2. **M4 gate:** extend `conformance/run.py` (or a sibling) to run every case
+   through `zownc run` and diff stdout + error code against the goldens.
+3. When green, M4 is the point where **today's language is fully reimplemented in
+   Rust** — and the springboard for the IR + WASM/native backends (M5–M7).

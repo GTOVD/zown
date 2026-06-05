@@ -1,12 +1,14 @@
 //! `zownc` — the native Zown toolchain driver (stage-0, in progress).
 //!
-//! Today this implements the first parity target from `docs/PLAN.md` (M2/M3):
-//! `zownc lex <file>` tokenizes a source file using the Rust lexer. The parser,
-//! VM, IR, and WASM/native backends land in subsequent milestones.
+//! Today this implements the first parity targets from `docs/PLAN.md` (M2/M3):
+//! `zownc lex <file>` tokenizes and `zownc ast <file>` parses a source file with
+//! the Rust frontend. The VM, IR, and WASM/native backends land in later
+//! milestones.
 
 use std::process::ExitCode;
 
 use zown_lexer::{lex, Token, TokenKind};
+use zown_parser::parse;
 
 const USAGE: &str = "\
 zownc — Zown native toolchain (stage-0)
@@ -16,6 +18,7 @@ USAGE:
 
 COMMANDS:
     lex <file.zn>     Tokenize a source file and print the token stream
+    ast <file.zn>     Parse a source file and print the AST as JSON
     version           Print version
     help              Show this help
 
@@ -41,6 +44,13 @@ fn main() -> ExitCode {
             Some(path) => cmd_lex(path),
             None => {
                 eprintln!("zownc lex: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "ast" => match args.get(1) {
+            Some(path) => cmd_ast(path),
+            None => {
+                eprintln!("zownc ast: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -71,6 +81,29 @@ fn cmd_lex(path: &str) -> ExitCode {
             eprintln!(
                 "zerr[{}] {path}:{}:{} : {}\n  hint: {}",
                 e.code, e.pos.line, e.pos.col, e.msg, e.hint
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_ast(path: &str) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match parse(&src) {
+        Ok(nodes) => {
+            println!("{}", zown_ast::to_json(&nodes));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!(
+                "zerr[{}] {path}:{}:{} ({}): {}",
+                e.code, e.pos.line, e.pos.col, e.kind, e.msg
             );
             ExitCode::FAILURE
         }
