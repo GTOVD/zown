@@ -19,5 +19,9 @@ venv/
 /zownc/target/
 **/target/
 
+# Generated WASM build artifacts
+*.wat
+*.wasm
+
 # OS / editor
 .DS_Store

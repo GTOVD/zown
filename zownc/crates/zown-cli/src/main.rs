@@ -23,8 +23,15 @@ COMMANDS:
     ast <file.zn>     Parse a source file and print the AST as JSON
     ir <file.zn>      Lower to Zown IR and print it
     irast <file.zn>   Lower to IR then rebuild the AST as JSON (round-trip check)
+    wat <file.zn>     Compile to WebAssembly text (.wat) and print it
+    build <file.zn>   Compile to .wat (use -o <path>; default: <file>.wat)
     version           Print version
     help              Show this help
+
+NOTE:
+    The WASM backend is slice M6a: integer programs (literals, + - * % _,
+    comparisons/logic, and `.`). Strings, blocks, bindings, and floats are not
+    compiled yet and produce a clear error. Run output with `wasmtime`.
 
 FLAGS:
     --zerr            On error, emit a structured JSON .zerr packet to stderr
@@ -39,8 +46,20 @@ fn main() -> ExitCode {
     let zerr = args.iter().any(|a| a == "--zerr");
     args.retain(|a| a != "--zerr");
 
+    // extract `-o <path>` (used by `build`)
+    let mut out_path: Option<String> = None;
+    if let Some(i) = args.iter().position(|a| a == "-o") {
+        if i + 1 < args.len() {
+            out_path = Some(args[i + 1].clone());
+            args.drain(i..=i + 1);
+        } else {
+            eprintln!("zownc: -o requires a path");
+            return ExitCode::FAILURE;
+        }
+    }
+
     // shorthand: `zownc file.zn` == `zownc run file.zn`
-    let known = ["run", "lex", "ast", "ir", "irast", "version", "help"];
+    let known = ["run", "lex", "ast", "ir", "irast", "wat", "build", "version", "help"];
     if let Some(first) = args.first() {
         if !first.starts_with('-') && !known.contains(&first.as_str()) {
             args.insert(0, "run".to_string());
@@ -89,6 +108,23 @@ fn main() -> ExitCode {
             Some(path) => cmd_ir(path, true),
             None => {
                 eprintln!("zownc irast: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "wat" => match args.get(1) {
+            Some(path) => cmd_wat(path, None),
+            None => {
+                eprintln!("zownc wat: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "build" => match args.get(1) {
+            Some(path) => {
+                let out = out_path.unwrap_or_else(|| default_out(path));
+                cmd_wat(path, Some(&out))
+            }
+            None => {
+                eprintln!("zownc build: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -197,6 +233,56 @@ fn cmd_ir(path: &str, roundtrip: bool) -> ExitCode {
                 "zerr[{}] {path}:{}:{} ({}): {}",
                 e.code, e.pos.line, e.pos.col, e.kind, e.msg
             );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn default_out(path: &str) -> String {
+    match path.strip_suffix(".zn") {
+        Some(stem) => format!("{stem}.wat"),
+        None => format!("{path}.wat"),
+    }
+}
+
+fn cmd_wat(path: &str, out: Option<&str>) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let nodes = match parse(&src) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!(
+                "zerr[{}] {path}:{}:{} ({}): {}",
+                e.code, e.pos.line, e.pos.col, e.kind, e.msg
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let prog = zown_ir::lower(&nodes);
+    match zown_wasm::emit_wat(&prog) {
+        Ok(wat) => match out {
+            Some(path) => match std::fs::write(path, &wat) {
+                Ok(()) => {
+                    eprintln!("wrote {path}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("zownc: cannot write {path:?}: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            None => {
+                print!("{wat}");
+                ExitCode::SUCCESS
+            }
+        },
+        Err(msg) => {
+            eprintln!("zownc build: {msg}");
             ExitCode::FAILURE
         }
     }

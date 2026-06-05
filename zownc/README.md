@@ -12,7 +12,8 @@ behavioral **oracle**; everything here is differentially tested against it.
 | `zown-ast` / `zown-parser` | ✅ AST parity with the oracle (`zownc ast`) |
 | `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
 | `zown-ir` | ✅ IR + lowering; lossless round-trip (`zownc ir` / `irast`) |
-| WASM / native backends | ⬜ next (M6–M7) |
+| `zown-wasm` | 🔄 M6a: integer core compiles to `.wat`, runs in wasmtime |
+| native backend | ⬜ (M7) |
 
 ## Build & run
 
@@ -42,10 +43,11 @@ crates/
   zown-parser/  tokens -> AST (+ structured parse errors)
   zown-vm/      stack VM: Value, RunError/.zerr, operators, stdlib WORDS
   zown-ir/      IR: Instr/IrBlock/IrProgram, lower/unlower, pretty
-  zown-cli/     the `zownc` binary (run / lex / ast / ir / irast)
+  zown-wasm/    WASM backend: IR -> .wat (integer core; tagged runtime next)
+  zown-cli/     the `zownc` binary (run / lex / ast / ir / irast / wat / build)
 ```
 
-New crates (`zown-wasm`, `zown-codegen`) are added as their milestones begin.
+The native code crate (`zown-codegen`) is added when M7 begins.
 
 ## The endgame
 

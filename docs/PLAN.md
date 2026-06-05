@@ -42,7 +42,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
-| M6 | WASM backend (`-o .wasm`) | ⏳ | runs in wasmtime + browser |
+| M6 | WASM backend (`-o .wasm`) | 🔄 | M6a (integer core) runs in wasmtime; b/c/d next |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
 | M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
 | M9 | Stdlib expansion + `std` in Zown | ⬜ | begins the self-host migration |
@@ -198,18 +198,27 @@ conformance.
 
 ---
 
-### M6 — WASM backend
+### M6 — WASM backend  🔄
 **Goal:** `zownc build x.zn -o x.wasm` runs in wasmtime and the browser.
 
-**Tasks**
-- [ ] Emit a WASM module (start with `.wat` for debuggability, then binary).
-- [ ] Linear-memory layout for strings/data segment; host `print` import.
-- [ ] Map IR → WASM stack ops (natural fit; Zown is already stack-based).
-- [ ] wasmtime-based conformance run for the WASM target.
+Built in slices (see `docs/WASM.md`); coverage tracked by `conformance/wasm_parity.py`.
 
-**Acceptance:** every non-host-specific conformance case passes under wasmtime.
+- [x] **M6a — integer core.** `zown-wasm` emits `.wat`; integers, `+ - * % _`,
+      comparisons, `&& || !`, and `.` (itoa + WASI `fd_write`). `compare` and
+      `logic` run in wasmtime and match the goldens; unsupported constructs error
+      with the slice that will add them. `zownc build`/`wat` commands.
+- [ ] **M6b — strings.** Tagged-value runtime in linear memory; `$...$`, string
+      `+`/`*`, and the string words.
+- [ ] **M6c — blocks + control.** `@ ? ;`, `:bind`/name load; blocks as
+      function-table entries via `call_indirect`.
+- [ ] **M6d — floats + binary.** float math + remaining words; emit binary `.wasm`
+      (e.g. via `wasm-encoder`) in addition to `.wat`.
 
-**Risks:** strings/host I/O via WASI. Mitigation: define a tiny host ABI first.
+**Acceptance (M6 overall):** every non-host-specific conformance case passes under
+wasmtime. **M6a acceptance met:** integer subset is green, rest cleanly skipped.
+
+**Risks:** strings/host I/O via WASI, dynamic dispatch for blocks. Mitigation:
+the tagged-value ABI is designed once at the start of M6b.
 
 ---
 
@@ -308,11 +317,12 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M6 (WASM):** design the tagged-value runtime ABI (how int/float/str/block are
-   represented in linear memory; host imports for output). Lower IR → `.wat`,
-   assemble to `.wasm`. Start with the numeric/printing core, then strings, then
-   blocks/control (invoke/select/while → WASM funcs + `br_if`/`loop`).
-2. **M6 gate:** run the conformance corpus under wasmtime; diff stdout against the
-   goldens (a real second execution path, validating the IR end-to-end).
-3. Decide assembler path: hand-emit `.wat` + shell out to `wabt`/`wasmtime`, or
-   pull in a Rust crate (e.g. `wasm-encoder`) to emit binary directly.
+1. **M6b (strings):** design the tagged-value ABI (16-byte slots `[tag|payload]`
+   in a linear-memory operand stack; strings as `[len][bytes]` in a data segment).
+   Re-emit the integer ops against the tagged stack, then add `$...$`, string
+   `+`/`*`, and `tr/up/lo/ln/rv`. Extend `wasm_parity.py` coverage (`strings`,
+   `words_str` should flip from skip → ok).
+2. **M6c (blocks/control):** blocks → function-table entries; `@`→`call_indirect`,
+   `?`→select a table index, `;`→`loop`/`br_if`; `:bind`/name load via a small
+   env in memory. This unlocks `hello`, `select`, `while`, `fib`, `fizzbuzz`.
+3. **M6d:** floats + remaining words; emit binary `.wasm` (`wasm-encoder`).
