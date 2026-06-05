@@ -1,0 +1,10 @@
+[package]
+name = "zown-lexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Zown lexer (Rust): two-state tokenizer ported from the Python reference."
+
+[lib]
+path = "src/lib.rs"

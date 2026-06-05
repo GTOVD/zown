@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Zown
+# generated error packets
+*.zerr
+# generated manifests live next to source as <file>.zn.json — commit those you
+# curate; ignore throwaway ones under tmp/
+/tmp/
+
+# Rust (commit Cargo.lock for the binary workspace; ignore build output)
+/zownc/target/
+**/target/
+
+# OS / editor
+.DS_Store

@@ -1,0 +1,14 @@
+[package]
+name = "zown-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "The `zownc` native toolchain driver."
+
+[[bin]]
+name = "zownc"
+path = "src/main.rs"
+
+[dependencies]
+zown-lexer = { path = "../zown-lexer" }

@@ -1,0 +1,13 @@
+# FizzBuzz 1..15.
+# `?` selects a block by a condition; `@` then runs the chosen block, leaving the
+# value to print on the stack.
+1:i
+[ i 16 < ] [
+  i 15 % 0 == [ $FizzBuzz$ ] [
+    i 3 % 0 == [ $Fizz$ ] [
+      i 5 % 0 == [ $Buzz$ ] [ i ] ? @
+    ] ? @
+  ] ? @
+  .
+  i 1 + :i
+] ;

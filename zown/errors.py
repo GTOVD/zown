@@ -1,0 +1,104 @@
+"""Structured Zown diagnostics (.zerr packets).
+
+In Zown an error is not a passive human-readable tombstone. It is an actionable,
+machine-first payload designed to be fed straight into an AI agent so the code can
+self-heal. Every failure carries:
+
+  * a deterministic recovery `code` (what kind of thinking is required),
+  * the source position,
+  * a snapshot of the VM stack at the moment of failure,
+  * a short, dense `hint`.
+
+This is the v0.1 seed of the full self-healing loop described in the design notes.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from typing import Any
+
+ZERR_VERSION = "0.1"
+
+# Deterministic recovery codes. An AI agent keys its repair strategy off these
+# rather than parsing free-form text.
+REPAIR_SYNTAX = "REPAIR_SYNTAX"        # structural / token mismatch
+STACK_UNDERFLOW = "STACK_UNDERFLOW"    # an op needed more values than present
+TYPE_MISMATCH = "TYPE_MISMATCH"        # an op got the wrong kind of value
+NAME_UNRESOLVED = "NAME_UNRESOLVED"    # referenced a name that is not bound
+DIV_ZERO = "DIV_ZERO"                  # division / modulo by zero
+BOUNDS = "BOUNDS"                      # index past an allocated bound
+NOT_CALLABLE = "NOT_CALLABLE"          # tried to invoke a non-block
+UNSUPPORTED = "UNSUPPORTED"            # feature not implemented in this build
+
+
+@dataclass
+class Pos:
+    line: int = 0
+    col: int = 0
+    offset: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {"line": self.line, "col": self.col, "offset": self.offset}
+
+
+@dataclass
+class ZownError(Exception):
+    """A structured Zown error. Renders to a .zerr JSON packet."""
+
+    code: str
+    msg: str
+    kind: str = "run"  # lex | parse | run
+    op: str | None = None
+    pos: Pos | None = None
+    stack: list[Any] = field(default_factory=list)
+    hint: str = ""
+    file: str | None = None
+
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.msg)
+
+    def packet(self) -> dict[str, Any]:
+        return {
+            "zerr": ZERR_VERSION,
+            "kind": self.kind,
+            "code": self.code,
+            "msg": self.msg,
+            "op": self.op,
+            "pos": self.pos.as_dict() if self.pos else None,
+            "stack": [_snap(v) for v in self.stack],
+            "hint": self.hint,
+            "file": self.file,
+        }
+
+    def to_json(self, indent: int | None = 2) -> str:
+        return json.dumps(self.packet(), indent=indent)
+
+    def render_human(self) -> str:
+        loc = ""
+        if self.file:
+            loc = self.file
+        if self.pos:
+            loc = f"{loc}:{self.pos.line}:{self.pos.col}" if loc else f"{self.pos.line}:{self.pos.col}"
+        head = f"zerr[{self.code}]"
+        if loc:
+            head += f" {loc}"
+        op = f" (op `{self.op}`)" if self.op else ""
+        lines = [f"{head}{op}: {self.msg}"]
+        if self.hint:
+            lines.append(f"  hint: {self.hint}")
+        if self.stack:
+            snap = ", ".join(str(_snap(v)) for v in self.stack[-6:])
+            lines.append(f"  stack: [{snap}]")
+        return "\n".join(lines)
+
+
+def _snap(v: Any) -> Any:
+    """Compact, JSON-safe snapshot of a stack value."""
+    from .vm import Block  # local import to avoid a cycle
+
+    if isinstance(v, Block):
+        return f"[blk:{len(v.nodes)}]"
+    if isinstance(v, (int, float, str, bool)) or v is None:
+        return v
+    return repr(v)
