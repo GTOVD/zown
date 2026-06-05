@@ -11,9 +11,18 @@ name = "zown-cli"
 version = "0.1.0"
 dependencies = [
  "zown-ast",
+ "zown-ir",
  "zown-lexer",
  "zown-parser",
  "zown-vm",
+]
+
+[[package]]
+name = "zown-ir"
+version = "0.1.0"
+dependencies = [
+ "zown-ast",
+ "zown-parser",
 ]
 
 [[package]]

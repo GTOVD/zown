@@ -11,8 +11,8 @@ behavioral **oracle**; everything here is differentially tested against it.
 | `zown-lexer` | ✅ ported from the Python reference, unit-tested |
 | `zown-ast` / `zown-parser` | ✅ AST parity with the oracle (`zownc ast`) |
 | `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
-| IR (`zown-ir`) | ⬜ next (M5) |
-| WASM / native backends | ⬜ (M6–M7) |
+| `zown-ir` | ✅ IR + lowering; lossless round-trip (`zownc ir` / `irast`) |
+| WASM / native backends | ⬜ next (M6–M7) |
 
 ## Build & run
 
@@ -41,11 +41,11 @@ crates/
   zown-ast/     Node enum + JSON rendering (parity with `zown ast`)
   zown-parser/  tokens -> AST (+ structured parse errors)
   zown-vm/      stack VM: Value, RunError/.zerr, operators, stdlib WORDS
-  zown-cli/     the `zownc` binary (run / lex / ast)
+  zown-ir/      IR: Instr/IrBlock/IrProgram, lower/unlower, pretty
+  zown-cli/     the `zownc` binary (run / lex / ast / ir / irast)
 ```
 
-New crates (`zown-ir`, `zown-wasm`, `zown-codegen`) are added as their
-milestones begin.
+New crates (`zown-wasm`, `zown-codegen`) are added as their milestones begin.
 
 ## The endgame
 

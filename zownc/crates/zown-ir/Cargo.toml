@@ -1,0 +1,16 @@
+[package]
+name = "zown-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Zown IR: a small, explicit, backend-facing instruction form + AST lowering."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+zown-ast = { path = "../zown-ast" }
+
+[dev-dependencies]
+zown-parser = { path = "../zown-parser" }

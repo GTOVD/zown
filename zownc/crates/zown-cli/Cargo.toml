@@ -14,4 +14,5 @@ path = "src/main.rs"
 zown-lexer = { path = "../zown-lexer" }
 zown-ast = { path = "../zown-ast" }
 zown-parser = { path = "../zown-parser" }
+zown-ir = { path = "../zown-ir" }
 zown-vm = { path = "../zown-vm" }

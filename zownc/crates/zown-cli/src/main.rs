@@ -21,6 +21,8 @@ COMMANDS:
     run <file.zn>     Run a program (shorthand: `zownc <file.zn>`)
     lex <file.zn>     Tokenize a source file and print the token stream
     ast <file.zn>     Parse a source file and print the AST as JSON
+    ir <file.zn>      Lower to Zown IR and print it
+    irast <file.zn>   Lower to IR then rebuild the AST as JSON (round-trip check)
     version           Print version
     help              Show this help
 
@@ -38,7 +40,7 @@ fn main() -> ExitCode {
     args.retain(|a| a != "--zerr");
 
     // shorthand: `zownc file.zn` == `zownc run file.zn`
-    let known = ["run", "lex", "ast", "version", "help"];
+    let known = ["run", "lex", "ast", "ir", "irast", "version", "help"];
     if let Some(first) = args.first() {
         if !first.starts_with('-') && !known.contains(&first.as_str()) {
             args.insert(0, "run".to_string());
@@ -73,6 +75,20 @@ fn main() -> ExitCode {
             Some(path) => cmd_ast(path),
             None => {
                 eprintln!("zownc ast: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "ir" => match args.get(1) {
+            Some(path) => cmd_ir(path, false),
+            None => {
+                eprintln!("zownc ir: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "irast" => match args.get(1) {
+            Some(path) => cmd_ir(path, true),
+            None => {
+                eprintln!("zownc irast: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -145,6 +161,35 @@ fn cmd_ast(path: &str) -> ExitCode {
     match parse(&src) {
         Ok(nodes) => {
             println!("{}", zown_ast::to_json(&nodes));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!(
+                "zerr[{}] {path}:{}:{} ({}): {}",
+                e.code, e.pos.line, e.pos.col, e.kind, e.msg
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_ir(path: &str, roundtrip: bool) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match parse(&src) {
+        Ok(nodes) => {
+            let prog = zown_ir::lower(&nodes);
+            if roundtrip {
+                // Lower -> unlower -> AST JSON; should be byte-identical to `ast`.
+                println!("{}", zown_ast::to_json(&zown_ir::unlower(&prog)));
+            } else {
+                print!("{}", zown_ir::pretty(&prog));
+            }
             ExitCode::SUCCESS
         }
         Err(e) => {

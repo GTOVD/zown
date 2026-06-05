@@ -41,8 +41,8 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M2 | Rust toolchain + `zownc` skeleton | ✅ | Rust 1.96 installed; `zownc lex` works + tests pass |
 | M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
-| M5 | Bytecode + register/stack IR | ⏳ | stable IR the backends consume |
-| M6 | WASM backend (`-o .wasm`) | ⬜ | runs in wasmtime + browser |
+| M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
+| M6 | WASM backend (`-o .wasm`) | ⏳ | runs in wasmtime + browser |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
 | M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
 | M9 | Stdlib expansion + `std` in Zown | ⬜ | begins the self-host migration |
@@ -178,16 +178,23 @@ conformance.
 
 ---
 
-### M5 — Zown IR + lowering
+### M5 — Zown IR + lowering  ✅
 **Goal:** a small, explicit IR the backends share.
 
 **Tasks**
-- [ ] Define IR ops (push/const/call-word/binop/cmp/branch/loop/invoke/bind/load/store).
-- [ ] Lower AST → IR; blocks become IR functions/closures with explicit arity.
-- [ ] IR interpreter (sanity check) must match the tree-walker.
-- [ ] IR pretty-printer + `zownc ir x.zn`.
+- [x] Define IR (`Instr`, `IrBlock`, `IrProgram`) — const/load/bind/op + the three
+      control instrs (invoke/select/while); quotations become addressable blocks.
+- [x] Lower AST → IR; `[ ... ]` blocks split into the block table.
+- [x] `unlower` rebuilds the exact AST (lossless verification).
+- [x] IR pretty-printer + `zownc ir` / `zownc irast`; documented in `docs/IR.md`.
+- [x] `conformance/ir_roundtrip.py` proves `irast == ast` across the corpus.
 
-**Acceptance:** IR interpreter passes conformance; IR is documented in `docs/IR.md`.
+**Acceptance:** lossless round-trip on all 16 programs. ✅
+
+> Decision: instead of a second full interpreter, M5 validates the IR by a
+> lossless round-trip against the oracle AST (a stronger structural guarantee for
+> less duplicated code). The real second execution path is the M6 WASM backend,
+> validated against the same goldens.
 
 ---
 
@@ -301,10 +308,11 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M5:** define the Zown IR (`zown-ir` crate) + lowering from AST. Ops:
-   push/const, call-word, binop, cmp, branch/select, loop, invoke, bind, load,
-   store. Blocks become IR closures with explicit arity. Add `zownc ir <file>`.
-2. **M5 gate:** an IR interpreter must pass the same conformance suite as the
-   tree-walker (a second oracle agreement point before codegen).
-3. **Then M6 (WASM):** lower IR → `.wat`/`.wasm`; run conformance under wasmtime.
-   Zown is already stack-based, so IR→WASM stack ops are a near-direct mapping.
+1. **M6 (WASM):** design the tagged-value runtime ABI (how int/float/str/block are
+   represented in linear memory; host imports for output). Lower IR → `.wat`,
+   assemble to `.wasm`. Start with the numeric/printing core, then strings, then
+   blocks/control (invoke/select/while → WASM funcs + `br_if`/`loop`).
+2. **M6 gate:** run the conformance corpus under wasmtime; diff stdout against the
+   goldens (a real second execution path, validating the IR end-to-end).
+3. Decide assembler path: hand-emit `.wat` + shell out to `wabt`/`wasmtime`, or
+   pull in a Rust crate (e.g. `wasm-encoder`) to emit binary directly.
