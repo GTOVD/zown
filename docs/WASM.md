@@ -21,8 +21,8 @@ python3 conformance/wasm_parity.py  # run the supported subset under wasmtime
 | Slice | Scope | State |
 |-------|-------|-------|
 | **M6a** | integers: literals, `+ - * % _`, comparisons, `&& \|\| !`, and `.` | ✅ runs in wasmtime |
-| **M6b** | tagged values + strings: `$...$`, `+`/`*` on strings, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ `compare`, `logic`, `stackops`, `strings`, `words_str` match goldens |
-| M6c | blocks + control: `@ ? ;`, `:bind` / name load (`call_indirect` + function table) | ⬜ |
+| **M6b** | tagged values + strings: `$...$`, `+`/`*` on strings, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ matches goldens |
+| **M6c** | blocks + control: `[ … ]`, `@ ? ;`, `:bind` / name load (in-memory stack + `call_indirect`) | ✅ `hello`, `select`, `while`, `fib`, `fizzbuzz` match goldens (10/13 cases) |
 | M6d | floats + remaining math words (`/ sq pw fl ce …`); binary `.wasm` emission | ⬜ |
 
 ## The tagged-value model (M6b)
@@ -39,8 +39,13 @@ and a **payload** (on top):
 
 Strings live in linear memory as `[i32 len][bytes…]`; the pointer addresses the
 length field. Literals are emitted into a data segment (length-prefixed,
-`\HH`-escaped); dynamic strings are bump-allocated from a heap (`$hp`) that starts
-just past the literals. A small fixed runtime prelude is emitted once per module.
+`\HH`-escaped); dynamic strings are bump-allocated from a heap (`$hp`). A small
+fixed runtime prelude is emitted once per module.
+
+As of **M6c**, the operand stack also lives in linear memory (global `$sp`, 16
+bytes per value: `[i64 tag][i64 payload]`), reached through `$push` / `$pop`. The
+WASM value stack is only used for transient scratch within a single instruction.
+This is what lets blocks — compiled to separate functions — share one stack.
 
 ### Memory map
 
@@ -50,7 +55,8 @@ just past the literals. A small fixed runtime prelude is emitted once per module
 | `16` | scratch newline byte |
 | `[44, 64)` | `itoa` scratch (digits written backwards, ending at 64) |
 | `[1024, …)` | string-literal data segment |
-| heap | bump allocator `$hp`, just past the literals |
+| operand stack | 16 B/value, `$sp`, just past the literals (64 KiB) |
+| heap | bump allocator `$hp`, just past the operand stack |
 
 ### Lowering
 
@@ -68,12 +74,30 @@ just past the literals. A small fixed runtime prelude is emitted once per module
 - words: `tr`→`$str_trim`, `up`/`lo`→`$str_case`, `rv`→`$str_reverse`,
   `ln`→ the string's length field
 
-String helpers use the `memory.copy` bulk instruction. Codegen tracks the
-compile-time stack depth, emits `drop`s for leftovers, and rejects unsupported
-constructs with a clear message naming the slice that will add them.
+String helpers use the `memory.copy` bulk instruction.
 
-## Next: M6c
+## Blocks, control flow, and bindings (M6c)
 
-Blocks (`[ … ]`) become entries in a WASM function table; `@` / `?` / `;` invoke
-them via `call_indirect`, and `:bind` / name load read from a binding frame. That
-unlocks `hello`, `select`, `while`, `fib`, and `fizzbuzz`.
+Each IR block becomes a `() -> ()` WASM function `$blkN`, and the program's block
+table is mirrored in a `funcref` table (`(elem …)`), so a block value is just its
+table index (tag `3`). Control flow dispatches by that index:
+
+- `ConstBlock(id)` → push `(3, id)`
+- `@` (invoke) → pop a block, `call_indirect (type $bt)` with its index
+- `?` (select) → pop else/then blocks and a condition, push the chosen block via
+  the WASM `select` instruction (then it's usually `@`-invoked)
+- `;` (while) → pop body and cond blocks, then a `block`/`loop`: invoke cond,
+  `pop` its result, `br_if` out when falsy, else invoke body and loop
+- `:name` (bind) → pop the top value into a pair of mutable globals `$gNt`/`$gNp`
+- name load → if the name was bound anywhere, push its globals (user bindings
+  shadow builtins, matching the VM's `env`-first lookup); otherwise it's a word
+
+Globals are shared across all block functions, so bindings persist across
+invocations exactly like the interpreter's environment. Truthiness treats blocks
+as always-true.
+
+## Next: M6d
+
+Floats (`/ sq pw fl ce rd`, float literals) using tag `1` with the `f64` bit
+pattern, the remaining math words, and binary `.wasm` emission (e.g. via
+`wasm-encoder`) alongside `.wat`. Unlocks `arith`, `convert`, `words_math`.

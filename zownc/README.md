@@ -12,7 +12,7 @@ behavioral **oracle**; everything here is differentially tested against it.
 | `zown-ast` / `zown-parser` | ✅ AST parity with the oracle (`zownc ast`) |
 | `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
 | `zown-ir` | ✅ IR + lowering; lossless round-trip (`zownc ir` / `irast`) |
-| `zown-wasm` | 🔄 M6b: tagged values + strings compile to `.wat`, run in wasmtime |
+| `zown-wasm` | 🔄 M6c: ints, strings, blocks & control compile to `.wat` (10/13 cases run in wasmtime) |
 | native backend | ⬜ (M7) |
 
 ## Build & run
@@ -26,9 +26,9 @@ cargo test
 ./target/debug/zownc ast ../examples/hello.zn
 ./target/debug/zownc lex ../examples/hello.zn
 
-# WASM backend (needs wasmtime):
-printf '$foo$ $bar$ + . $ab$ 3 * .' > /tmp/p.zn
-./target/debug/zownc build /tmp/p.zn -o /tmp/p.wat && wasmtime run /tmp/p.wat
+# WASM backend (needs wasmtime): compiles blocks, loops, and bindings
+./target/debug/zownc build ../conformance/cases/fizzbuzz.zn -o /tmp/fb.wat
+wasmtime run /tmp/fb.wat
 ```
 
 Verify parity with the Python oracle (from the repo root):
@@ -48,7 +48,7 @@ crates/
   zown-parser/  tokens -> AST (+ structured parse errors)
   zown-vm/      stack VM: Value, RunError/.zerr, operators, stdlib WORDS
   zown-ir/      IR: Instr/IrBlock/IrProgram, lower/unlower, pretty
-  zown-wasm/    WASM backend: IR -> .wat (tagged values + strings; blocks next)
+  zown-wasm/    WASM backend: IR -> .wat (ints, strings, blocks & control; floats next)
   zown-cli/     the `zownc` binary (run / lex / ast / ir / irast / wat / build)
 ```
 
