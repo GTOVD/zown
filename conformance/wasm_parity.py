@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""WASM backend parity (M6a) vs the goldens.
+"""WASM backend parity (M6) vs the goldens.
 
-Compiles each conformance program with the native backend (`zownc build`) and, if
-this backend slice supports it, runs the resulting module under `wasmtime` and
-diffs stdout against the same golden the oracle is held to. Cases that need a
-later slice (strings, blocks, bindings, floats) report SKIP with the reason, so
-coverage grows visibly as the backend does.
+Compiles each conformance program with the native backend (`zownc build`) to both
+WebAssembly text (`.wat`) and binary (`.wasm`), runs each under `wasmtime`, and
+diffs stdout against the same golden the oracle is held to. A case only counts as
+`ok` when *both* formats match. Anything the backend can't compile yet reports
+SKIP with the reason, so coverage grows visibly as the backend does.
 
 Usage:
     python3 conformance/wasm_parity.py    # requires: cargo build + wasmtime
@@ -48,29 +48,40 @@ def main() -> int:
     for zn in sorted(glob.glob(os.path.join(CASES, "*.zn"))):
         name = os.path.basename(zn)[:-3]
         want = open(os.path.join(CASES, name + ".out"), encoding="utf-8").read()
-        with tempfile.NamedTemporaryFile(suffix=".wat", delete=False) as tf:
-            wat = tf.name
-        build = subprocess.run([ZOWNC, "build", zn, "-o", wat], capture_output=True, text=True)
-        if build.returncode != 0:
-            reason = build.stderr.strip().replace("zownc build: ", "")
-            print(f"{YEL}skip{RST} {name}  ({reason.splitlines()[0] if reason else 'unsupported'})")
-            skip += 1
-            os.unlink(wat)
-            continue
-        run = subprocess.run([wasmtime, "run", wat], capture_output=True, text=True)
-        os.unlink(wat)
-        if run.returncode != 0:
-            print(f"{RED}FAIL{RST} {name}: wasmtime error: {run.stderr.strip()}")
-            fail += 1
-            continue
-        if run.stdout == want:
-            print(f"{GREEN}ok{RST}   {name}  (ran under wasmtime)")
-            ok += 1
-        else:
-            print(f"{RED}FAIL{RST} {name}\n  want={want!r}\n  got ={run.stdout!r}")
-            fail += 1
 
-    print(f"\n{ok} wasm-parity, {fail} fail, {skip} skip (await later M6 slices)")
+        case_failed = False
+        for ext in (".wat", ".wasm"):
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
+                out = tf.name
+            build = subprocess.run([ZOWNC, "build", zn, "-o", out], capture_output=True, text=True)
+            if build.returncode != 0:
+                # Unsupported construct: report once and stop on this case.
+                reason = build.stderr.strip().replace("zownc build: ", "")
+                print(f"{YEL}skip{RST} {name}  ({reason.splitlines()[0] if reason else 'unsupported'})")
+                skip += 1
+                os.unlink(out)
+                case_failed = None  # signal "skipped", not failed
+                break
+            run = subprocess.run([wasmtime, "run", out], capture_output=True, text=True)
+            os.unlink(out)
+            if run.returncode != 0:
+                print(f"{RED}FAIL{RST} {name} ({ext}): wasmtime error: {run.stderr.strip()}")
+                case_failed = True
+                break
+            if run.stdout != want:
+                print(f"{RED}FAIL{RST} {name} ({ext})\n  want={want!r}\n  got ={run.stdout!r}")
+                case_failed = True
+                break
+
+        if case_failed is None:
+            continue
+        if case_failed:
+            fail += 1
+        else:
+            print(f"{GREEN}ok{RST}   {name}  (.wat + .wasm under wasmtime)")
+            ok += 1
+
+    print(f"\n{ok} wasm-parity, {fail} fail, {skip} skip")
     return 1 if fail else 0
 
 

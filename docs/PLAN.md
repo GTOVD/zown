@@ -42,7 +42,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
-| M6 | WASM backend (`-o .wasm`) | 🔄 | M6a–M6c (ints, strings, blocks, control) run in wasmtime, 10/13 cases; M6d (floats) next |
+| M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
 | M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
 | M9 | Stdlib expansion + `std` in Zown | ⬜ | begins the self-host migration |
@@ -198,7 +198,7 @@ conformance.
 
 ---
 
-### M6 — WASM backend  🔄
+### M6 — WASM backend  ✅
 **Goal:** `zownc build x.zn -o x.wasm` runs in wasmtime and the browser.
 
 Built in slices (see `docs/WASM.md`); coverage tracked by `conformance/wasm_parity.py`.
@@ -217,15 +217,17 @@ Built in slices (see `docs/WASM.md`); coverage tracked by `conformance/wasm_pari
       `[ … ]`, `@`→`call_indirect`, `?`→`select`, `;`→`block`/`loop`, `:bind`/name
       load via per-name globals. `hello`, `select`, `while`, `fib`, `fizzbuzz` run
       in wasmtime and match the goldens — **10/13** cases now green.
-- [ ] **M6d — floats + binary.** float math + remaining words (`/ sq pw fl ce …`);
-      emit binary `.wasm` (e.g. via `wasm-encoder`) in addition to `.wat`.
+- [x] **M6d — floats + binary.** Float values (tag `1`, `f64` bit pattern) with
+      int→float promotion; `/ % _`, comparisons, and the math words `sq pw ab mx
+      mn fl ce rd`, plus `n s dp clr pr`. `$fmt_f64` renders floats per the
+      oracle's display rule. Binary `.wasm` via the `wat` crate (`build -o x.wasm`).
 
-**Acceptance (M6 overall):** every non-host-specific conformance case passes under
-wasmtime. **M6c acceptance met:** 10 cases green under wasmtime; the only 3 skips
-(`arith`, `convert`, `words_math`) are all float-dependent, pending M6d.
+**Acceptance (M6 overall): MET.** All 13 conformance cases compile and match the
+goldens under wasmtime, in **both** `.wat` and binary `.wasm`
+(`conformance/wasm_parity.py`: 13 ok, 0 fail, 0 skip).
 
-**Risks:** float formatting parity with the oracle (M6d). Mitigation: reuse the
-oracle's `display` rules and add float cases to `wasm_parity.py`.
+**Known limitation:** float-to-decimal is exact for dyadic values but not yet a
+shortest round-tripping formatter (Ryu/Grisu) — see `docs/WASM.md`.
 
 ---
 
@@ -324,10 +326,10 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M6d (floats + binary):** float literals + `/ sq pw fl ce rd` (tag `1` = `f64`
-   bit pattern); mixed int/float promotion and the oracle's float `display`. Then
-   emit binary `.wasm` (`wasm-encoder`) alongside `.wat`. Flips the last 3 skips
-   (`arith`, `convert`, `words_math`) → ok, completing M6.
-2. **M7:** native backend (Cranelift first, LLVM later) for desktop binaries.
+1. **M7 (native backend):** Cranelift first (pure-Rust, fast builds) for real
+   desktop binaries, LLVM later for `-O`/bare metal. Reuse the IR + tagged-value
+   model; swap WASI for a native runtime (operand stack, heap, string helpers).
+2. **Float formatter:** upgrade `$fmt_f64` to a shortest round-tripping algorithm
+   (Ryu/Grisu) so arbitrary floats match the oracle, not just dyadic ones.
 3. **M8+:** runtime/concurrency, the embedded DB, networking, and the path to
    self-hosting (`zownc` rewritten in Zown).

@@ -24,14 +24,15 @@ COMMANDS:
     ir <file.zn>      Lower to Zown IR and print it
     irast <file.zn>   Lower to IR then rebuild the AST as JSON (round-trip check)
     wat <file.zn>     Compile to WebAssembly text (.wat) and print it
-    build <file.zn>   Compile to .wat (use -o <path>; default: <file>.wat)
+    build <file.zn>   Compile to WebAssembly (-o <path>; .wasm = binary, else .wat)
     version           Print version
     help              Show this help
 
 NOTE:
-    The WASM backend is slice M6a: integer programs (literals, + - * % _,
-    comparisons/logic, and `.`). Strings, blocks, bindings, and floats are not
-    compiled yet and produce a clear error. Run output with `wasmtime`.
+    The WASM backend (M6) compiles the full v0.1 language: ints, floats,
+    strings, blocks, control flow, bindings, and the stdlib words. `build`
+    emits binary `.wasm` when -o ends in .wasm, otherwise `.wat`. Both run
+    under `wasmtime` (WASI). Native desktop binaries come in M7.
 
 FLAGS:
     --zerr            On error, emit a structured JSON .zerr packet to stderr
@@ -264,6 +265,29 @@ fn cmd_wat(path: &str, out: Option<&str>) -> ExitCode {
         }
     };
     let prog = zown_ir::lower(&nodes);
+
+    // Binary `.wasm` when the output path asks for it; `.wat` text otherwise.
+    if let Some(path) = out {
+        if path.ends_with(".wasm") {
+            return match zown_wasm::emit_wasm(&prog) {
+                Ok(bytes) => match std::fs::write(path, &bytes) {
+                    Ok(()) => {
+                        eprintln!("wrote {path} ({} bytes)", bytes.len());
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("zownc: cannot write {path:?}: {e}");
+                        ExitCode::FAILURE
+                    }
+                },
+                Err(msg) => {
+                    eprintln!("zownc build: {msg}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+    }
+
     match zown_wasm::emit_wat(&prog) {
         Ok(wat) => match out {
             Some(path) => match std::fs::write(path, &wat) {

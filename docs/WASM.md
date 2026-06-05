@@ -1,29 +1,30 @@
 # Zown WASM backend
 
-`zown-wasm` lowers Zown IR to WebAssembly text (`.wat`) that runs in `wasmtime`
-(and, once binary emission lands, any WASM runtime / the browser). This is
-milestone **M6**, built in slices so coverage grows visibly against the
-conformance goldens.
+`zown-wasm` lowers Zown IR to WebAssembly — both text (`.wat`) and binary
+(`.wasm`) — that runs in `wasmtime` (and any WASM/WASI runtime). This is
+milestone **M6**, built in slices; as of **M6d it is complete**: all 13
+conformance cases compile and match the goldens under wasmtime, in both formats.
 
 ## Try it
 
 ```bash
 # requires wasmtime (https://wasmtime.dev) and a cargo build of zownc
-printf '$foo$ $bar$ + . $ab$ 3 * .' > prog.zn
-zownc build prog.zn -o prog.wat     # compile
-wasmtime run prog.wat               # -> foobar / ababab
-zownc wat prog.zn                   # print the .wat to stdout
-python3 conformance/wasm_parity.py  # run the supported subset under wasmtime
+zownc build conformance/cases/fizzbuzz.zn -o fb.wasm   # binary (.wasm extension)
+wasmtime run fb.wasm
+zownc build conformance/cases/fib.zn -o fib.wat        # text (any other extension)
+wasmtime run fib.wat
+zownc wat conformance/cases/hello.zn                    # print the .wat to stdout
+python3 conformance/wasm_parity.py                      # all cases, .wat + .wasm
 ```
 
 ## Slices
 
 | Slice | Scope | State |
 |-------|-------|-------|
-| **M6a** | integers: literals, `+ - * % _`, comparisons, `&& \|\| !`, and `.` | ✅ runs in wasmtime |
-| **M6b** | tagged values + strings: `$...$`, `+`/`*` on strings, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ matches goldens |
-| **M6c** | blocks + control: `[ … ]`, `@ ? ;`, `:bind` / name load (in-memory stack + `call_indirect`) | ✅ `hello`, `select`, `while`, `fib`, `fizzbuzz` match goldens (10/13 cases) |
-| M6d | floats + remaining math words (`/ sq pw fl ce …`); binary `.wasm` emission | ⬜ |
+| **M6a** | integers: literals, `+ - * % _`, comparisons, `&& \|\| !`, and `.` | ✅ |
+| **M6b** | tagged values + strings: `$...$`, `+`/`*` on strings, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ |
+| **M6c** | blocks + control: `[ … ]`, `@ ? ;`, `:bind` / name load (in-memory stack + `call_indirect`) | ✅ |
+| **M6d** | floats + math words (`/ sq pw fl ce rd`, `n s dp clr pr`); binary `.wasm` emission | ✅ **all 13 cases green** |
 
 ## The tagged-value model (M6b)
 
@@ -96,8 +97,33 @@ Globals are shared across all block functions, so bindings persist across
 invocations exactly like the interpreter's environment. Truthiness treats blocks
 as always-true.
 
-## Next: M6d
+## Floats and binary emission (M6d)
 
-Floats (`/ sq pw fl ce rd`, float literals) using tag `1` with the `f64` bit
-pattern, the remaining math words, and binary `.wasm` emission (e.g. via
-`wasm-encoder`) alongside `.wat`. Unlocks `arith`, `convert`, `words_math`.
+Floats use tag `1`, storing the `f64` **bit pattern** in the `i64` payload
+(`i64.reinterpret_f64` / `f64.reinterpret_i64`). Numeric operators promote int →
+float exactly like the interpreter: `+ - *` are int-only when both operands are
+ints, else `f64`; `/` is always `f64` then collapsed; `%` mirrors Python's
+divisor-signed modulo for both. Math words map to native ops where possible —
+`sq`→`f64.sqrt`, `fl`→`f64.floor`, `ce`→`f64.ceil`, `rd`→`f64.nearest`
+(round-half-to-even, like Python `round`) — with `pw` using an integer fast path
+(`$ipow`) and `ab`/`mx`/`mn` preserving the operand's type. `n` parses a string
+to a number; `s` renders one; `dp`/`clr` use the stack pointer; `pr` prints
+without a newline.
+
+**Float formatting.** `$fmt_f64` applies the display rule (whole-valued finite
+floats render as integers, e.g. `7.0` → `7`) and otherwise emits the integer part
+then a terminating long-division expansion of the fraction. This is *exact* for
+dyadic values — the only fractional float the suite prints is `2.5` — but is not
+the shortest round-tripping representation for values like `0.1`. A Ryu/Grisu
+formatter is future work.
+
+**Binary `.wasm`.** `emit_wasm` assembles the `.wat` and encodes it with the
+`wat` crate. `zownc build -o x.wasm` writes a binary module (`\0asm` …); any other
+extension writes `.wat`. Both run identically under wasmtime, verified by
+`conformance/wasm_parity.py` (each case is checked in both formats).
+
+## Next: M7 — native backend
+
+Real desktop binaries via Cranelift (then LLVM). The IR and the tagged-value
+model carry over; the operand-stack/heap/string-runtime design is reused with a
+native calling convention instead of WASI.
