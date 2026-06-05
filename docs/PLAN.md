@@ -42,7 +42,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
-| M6 | WASM backend (`-o .wasm`) | 🔄 | M6a (integer core) runs in wasmtime; b/c/d next |
+| M6 | WASM backend (`-o .wasm`) | 🔄 | M6a/M6b (ints, strings, stack ops) run in wasmtime; c/d next |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
 | M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
 | M9 | Stdlib expansion + `std` in Zown | ⬜ | begins the self-host migration |
@@ -207,18 +207,22 @@ Built in slices (see `docs/WASM.md`); coverage tracked by `conformance/wasm_pari
       comparisons, `&& || !`, and `.` (itoa + WASI `fd_write`). `compare` and
       `logic` run in wasmtime and match the goldens; unsupported constructs error
       with the slice that will add them. `zownc build`/`wat` commands.
-- [ ] **M6b — strings.** Tagged-value runtime in linear memory; `$...$`, string
-      `+`/`*`, and the string words.
+- [x] **M6b — tagged values + strings.** Every value is a `(tag, payload)` pair on
+      the WASM stack; strings are `[len][bytes]` literals + a bump heap. `$...$`,
+      string `+`/`*`, words `tr/up/lo/rv/ln`, and stack ops `= , \ & rt`.
+      `compare`, `logic`, `stackops`, `strings`, `words_str` run in wasmtime and
+      match the goldens.
 - [ ] **M6c — blocks + control.** `@ ? ;`, `:bind`/name load; blocks as
       function-table entries via `call_indirect`.
-- [ ] **M6d — floats + binary.** float math + remaining words; emit binary `.wasm`
-      (e.g. via `wasm-encoder`) in addition to `.wat`.
+- [ ] **M6d — floats + binary.** float math + remaining words (`/ sq pw fl ce …`);
+      emit binary `.wasm` (e.g. via `wasm-encoder`) in addition to `.wat`.
 
 **Acceptance (M6 overall):** every non-host-specific conformance case passes under
-wasmtime. **M6a acceptance met:** integer subset is green, rest cleanly skipped.
+wasmtime. **M6b acceptance met:** 5 cases green under wasmtime, rest cleanly
+skipped pending M6c (blocks) and M6d (floats).
 
-**Risks:** strings/host I/O via WASI, dynamic dispatch for blocks. Mitigation:
-the tagged-value ABI is designed once at the start of M6b.
+**Risks:** dynamic dispatch for blocks (M6c). Mitigation: the tagged-value ABI is
+now in place, so M6c only adds a function table + binding frame on top of it.
 
 ---
 
@@ -317,12 +321,11 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M6b (strings):** design the tagged-value ABI (16-byte slots `[tag|payload]`
-   in a linear-memory operand stack; strings as `[len][bytes]` in a data segment).
-   Re-emit the integer ops against the tagged stack, then add `$...$`, string
-   `+`/`*`, and `tr/up/lo/ln/rv`. Extend `wasm_parity.py` coverage (`strings`,
-   `words_str` should flip from skip → ok).
-2. **M6c (blocks/control):** blocks → function-table entries; `@`→`call_indirect`,
+1. **M6c (blocks/control):** blocks → function-table entries; `@`→`call_indirect`,
    `?`→select a table index, `;`→`loop`/`br_if`; `:bind`/name load via a small
-   env in memory. This unlocks `hello`, `select`, `while`, `fib`, `fizzbuzz`.
-3. **M6d:** floats + remaining words; emit binary `.wasm` (`wasm-encoder`).
+   binding frame in memory. Builds on the M6b tagged-value model. This unlocks
+   `hello`, `select`, `while`, `fib`, `fizzbuzz` (they should flip skip → ok).
+2. **M6d:** floats (`/ sq pw fl ce rd` …) + remaining math words; emit binary
+   `.wasm` (`wasm-encoder`) alongside `.wat`. Unlocks `arith`, `convert`,
+   `words_math`.
+3. **M7:** native backend (Cranelift first, LLVM later) for desktop binaries.
