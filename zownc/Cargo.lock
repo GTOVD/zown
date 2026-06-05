@@ -13,6 +13,7 @@ dependencies = [
  "zown-ast",
  "zown-lexer",
  "zown-parser",
+ "zown-vm",
 ]
 
 [[package]]
@@ -25,4 +26,12 @@ version = "0.1.0"
 dependencies = [
  "zown-ast",
  "zown-lexer",
+]
+
+[[package]]
+name = "zown-vm"
+version = "0.1.0"
+dependencies = [
+ "zown-ast",
+ "zown-parser",
 ]

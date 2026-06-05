@@ -9,18 +9,28 @@ behavioral **oracle**; everything here is differentially tested against it.
 | Piece | State |
 |-------|-------|
 | `zown-lexer` | ✅ ported from the Python reference, unit-tested |
-| `zownc lex`  | ✅ tokenizes a file |
-| parser / AST | ⬜ next (M3) |
-| tree-walking VM | ⬜ (M4) |
-| IR + WASM/native backends | ⬜ (M5–M7) |
+| `zown-ast` / `zown-parser` | ✅ AST parity with the oracle (`zownc ast`) |
+| `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
+| IR (`zown-ir`) | ⬜ next (M5) |
+| WASM / native backends | ⬜ (M6–M7) |
 
 ## Build & run
 
 ```bash
 cargo build
 cargo test
+./target/debug/zownc ../examples/fizzbuzz.zn      # run (shorthand)
+./target/debug/zownc run ../examples/hello.zn
+./target/debug/zownc run --zerr broken.zn         # JSON .zerr packet on error
+./target/debug/zownc ast ../examples/hello.zn
 ./target/debug/zownc lex ../examples/hello.zn
-./target/debug/zownc --help
+```
+
+Verify parity with the Python oracle (from the repo root):
+
+```bash
+python3 conformance/ast_parity.py   # frontend parity
+python3 conformance/vm_parity.py    # full run parity (stdout + error codes)
 ```
 
 ## Layout
@@ -28,11 +38,14 @@ cargo test
 ```
 crates/
   zown-lexer/   two-state tokenizer (Pos, Token, TokenKind, lex)
-  zown-cli/     the `zownc` binary
+  zown-ast/     Node enum + JSON rendering (parity with `zown ast`)
+  zown-parser/  tokens -> AST (+ structured parse errors)
+  zown-vm/      stack VM: Value, RunError/.zerr, operators, stdlib WORDS
+  zown-cli/     the `zownc` binary (run / lex / ast)
 ```
 
-New crates (`zown-parser`, `zown-ast`, `zown-ir`, `zown-vm`, `zown-wasm`,
-`zown-codegen`) are added as their milestones begin.
+New crates (`zown-ir`, `zown-wasm`, `zown-codegen`) are added as their
+milestones begin.
 
 ## The endgame
 

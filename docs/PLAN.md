@@ -40,8 +40,8 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M1 | Spec hardening + conformance suite | ✅ | 13 cases + 7 error cases, golden runner (`conformance/`) |
 | M2 | Rust toolchain + `zownc` skeleton | ✅ | Rust 1.96 installed; `zownc lex` works + tests pass |
 | M3 | Rust frontend (lexer+parser+AST) parity | ✅ | `zownc ast` == Python `zown ast` on all 16 programs |
-| M4 | Tree-walking Rust VM parity | ⏳ | `zownc run` matches oracle byte-for-byte |
-| M5 | Bytecode + register/stack IR | ⬜ | stable IR the backends consume |
+| M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
+| M5 | Bytecode + register/stack IR | ⏳ | stable IR the backends consume |
 | M6 | WASM backend (`-o .wasm`) | ⬜ | runs in wasmtime + browser |
 | M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
 | M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
@@ -158,19 +158,23 @@ every stdlib word, and at least one error per recovery code.
 
 ---
 
-### M4 — Tree-walking Rust VM parity
+### M4 — Tree-walking Rust VM parity  ✅
 **Goal:** `zownc run x.zn` is byte-for-byte identical to `zown x.zn`.
 
 **Tasks**
-- [ ] Port the operand stack, env, Block value, truthiness.
-- [ ] Port all operators and the full stdlib `WORDS`.
-- [ ] Port `.zerr` packet emission (same fields, codes).
-- [ ] Differential harness: run conformance through both, diff stdout + error code.
+- [x] Port the operand stack, env, `Block` value (Rc-shared), truthiness.
+- [x] Port all operators and the full stdlib `WORDS` (incl. Python-style modulo,
+      whole-float collapse, banker's rounding).
+- [x] Port `.zerr` packet emission (`zownc run --zerr`), same codes + offending op.
+- [x] `conformance/vm_parity.py`: run all cases through `zownc`, diff stdout +
+      error code against the goldens.
 
-**Acceptance:** conformance suite green through `zownc`; differential harness
-reports zero diffs vs the oracle.
+**Acceptance:** 20/20 conformance parity vs the oracle, zero diffs. ✅
 
-**This is the milestone that "completes the rewrite" of today's language in Rust.**
+**This milestone completes the rewrite of today's language in Rust.** Known v0.1
+gaps to revisit: ints are `i64` (oracle is bigint) and runtime errors omit `pos`
+(AST has no spans yet) — both tracked for a later pass; neither affects current
+conformance.
 
 ---
 
@@ -297,10 +301,10 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M4:** port the stack VM to Rust (`zown-vm` crate) — operand stack, env,
-   `Block` value, truthiness, all operators, the full stdlib `WORDS`, and `.zerr`
-   emission. Add `zownc run <file>`.
-2. **M4 gate:** extend `conformance/run.py` (or a sibling) to run every case
-   through `zownc run` and diff stdout + error code against the goldens.
-3. When green, M4 is the point where **today's language is fully reimplemented in
-   Rust** — and the springboard for the IR + WASM/native backends (M5–M7).
+1. **M5:** define the Zown IR (`zown-ir` crate) + lowering from AST. Ops:
+   push/const, call-word, binop, cmp, branch/select, loop, invoke, bind, load,
+   store. Blocks become IR closures with explicit arity. Add `zownc ir <file>`.
+2. **M5 gate:** an IR interpreter must pass the same conformance suite as the
+   tree-walker (a second oracle agreement point before codegen).
+3. **Then M6 (WASM):** lower IR → `.wat`/`.wasm`; run conformance under wasmtime.
+   Zown is already stack-based, so IR→WASM stack ops are a near-direct mapping.

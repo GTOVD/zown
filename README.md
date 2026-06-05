@@ -122,9 +122,18 @@ python3 tests/test_examples.py
 
 ## Status & roadmap
 
-v0.1 is a working interpreter, not yet a native compiler. The path from here —
-type/memory model, WASM+LLVM backends, dynamic fast lanes, embedded graph DB,
-rolling hot-swap, self-healing loop, and the communication mesh — is laid out in
+v0.1 runs two ways that are kept byte-for-byte identical via a conformance suite:
+
+- the **Python reference interpreter** (`zown`, the behavioral oracle), and
+- the **native Rust toolchain** (`zownc`, in `zownc/`) — its lexer, parser, and
+  stack VM are ported and verified: `zownc run` matches the oracle on all
+  conformance cases.
+
+Still ahead: a shared IR, **WASM + native (Cranelift/LLVM) backends**, the
+type/memory model, dynamic fast lanes, embedded graph DB, rolling hot-swap, the
+self-healing loop, the communication mesh, and ultimately **self-hosting** (the
+Zown compiler written in Zown). The detailed, milestone-by-milestone plan is in
+[`docs/PLAN.md`](docs/PLAN.md); the high-level vision is in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Design notes
