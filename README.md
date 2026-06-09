@@ -9,10 +9,11 @@ stack-based model means programs rarely need variable names at all. The goal: fi
 (eventually) straight to bare-metal and WebAssembly speed.
 
 > This repo is the **v0.1 reference implementation** — a complete, runnable
-> language (lexer → parser → stack VM → stdlib → CLI) that nails down the
-> semantics. The native WASM/LLVM compiler, concurrency fast-lanes, embedded
-> graph DB, hot-swap, and self-healing runtime are designed and phased in
-> [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> language (lexer → parser → stack VM → stdlib → CLI) plus a Rust toolchain and a
+> full WASM backend. The bigger goal is a **self-contained, decentralized
+> substrate** where networking, graphics/UI, database, security, and distribution
+> are all native — no external libraries, no servers. The full architecture is in
+> [`docs/DESIGN.md`](docs/DESIGN.md); it's phased in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Hello, World
 
@@ -110,7 +111,7 @@ zown/            reference implementation (the language itself)
 bin/zown         dev launcher (no install needed)
 examples/        hello / fib / fizzbuzz
 tests/           run with: python3 tests/test_zown.py
-docs/            SPEC.md · ROADMAP.md · MANIFEST.md
+docs/            DESIGN.md · SPEC.md · ROADMAP.md · PLAN.md · MANIFEST.md · WASM.md · IR.md
 ```
 
 ## Tests
@@ -131,11 +132,30 @@ v0.1 runs three ways that are kept byte-for-byte identical via a conformance sui
   WebAssembly text (`.wat`) **and** binary (`.wasm`); all 13 conformance cases run
   under `wasmtime` and match the goldens (`conformance/wasm_parity.py`).
 
-Still ahead: a **native (Cranelift/LLVM) backend**, the type/memory model,
-dynamic fast lanes, embedded graph DB, rolling hot-swap, the self-healing loop,
-the communication mesh, and ultimately **self-hosting** (the Zown compiler written
-in Zown). The detailed, milestone-by-milestone plan is in
-[`docs/PLAN.md`](docs/PLAN.md); the high-level vision is in
+Still ahead, in dependency order (the milestone-by-milestone plan is in
+[`docs/PLAN.md`](docs/PLAN.md)):
+
+1. **Design freeze (M7)** — the type, capability/security, network, and graphics
+   SPEC is frozen and validated in the oracle *before* the native compiler,
+   because those decisions shape the ABI ([`docs/SPEC.md`](docs/SPEC.md) Part II).
+2. **Safety core (M8)** — fat pointers, no undefined behavior, **capabilities as
+   the type system** (zero authority by default — the "unhackable" foundation).
+3. **Native backend + perf (M9–M10)** — Cranelift→LLVM, SIMD, zero-copy I/O,
+   deterministic builds, dynamic fast lanes.
+4. **Batteries (M11)** — the zero-install stdlib: crypto, collections, full
+   numerics, testing/fmt/LSP/doc tools.
+5. **ZownNet (M12)** — IPv6 crypto-identity, a QUIC-equivalent transport, a P2P
+   DHT+gossip mesh, content addressing, offline mesh — every device a peer.
+6. **Native UI + GPU (M13)** — a typed declarative layout tree (no HTML/CSS),
+   ZownGPU, audio, input, accessibility, i18n.
+7. **Store + distribution (M14)** — embedded graph/columnar DB, a signed
+   transparency log, and a semantic-patch protocol for verified AI updates.
+8. **AI control plane (M15)** — telemetry, declarative intent, hot-swap, the
+   self-healing loop, on-device ML.
+9. **Self-hosting (M16)** and a **Zown OS / bare metal (M17)** endgame.
+
+The whole vision — the "sovereign computing substrate" — is in
+[`docs/DESIGN.md`](docs/DESIGN.md); the high-level phases in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Design notes
