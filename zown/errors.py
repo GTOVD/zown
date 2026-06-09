@@ -31,6 +31,16 @@ BOUNDS = "BOUNDS"                      # index past an allocated bound
 NOT_CALLABLE = "NOT_CALLABLE"          # tried to invoke a non-block
 UNSUPPORTED = "UNSUPPORTED"            # feature not implemented in this build
 
+# v0.2 security recovery codes (SPEC.md Part II §18). Security failures ride the
+# same structured channel as every other diagnostic so the AI control plane and
+# the self-healing loop can act on them uniformly.
+CAP_DENIED = "CAP_DENIED"              # an op required a capability that was not granted
+AUTH_FAIL = "AUTH_FAIL"                # peer/module authentication failed
+INTEGRITY_FAIL = "INTEGRITY_FAIL"      # content hash did not match its claimed hash
+SIG_INVALID = "SIG_INVALID"            # a signature did not verify
+RATE_LIMITED = "RATE_LIMITED"          # a capability's rate budget was exceeded
+UB_TRAP = "UB_TRAP"                    # a would-be-undefined operation was trapped
+
 
 @dataclass
 class Pos:
@@ -48,18 +58,19 @@ class ZownError(Exception):
 
     code: str
     msg: str
-    kind: str = "run"  # lex | parse | run
+    kind: str = "run"  # lex | parse | run | sec
     op: str | None = None
     pos: Pos | None = None
     stack: list[Any] = field(default_factory=list)
     hint: str = ""
     file: str | None = None
+    cap: str | None = None  # the capability involved (security packets only)
 
     def __post_init__(self) -> None:
         Exception.__init__(self, self.msg)
 
     def packet(self) -> dict[str, Any]:
-        return {
+        pkt = {
             "zerr": ZERR_VERSION,
             "kind": self.kind,
             "code": self.code,
@@ -70,6 +81,10 @@ class ZownError(Exception):
             "hint": self.hint,
             "file": self.file,
         }
+        # Only present on security packets, so v0.1 packet shapes are unchanged.
+        if self.cap is not None:
+            pkt["cap"] = self.cap
+        return pkt
 
     def to_json(self, indent: int | None = 2) -> str:
         return json.dumps(self.packet(), indent=indent)
@@ -95,10 +110,12 @@ class ZownError(Exception):
 
 def _snap(v: Any) -> Any:
     """Compact, JSON-safe snapshot of a stack value."""
-    from .vm import Block  # local import to avoid a cycle
+    from .vm import Block, Cap  # local import to avoid a cycle
 
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
+    if isinstance(v, Cap):
+        return f"`{v.name}"
     if isinstance(v, (int, float, str, bool)) or v is None:
         return v
     return repr(v)

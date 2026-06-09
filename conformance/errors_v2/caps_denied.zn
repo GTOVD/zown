@@ -1,0 +1,2 @@
+# Requiring a capability with zero authority is a structured CAP_DENIED.
+`s rq

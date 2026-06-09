@@ -11,9 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from zown.errors import STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED
-from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND
-from zown.vm import VM, Block
+from zown.errors import (
+    STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
+    CAP_DENIED, TYPE_MISMATCH,
+)
+from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP
+from zown.vm import VM, Block, Cap
 
 
 def run(src):
@@ -137,6 +140,62 @@ def test_builtin_words():
     assert vm.stack == [1024]
     _, vm = run("$ -3 $ tr n ab")
     assert vm.stack == [3]
+
+
+# --- capabilities (v0.2) -------------------------------------------------------
+def test_lex_capability_token():
+    toks = [t for t in lex("`s") if t.kind != "EOF"]
+    assert toks[0].kind == T_CAP and toks[0].value == "s"
+
+
+def test_lex_bare_backtick_is_error():
+    try:
+        lex("` ")
+        assert False, "expected error for a bare backtick"
+    except ZownError as e:
+        assert e.code == REPAIR_SYNTAX
+
+
+def test_capability_token_pushes_cap_value():
+    _, vm = run("`net")
+    assert vm.stack == [Cap("net")]
+
+
+def test_zero_authority_by_default():
+    _, vm = run("`s hv")
+    assert vm.stack == [0]  # nothing granted to start
+
+
+def test_grant_scopes_then_restores():
+    out, vm = run("`s [ `s rq $ok$ . `s hv . ] gr `s hv")
+    assert out == "ok\n1\n"     # required ok; held inside the grant
+    assert vm.stack == [0]      # authority restored after the block
+
+
+def test_nested_grants_unwind_independently():
+    out, vm = run("`r [ `s [ `r rq `s rq $both$ . ] gr `s hv ] gr")
+    assert out == "both\n"
+    assert vm.stack == [0]      # inner `s grant ended; outer `r still held but unprobed
+
+
+def test_require_without_grant_is_cap_denied():
+    try:
+        run("`s rq")
+        assert False
+    except ZownError as e:
+        assert e.code == CAP_DENIED
+        pkt = e.packet()
+        assert pkt["kind"] == "sec"
+        assert pkt["op"] == "rq"
+        assert pkt["cap"] == "s"
+
+
+def test_require_needs_a_capability_value():
+    try:
+        run("5 rq")
+        assert False
+    except ZownError as e:
+        assert e.code == TYPE_MISMATCH and e.op == "rq"
 
 
 # --- errors --------------------------------------------------------------------

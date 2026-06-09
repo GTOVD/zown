@@ -140,6 +140,42 @@ def b_clear(vm, pos: Pos) -> None:
     vm.stack.clear()
 
 
+# --- capability words (v0.2; SPEC Part II §12) ---------------------------------
+# Zero authority by default: a program holds no capabilities until a `gr` block
+# brings one into scope. `rq` asserts a capability is held (else CAP_DENIED); `hv`
+# is the non-fatal test. Privileged stdlib ops (net, disk, ...) will gate on `rq`.
+def b_grant(vm, pos: Pos) -> None:
+    # `cap [body] gr  -> run body with `cap granted, then restore prior authority.
+    blk = vm.pop_block("gr", pos)
+    cap = vm.pop_cap("gr", pos)
+    had = cap.name in vm.caps
+    vm.caps.add(cap.name)
+    try:
+        vm.invoke(blk)
+    finally:
+        if not had:
+            vm.caps.discard(cap.name)
+
+
+def b_require(vm, pos: Pos) -> None:
+    # `cap rq  -> assert the capability is granted; structured CAP_DENIED if not.
+    from .errors import CAP_DENIED
+    cap = vm.pop_cap("rq", pos)
+    if cap.name not in vm.caps:
+        raise vm.err(
+            CAP_DENIED,
+            f"operation requires capability `{cap.name}; not granted",
+            op="rq", pos=pos, kind="sec", cap=cap.name,
+            hint=f"grant it: ``{cap.name} [ ... ] gr`, or run inside a holder",
+        )
+
+
+def b_have(vm, pos: Pos) -> None:
+    # `cap hv  -> push 1 if the capability is granted, else 0 (non-fatal probe).
+    cap = vm.pop_cap("hv", pos)
+    vm.push(1 if cap.name in vm.caps else 0)
+
+
 # word -> (handler, alias, description)
 WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "ln": (b_len, "length", "length of a string (chars) or block (nodes)"),
@@ -161,6 +197,9 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "dp": (b_depth, "depth", "push the current stack depth"),
     "rt": (b_rot, "rot", "rotate the top three values (a b c -> b c a)"),
     "clr": (b_clear, "clear", "clear the entire stack"),
+    "gr": (b_grant, "grant", "`cap [body] gr -> run body with `cap granted, then restore"),
+    "rq": (b_require, "require", "`cap rq -> assert capability is granted (CAP_DENIED if not)"),
+    "hv": (b_have, "have", "`cap hv -> push 1 if capability is granted, else 0"),
 }
 
 BUILTINS: dict[str, Callable[[Any, Pos], None]] = {k: v[0] for k, v in WORDS.items()}

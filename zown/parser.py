@@ -11,6 +11,7 @@ Node forms (all tuples, first element is the tag):
     ("blk",   [node, ...])
     ("name",  str)        # push the value bound to this name (or run a builtin)
     ("bind",  str)        # pop a value and bind it to this name
+    ("cap",   str)        # push a capability token `name (v0.2; SPEC Part II §12)
     ("op",    str)        # an operator symbol
 Each node also carries a trailing Pos for diagnostics: (..., pos).
 """
@@ -20,6 +21,7 @@ from __future__ import annotations
 from .errors import Pos, REPAIR_SYNTAX, ZownError
 from .lexer import (
     T_BIND,
+    T_CAP,
     T_EOF,
     T_FLOAT,
     T_IDENT,
@@ -94,6 +96,8 @@ class Parser:
             return ("name", t.value, t.pos)
         if t.kind == T_BIND:
             return ("bind", t.value, t.pos)
+        if t.kind == T_CAP:
+            return ("cap", t.value, t.pos)
         if t.kind == T_OP:
             return ("op", t.value, t.pos)
         if t.kind == T_LBRACK:

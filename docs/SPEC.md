@@ -6,10 +6,18 @@ manipulation, and most operations are single ASCII characters, and the standard
 library uses 1–2 character words. A program rarely needs identifiers at all.
 
 This document defines the **v0.1 core** that the reference interpreter in this
-repo actually implements. The longer-term vision (native WASM/LLVM compilation,
-fast lanes, embedded graph DB, hot-swap, self-healing) is tracked in
-[`ROADMAP.md`](./ROADMAP.md). Where the original design notes contradicted
+repo actually implements (**Part I**, §1–§10). The longer-term vision (native
+compilation, fast lanes, embedded graph DB, hot-swap, self-healing, and the full
+sovereign-substrate architecture) is tracked in [`ROADMAP.md`](./ROADMAP.md) and
+[`DESIGN.md`](./DESIGN.md). Where the original design notes contradicted
 themselves, this spec is the authority and the contradictions are called out.
+
+**Part II (§11–§18)** is the **planned v0.2 language surface** — the type
+primitives (capabilities, full numerics, SIMD/tensor, network, crypto, UI/GPU) and
+pattern matching that must be frozen in the spec and validated in the Python
+oracle *before* the native compiler is built (`DESIGN.md` §1). Part II tokens are
+**provisional**, pending a density audit; the design intent is stable even where a
+specific symbol may change.
 
 > File extension: `.zn` (we avoid `.z`, which collides with gzip's extension).
 
@@ -255,4 +263,223 @@ op       = "+" | "-" | "*" | "/" | "%" | "_"
          | "=" | "," | "\" | "&"
          | "." | "@" | "?" | ";" ;
 ident    = letter { letter | digit } ;
+```
+
+---
+
+# Part II — Planned language surface (v0.2 design)
+
+Everything below is **design, not yet implemented**. It is specified here so the
+native compiler (PLAN M9) is built once with the full type system in hand, and so
+the Python oracle (PLAN M7) can validate the semantically-observable parts first.
+**Tokens are provisional**, pending a density audit — the *semantics* and the
+*shape* are what's being frozen.
+
+Two principles carry over from Part I and govern every addition:
+
+- **Density first.** A symbol beats a word; a 1–2 char word beats a long one. When
+  this spec writes a long name (e.g. `net-send`), the real program uses a dense
+  token and the **shadow manifest** carries the long name. See `MANIFEST.md` v2.
+- **Safe by construction.** Types make illegal states unrepresentable;
+  capabilities make unauthorized access untypeable.
+
+## 11. Numeric model
+
+The default integer remains **arbitrary precision** (Part I). Typed contexts may
+pin an explicit width; overflow is **never silent** — it is a compile-time error
+or an explicit `wrap`/`sat`/`chk` op.
+
+| Class | Types |
+|-------|-------|
+| signed int | `i8 i16 i32 i64 i128` |
+| unsigned int | `u8 u16 u32 u64 u128` |
+| pointer-size | `usize isize` |
+| float | `f32 f64` |
+| exact | `dec` (decimal), `big` (bigint), `cx` (complex) |
+
+### Vector / SIMD types
+
+Lane-typed values that lower to native SIMD (SSE/AVX/NEON, chosen by target):
+
+```
+f4   = f32 x4      d2 = f64 x2
+i4   = i32 x4      b16 = u8 x16     # naming provisional
+[1.0 2.0 3.0 4.0] f4   [5.0 6.0 7.0 8.0] f4   v*   # SIMD multiply
+```
+
+### Tensor types
+
+N-dimensional typed arrays over the same lane types, mapping to CPU or GPU memory;
+the substrate for on-device ML inference (`DESIGN.md` §8).
+
+## 12. Capabilities & the security model
+
+**Zero authority by default.** A program holds no capabilities until granted one.
+Capabilities are unforgeable, scoped, revocable tokens tracked by the type checker
+— you cannot fabricate or smuggle one (`DESIGN.md` §2).
+
+Provisional dense form: a capability sigil **`` ` ``** introduces a 1-char cap
+code; the manifest maps the code to its full name + scope.
+
+| Code | Capability | Notes |
+|------|-----------|-------|
+| `` `s `` | net-send | scopable: `` `s rate:1000/s `` |
+| `` `r `` | net-recv | |
+| `` `d `` | disk | path-scoped at grant time |
+| `` `g `` | gpu-compute | |
+| `` `p `` | spawn-process | |
+| `` `k `` | secret | gates `Secret[T]` |
+| `` `c `` | clock | wall + monotonic |
+| `` `x `` | sensor | sub-scoped: `sensor:gps`, camera/mic explicit |
+| `` `e `` | secure-enclave | TPM/TrustZone/SGX |
+
+A block's required capabilities live in its **manifest** entry (`caps`), not in the
+source — the source stays dense:
+
+```
+[ ... ] :get        # manifest: get.caps = ["`s","`r"]
+```
+
+A call that uses a capability it was not granted fails to type (or traps with a
+`CAP_DENIED` security `.zerr`, §18).
+
+### Runtime mechanism (implemented in the oracle)
+
+The capability *runtime* is live in the Python reference today (PLAN M7a). A
+capability token is a first-class value pushed by the `` ` `` sigil; three words
+move authority through the stack. A program starts with **zero** grants.
+
+| Word | Form | Effect |
+|------|------|--------|
+| `gr` | `` `cap [body] gr `` | run `body` with `` `cap `` granted, then restore prior authority |
+| `rq` | `` `cap rq `` | assert `` `cap `` is granted; raise `CAP_DENIED` (kind `sec`) if not |
+| `hv` | `` `cap hv `` | push `1` if `` `cap `` is granted, else `0` (non-fatal probe) |
+
+```
+`s hv .                          # 0  -> no authority by default
+`s [ `s rq $send-ok$ . ] gr      # grant net-send for this block only
+`s hv .                          # 0  -> authority restored after the block
+```
+
+Grants nest and unwind independently. Privileged stdlib operations (net, disk,
+GPU, …) will gate on `rq` for their capability, so "zero authority by default"
+holds uniformly. Capability *scoping* (rate/path sub-scopes) and static
+type-checked flow arrive with M8 (the safety core); today `rq` is a runtime check.
+
+**Hygiene types:** `Secret[T]` (auto-zeroing, never logged/serialized/`.zerr`'d),
+constant-time `ct-eq`, a single secure-RNG primitive (distinct type from the
+fast non-secure PRNG), and capability-level rate limiting.
+
+## 13. Crypto & identity types
+
+First-class types the type system understands (not raw byte arrays):
+
+| Type | Meaning |
+|------|---------|
+| `Key` | Ed25519/X25519 key (public or, gated by `` `k ``, secret) |
+| `Sig` | a signature |
+| `Hash` | a BLAKE3 content hash (256-bit) |
+| `NodeID` | 128-bit identity derived from a public key (= IPv6 address) |
+
+Defaults are fixed and hard to misuse: BLAKE3 (hash), ChaCha20-Poly1305
+(symmetric), Ed25519 (sign), X25519 (exchange). One algorithm per purpose.
+
+## 14. Network primitives (`~` family) & protocol-as-type
+
+The reserved `~` family (Part I §5) becomes the network/lane surface. A connection
+targets an **interface**, not an IP; the runtime resolves which peer provides it
+(`DESIGN.md` §3). On-device (`~l`) and remote share one interface.
+
+| Token | Meaning |
+|-------|---------|
+| `~o` | open a stream to a peer |
+| `~s` | send on a stream (needs `` `s ``) |
+| `~r` | recv from a stream (needs `` `r ``) |
+| `~c` | connect to an interface (resolved via the mesh) |
+| `~l` | local same-machine fast path (shared memory) |
+| `~w` | world: tunnel/relay for legacy reach |
+| `~n` `~m` | network / input real-time lanes (Part I reserved) |
+
+**Protocols are types.** Two programs connect iff their protocol types are
+structurally compatible (checked at compile time, else at capability-grant time):
+
+```
+# a protocol type (conceptual; dense form TBD)
+proto Store [ get:[Hash]->[val?]  put:[Hash val]->[ok|err] ]
+`s Store ~c :db        # connect to any peer that speaks Store
+```
+
+Content addresses are written `$zown:<hash>$`; mutable refs are
+`$zown:<pubkey>$` (latest signed version). `~f` fetch / `~p` publish operate on them.
+
+## 15. Native UI & GPU types
+
+UI is **typed data**, not markup (no HTML/CSS; `DESIGN.md` §4). A layout node is a
+dense word + a style block + a children block. Style values are **typed** (`Color`
+is a `Color`, not a string) so style errors are compile-time `.zerr`s.
+
+```
+bx [ layout:[row gap:8 align:center] pad:[16] bg:#1a1a2e ] [
+  tx $Hello Zown$ [ size:24 weight:bold color:#fff ]
+  bt $Launch$     [ bg:#7c3aed radius:8 role:button hint:$start$ ] :tap [go]
+]
+```
+
+| Type | Meaning |
+|------|---------|
+| `LayoutNode` | a node in the UI tree (retained scene graph) |
+| `Color` | typed rgba; carries contrast ratio (a11y warnings) |
+| `Font` `Spacing` `Transition` | typed style values |
+| `GpuBuffer` `GpuPipeline` `RenderPass` | ZownGPU resources |
+
+Responsive layout is a **type constraint** (`row|col@600`), not a media query.
+Accessibility (`role`/`label`/`hotkey`/`hint`) and i18n (translation keys, BiDi,
+CLDR plurals) are node-type fields, carried in the manifest. Shaders are written in
+a **Zown subset**, not GLSL/WGSL.
+
+## 16. Pattern matching
+
+Structural matching over the type system (type / value / shape), destructuring in
+one expression — eliminates a class of control-flow bugs. Provisional dense form
+reuses block selection; final syntax pending the density audit:
+
+```
+v [ [int]   [ ... ]      # matches an int, binds it
+    [str]   [ ... ]
+    [a b]   [ ... ]      # destructures a 2-tuple
+    [_]     [ ... ] ] ?? # default arm
+```
+
+## 17. Reserved-symbol allocation (updated)
+
+Part I §5 reservations stand. Part II claims:
+
+| Symbol | Now reserved for |
+|--------|------------------|
+| `` ` `` | capability sigil (§12) |
+| `~x` words | network/lane primitives (§14) |
+| `» « →` | embedded graph DB query pipeline (`DESIGN.md` §6) |
+| `??` | pattern-match dispatch (§16, provisional) |
+
+Unclaimed symbols remain lex errors so they stay open for future density wins.
+
+## 18. Security diagnostics (`.zerr` extensions)
+
+Security events use the same structured channel as Part I §8, so the AI control
+plane and the self-healing loop act on them uniformly. New recovery codes:
+
+`CAP_DENIED`, `AUTH_FAIL`, `INTEGRITY_FAIL`, `SIG_INVALID`, `RATE_LIMITED`,
+`UB_TRAP` (a would-be-undefined operation trapped at runtime).
+
+```json
+{
+  "zerr": "0.2",
+  "kind": "sec",
+  "code": "CAP_DENIED",
+  "msg": "operation requires net-send; not granted",
+  "op": "~s",
+  "cap": "`s",
+  "node": "zown:abc123...",
+  "hint": "grant `s in the module manifest, or route via a capability holder"
+}
 ```

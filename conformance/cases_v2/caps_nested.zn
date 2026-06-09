@@ -1,0 +1,3 @@
+# v0.2 capabilities: nested grants accumulate, then unwind independently.
+`r [ `s [ `r rq `s rq $both$ . ] gr `s hv . ] gr   # inner: both held -> "both"
+                                                    # after inner: `s -> 0

@@ -48,11 +48,29 @@ class Block:
         return f"Block(len={len(self.nodes)})"
 
 
+@dataclass
+class Cap:
+    """A capability token (v0.2; SPEC Part II §12).
+
+    A `Cap` *names* an authority (e.g. `s = net-send). Holding the token on the
+    stack is not the same as being *granted* the authority: a program starts with
+    zero grants and a capability must be brought into scope with `gr` before `rq`
+    will accept it. This is "zero authority by default" made concrete.
+    """
+
+    name: str
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"`{self.name}"
+
+
 def truthy(v: Any) -> bool:
     if isinstance(v, Block):
         return len(v.nodes) > 0
     if isinstance(v, str):
         return len(v) > 0
+    if isinstance(v, Cap):
+        return True  # a capability token is always a "present" value
     return bool(v)
 
 
@@ -60,6 +78,9 @@ class VM:
     def __init__(self, file: str | None = None, out=None):
         self.stack: list[Any] = []
         self.env: dict[str, Any] = {}
+        # Granted capabilities. Empty by default: a program has zero authority
+        # until a `gr` block brings a capability into scope (SPEC Part II §12).
+        self.caps: set[str] = set()
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
@@ -91,10 +112,17 @@ class VM:
                            op=op, pos=pos, hint="wrap the code in [ ... ] to make a block")
         return v
 
+    def pop_cap(self, op: str, pos: Pos | None = None) -> Cap:
+        v = self.pop(op, pos)
+        if not isinstance(v, Cap):
+            raise self.err(TYPE_MISMATCH, f"`{op}` expected a capability `name, got {type_name(v)}",
+                           op=op, pos=pos, hint="write a capability token like `s (net-send)")
+        return v
+
     def err(self, code: str, msg: str, op: str | None = None, pos: Pos | None = None,
-            hint: str = "") -> ZownError:
-        return ZownError(code=code, msg=msg, kind="run", op=op, pos=pos,
-                         stack=list(self.stack), hint=hint, file=self.file)
+            hint: str = "", kind: str = "run", cap: str | None = None) -> ZownError:
+        return ZownError(code=code, msg=msg, kind=kind, op=op, pos=pos,
+                         stack=list(self.stack), hint=hint, file=self.file, cap=cap)
 
     # --- execution -------------------------------------------------------------
     def run_src(self, src: str) -> None:
@@ -114,6 +142,8 @@ class VM:
             self._exec_name(node[1], node[2])
         elif tag == "bind":
             self.env[node[1]] = self.pop(f":{node[1]}", node[2])
+        elif tag == "cap":
+            self.push(Cap(node[1]))
         elif tag == "op":
             self._exec_op(node[1], node[2])
         else:  # pragma: no cover
@@ -148,6 +178,8 @@ def type_name(v: Any) -> str:
         return "bool"
     if isinstance(v, Block):
         return "block"
+    if isinstance(v, Cap):
+        return "cap"
     if isinstance(v, int):
         return "int"
     if isinstance(v, float):
@@ -333,6 +365,8 @@ def _as_str(v: Any) -> str:
         return str(int(v)) if v.is_integer() else str(v)
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
+    if isinstance(v, Cap):
+        return f"`{v.name}"
     return str(v)
 
 

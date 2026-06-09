@@ -19,6 +19,7 @@ T_FLOAT = "FLOAT"
 T_STR = "STR"
 T_IDENT = "IDENT"
 T_BIND = "BIND"        # :name  -> value of `name` is the binding target
+T_CAP = "CAP"          # `name  -> a capability token (v0.2; SPEC Part II §12)
 T_LBRACK = "LBRACK"    # [
 T_RBRACK = "RBRACK"    # ]
 T_OP = "OP"            # any operator symbol
@@ -106,6 +107,9 @@ class Lexer:
             if c == ":":
                 out.append(self._read_bind())
                 continue
+            if c == "`":
+                out.append(self._read_cap())
+                continue
             if c in _DIGITS:
                 out.append(self._read_number())
                 continue
@@ -161,6 +165,23 @@ class Lexer:
             name_chars.append(self._advance())
         name = "".join(name_chars)
         return Token(T_BIND, name, p, (start, self.i - start))
+
+    def _read_cap(self) -> Token:
+        # `name  -> a capability token. The dense 1-char codes (`s net-send,
+        # `r net-recv, ...) are mapped to full names by the shadow manifest.
+        p, start = self._pos(), self.i
+        self._advance()  # the backtick
+        if self._peek() not in _IDENT_START:
+            raise self._err(
+                REPAIR_SYNTAX,
+                "expected a capability name after `` ` ``",
+                hint="capability form is `name, e.g. `s (net-send); see SPEC Part II §12",
+            )
+        name_chars: list[str] = []
+        while self._peek() in _IDENT_CONT:
+            name_chars.append(self._advance())
+        name = "".join(name_chars)
+        return Token(T_CAP, name, p, (start, self.i - start))
 
     def _read_number(self) -> Token:
         p, start = self._pos(), self.i

@@ -25,3 +25,7 @@ venv/
 
 # OS / editor
 .DS_Store
+
+# Local-only context scratchpad (chat transcripts the maintainer keeps to refresh
+# an agent's context across sessions). Intentionally untracked.
+PAST.md

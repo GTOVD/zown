@@ -18,15 +18,24 @@ Last updated: 2026-06-05.
 
 ## North Star
 
-A hyper-dense, AI-native language that:
+A hyper-dense, AI-native language **and** the self-contained substrate built on
+it (full architecture: [`DESIGN.md`](./DESIGN.md)):
 1. Minimizes tokens per feature (1–2 char everything) so huge programs fit in a
-   context window.
-2. Compiles to native speed (LLVM) and the web/sandbox (WASM), and down to bare
+   context window; meaning lives in the shadow manifest, not in identifiers.
+2. Compiles to native speed (LLVM) and the web/sandbox (WASM ✅), and down to bare
    metal (kernels).
-3. Carries meaning out-of-band (shadow manifest) and fails with actionable,
-   structured diagnostics (`.zerr`).
-4. **Eventually self-hosts**: the Zown compiler is written in Zown. This is the
-   ultimate proof the language can "build anything without external languages."
+3. **Safe by construction**: zero authority by default (capabilities), no
+   undefined behavior; failures are actionable, structured `.zerr` packets.
+4. **Self-contained / zero-install**: networking, graphics, UI, database,
+   security, and distribution are native — an app needs nothing but the runtime.
+5. **Decentralized**: every device is a peer in an identity/content-addressed
+   mesh; apps are signed, content-addressed, and verified before they run.
+6. **Eventually self-hosts**: the Zown compiler is written in Zown — the ultimate
+   proof the language can "build anything without external languages."
+
+**Sequencing rule (new):** the security/type/network/graphics SPEC is frozen and
+validated in the Python oracle **before** the native compiler (M7), because those
+decisions shape the ABI and codegen. See `DESIGN.md` §1.
 
 ---
 
@@ -43,15 +52,22 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| M7 | Native backend via LLVM/Cranelift (`-o .exe`) | ⬜ | desktop binaries |
-| M8 | Type & memory model (fat ptrs, ownership) | ⬜ | `! & ?`-tuple, bounds, no GC |
-| M9 | Stdlib expansion + `std` in Zown | ⬜ | begins the self-host migration |
-| M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lane counts |
-| M11 | Embedded graph DB (`» « →`) | ⬜ | mmap object graph, lazy schema evo |
-| M12 | Rolling hot-swap + self-healing loop | ⬜ | zero-downtime swap, `.zerr` remediation |
-| M13 | Communication mesh (WASI components, `~w`) | ⬜ | containerless, zero-config tunnel |
-| M14 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
-| M15 | Bare-metal target + toy OS/kernel demo | ⬜ | `--target=bare`, VGA "hello" |
+| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅ (oracle: `gr`/`rq`/`hv`, `CAP_DENIED`); remaining: manifest v2, numerics, SIMD/tensor, net/UI/crypto types, match |
+| M8 | Safety core (type & memory model) | ⬜ | fat ptrs, `! & ?`-tuple, no-UB, capability flow in the checker |
+| M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
+| M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
+| M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
+| M12 | ZownNet — decentralized mesh | ⬜ | IPv6 crypto-identity, ZownTransport, DHT+gossip, content addressing, offline mesh |
+| M13 | Native UI + ZownGPU + audio + input | ⬜ | typed layout tree (no HTML/CSS), wgpu→native, a11y, i18n |
+| M14 | Embedded store + distribution | ⬜ | mmap graph+columnar, CRDT, version chain, transparency log, semantic patch protocol, signed sync |
+| M15 | AI control plane + rolling execution | ⬜ | telemetry/tracing, declarative intent, hot-swap, self-healing loop, on-device ML |
+| M16 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
+| M17 | Zown OS / bare metal | ⬜ | `--target=bare`, microkernel demo |
+
+> M7–M17 were expanded from the original M7–M15 to fold in the full
+> sovereign-substrate vision (`DESIGN.md`). The key change: a **design-freeze
+> milestone (M7) now precedes the native compiler (M9)**, and the safety/security
+> model (M8) lands before codegen so capabilities and no-UB shape the ABI.
 
 ---
 
@@ -94,13 +110,19 @@ zownc/                # Rust workspace (the real toolchain)
     zown-ir/          # Zown IR + lowering from AST
     zown-vm/          # tree-walking interpreter (parity bring-up)
     zown-wasm/        # WASM backend
-    zown-codegen/     # LLVM/Cranelift backend
+    zown-codegen/     # LLVM/Cranelift backend (M9)
+    zown-types/       # type & capability checker (M8)
+    zown-net/         # ZownNet: transport, DHT, gossip, content addressing (M12)
+    zown-ui/          # layout engine + ZownGPU bindings (M13)
+    zown-store/       # embedded graph+columnar store, CRDTs (M14)
+    zown-mesh/        # version chain, transparency log, patch protocol, sync (M14)
+    zown-ctl/         # AI control plane: telemetry, intent, hot-swap (M15)
     zown-cli/         # the `zownc` binary (driver)
   Cargo.toml          # workspace manifest
 conformance/          # language-agnostic golden tests (.zn + expected stdout/.zerr)
-std/                  # standard library written in Zown (self-host prep, M9+)
+std/                  # standard library written in Zown (self-host prep, M11+)
 examples/
-docs/                 # SPEC / ROADMAP / PLAN / MANIFEST
+docs/                 # DESIGN / SPEC / ROADMAP / PLAN / MANIFEST / WASM / IR
 tests/                # Python-side tests
 ```
 
@@ -231,23 +253,39 @@ shortest round-tripping formatter (Ryu/Grisu) — see `docs/WASM.md`.
 
 ---
 
-### M7 — Native backend (LLVM or Cranelift)
-**Goal:** real desktop binaries.
+### M7 — Design freeze: SPEC v0.2 + oracle  🔄 (in progress)
+**Goal:** freeze the ABI-shaping language decisions and prove them in the Python
+oracle **before** any native codegen. Nothing here needs a new backend.
 
-**Decision:** start with **Cranelift** (pure-Rust, fast builds, easy embedding);
-add **LLVM** (`inkwell`) later for `-O` release-grade optimization + bare metal.
+Built in slices. v0.2 semantics are validated against the oracle only; the corpus
+lives in `conformance/cases_v2/` + `errors_v2/` (run `python3 conformance/v2.py`),
+kept separate so the Rust `zownc` parity runners stay green until they implement
+v0.2.
 
-**Tasks**
-- [ ] IR → Cranelift IR → object → link to `x.exe`/ELF/Mach-O.
-- [ ] Runtime shim (entry, print, alloc) as a tiny static lib.
-- [ ] Conformance run for native target.
+- [x] **M7a — capabilities (the security core).** `` ` `` capability sigil lexes
+      to a `Cap` token; zero authority by default; `gr` (grant-scope), `rq`
+      (require → `CAP_DENIED`, kind `sec`, with a `cap` field), `hv` (non-fatal
+      probe). Security `.zerr` codes added (`CAP_DENIED`, `AUTH_FAIL`,
+      `INTEGRITY_FAIL`, `SIG_INVALID`, `RATE_LIMITED`, `UB_TRAP`). 5 v0.2
+      conformance cases + 8 unit tests; v0.1 behavior and Rust parity unchanged.
+- [ ] **M7b — manifest v2.** Generator scaffolds `caps`/`sec`/`tele`/`i18n` per
+      symbol and the module provenance block (`MANIFEST.md` v2).
+- [ ] **M7c — numeric model.** Full width set (`i8…i128 u8…u128 f32 f64 dec big
+      cx`) with explicit overflow (`wrap`/`sat`/`chk`); SIMD/vector + tensor types.
+- [ ] **M7d — pattern matching** + the remaining type primitives in `SPEC.md`
+      Part II (crypto `Key Sig Hash NodeID`, network `~`-family + protocol-as-type,
+      UI/GPU types) specified and validated where observable.
 
-**Acceptance:** native binaries pass conformance on this machine (macOS/arm64).
+**Acceptance:** `SPEC.md` Part II complete and internally consistent; the oracle
+implements every semantically-observable addition; `conformance/v2.py` green.
+
+**Risks:** scope creep. Mitigation: types/semantics only — implementations are
+M8+. Anything that cannot be observed in the oracle is documented, not coded.
 
 ---
 
-### M8 — Type & memory model
-**Goal:** make the safety story real (Phase 1 of ROADMAP).
+### M8 — Safety core (type & memory model)
+**Goal:** make the "unhackable" guarantees real in the checker + runtime.
 
 **Tasks**
 - [ ] Fat-pointer descriptors `[base|bounds|perms]` as the only reference type.
@@ -255,35 +293,130 @@ add **LLVM** (`inkwell`) later for `-O` release-grade optimization + bare metal.
       consume before data is reachable.
 - [ ] Ownership tokens `!` (move) / `&` (borrow) checked during parse/lowering.
 - [ ] Linear stack-frame allocation; drop reclaims; no GC.
+- [ ] **No undefined behavior**: otherwise-undefined ops are compile-time `.zerr`
+      or structured runtime traps.
+- [ ] **Capability flow** in the type checker; `Secret[T]` (auto-zero), `ct-eq`,
+      secure RNG, capability-level rate limiting.
 
-**Acceptance:** ownership/bounds violations are compile-time `.zerr`s; a fuzzer
-finds no use-after-free / OOB in generated code.
+**Acceptance:** ownership/bounds/capability violations are compile-time `.zerr`s;
+a fuzzer finds no use-after-free / OOB; an over-privileged call fails to type.
 
 ---
 
-### M9 — Stdlib in Zown (self-host prep)
-**Goal:** start moving capability out of Rust and into `std/*.zn`.
+### M9 — Native backend + performance
+**Goal:** real desktop binaries, built with the full type system.
+
+**Decision:** **Cranelift** first (pure-Rust, fast builds, ms JIT for hot-swap);
+add **LLVM** (`inkwell`) later for `-O` and bare metal. One IR feeds both.
 
 **Tasks**
-- [ ] Identify stdlib words expressible in pure Zown; reimplement them in `std/`.
-- [ ] Bootstrap loader: compiler links `std/` automatically.
-- [ ] Keep Rust intrinsics only for true primitives (syscalls, memory).
+- [ ] IR → Cranelift IR → object → link to `x.exe`/ELF/Mach-O.
+- [ ] Runtime shim (entry, print, alloc) as a tiny static lib.
+- [ ] SIMD lowering (SSE/AVX/NEON by target); zero-copy I/O (`io_uring`/IOCP).
+- [ ] **Deterministic builds** (bit-identical output — content hashing depends on it).
+- [ ] Conformance run for the native target.
+
+**Acceptance:** native binaries pass conformance on this machine (macOS/arm64);
+two builds of the same source are byte-identical.
+
+---
+
+### M10 — Concurrency: dynamic fast lanes
+**Goal:** make `~ ^ |` real and separate the data plane from the control plane.
+
+**Tasks**
+- [ ] Hardware topology query; application-defined real-time lane counts.
+- [ ] `~n` net / `~m` input lanes pinned off the compute pool; degrade to fibers.
+- [ ] `^` work-stealing pool; `|` lock-free pipe; `zown tune` live rebalance.
+
+**Acceptance:** a multi-lane demo holds real-time timing under load; control-plane
+work never starves a real-time lane.
+
+---
+
+### M11 — Batteries stdlib + `std` in Zown
+**Goal:** the zero-install core, and the start of the self-host migration.
+
+**Tasks**
+- [ ] Crypto suite (BLAKE3, ChaCha20-Poly1305, Ed25519, X25519), collections,
+      complete numerics, UTF-8 strings, time/clocks, filesystem, env/secrets.
+- [ ] Developer toolchain: built-in testing (+ property-based), LSP, canonical
+      formatter, doc generator, mesh-aware REPL.
+- [ ] Reimplement pure-Zown stdlib words in `std/`; bootstrap loader links `std/`;
+      keep Rust intrinsics only for true primitives (syscalls, memory, SIMD).
 
 **Acceptance:** a meaningful subset of `WORDS` is defined in Zown and passes the
-same conformance cases.
+same conformance cases; `zown test`/`zown fmt` ship and work.
 
 ---
 
-### M10–M13 — Systems layers
-Concurrency fast lanes (`~ ^ |`, app-defined lane counts, work-stealing), the
-embedded mmap graph DB (`» « →`, lazy schema evolution), rolling hot-swap +
-self-healing remediation loop, and the WASI-component communication mesh with
-zero-config tunneling (`~w`). Each gets its own detailed breakdown when M8 lands.
-See `ROADMAP.md` Phases 3–6 for scope.
+### M12 — ZownNet (decentralized mesh)
+**Goal:** networking native to the language (see `DESIGN.md` §3).
+
+**Tasks**
+- [ ] Crypto identity → IPv6 (`BLAKE3(pubkey)`); IPv6-only.
+- [ ] ZownTransport (QUIC-equivalent over UDP via FFI first): encrypted-by-default,
+      multiplexed, 0-RTT, mutual auth.
+- [ ] Discovery: multicast-local + Kademlia DHT + gossip (no DNS).
+- [ ] Content addressing + re-hosting; NAT traversal + relays; offline mesh.
+- [ ] `~`-family ops wired to the transport; protocol-as-type compatibility checks.
+
+**Acceptance:** two devices on a LAN discover each other and exchange a
+content-addressed bundle with zero config; an offline pair communicates with no
+internet.
 
 ---
 
-### M14 — Self-hosting (the endgame)
+### M13 — Native UI + ZownGPU + audio + input
+**Goal:** a full frontend with no HTML/CSS (see `DESIGN.md` §4–§5).
+
+**Tasks**
+- [ ] Typed declarative layout tree; retained scene graph; fl/grid; typed style;
+      responsive-as-constraint; animation.
+- [ ] ZownGPU over `wgpu` (FFI) → native Vulkan/Metal/DX12 later; shaders in a
+      Zown subset; text shaping in stdlib.
+- [ ] Audio signal-graph + low-latency lane; unified input + sensors
+      (capability-gated); accessibility + i18n in the node types; PDF/PNG export.
+
+**Acceptance:** a sample app renders, animates, takes input, reads a screen reader
+tree, and exports itself to PDF.
+
+---
+
+### M14 — Embedded store + distribution
+**Goal:** drop the external DB; make the mesh the version-control system
+(see `DESIGN.md` §6–§7).
+
+**Tasks**
+- [ ] mmap graph + columnar stores; lazy schema evolution; CRDT sync types.
+- [ ] Token-dense query pipeline (`» « →`).
+- [ ] Signed module-version chain; distributed transparency log + inclusion proofs.
+- [ ] Semantic patch protocol + four-tier trust hierarchy; signed `SyncBundle`
+      (USB/GitHub export/import); conflict resolution.
+
+**Acceptance:** an app and its history survive a crash; a tampered SyncBundle is
+rejected; a signed patch hot-swaps only after independent verification.
+
+---
+
+### M15 — AI control plane + rolling execution
+**Goal:** an AI manages every instance in real time (see `DESIGN.md` §8).
+
+**Tasks**
+- [ ] Continuous telemetry in the manifest format; distributed tracing; structured
+      metrics/logs tagged with module version + content hash.
+- [ ] Declarative intent API (desired state); runtime converges via hot-swap +
+      mesh routing.
+- [ ] Zero-downtime hot-swap; self-healing loop (`.zerr` → semantic patch → verify
+      → swap → confirm → record); broadcast verified fixes.
+- [ ] On-device ML inference (ONNX, tensors, quantized local LLM); federated hooks.
+
+**Acceptance:** a fleet converges to declared intent; an injected bug is detected,
+patched, verified, and hot-swapped with no downtime.
+
+---
+
+### M16 — Self-hosting (the endgame)
 **Goal:** the Zown compiler is written in Zown.
 
 **Strategy (bootstrap chain):**
@@ -295,15 +428,15 @@ See `ROADMAP.md` Phases 3–6 for scope.
    they match, Zown self-hosts.
 5. Rust `zownc` is retained only as a bootstrap + differential oracle.
 
-**Prereqs:** M4 (semantics), M6/M7 (a backend that can emit the compiler binary),
-M8 (memory model strong enough to write a compiler), M9 (stdlib in Zown).
+**Prereqs:** M4 (semantics), M9 (a backend that can emit the compiler binary), M8
+(memory model strong enough to write a compiler), M11 (stdlib in Zown).
 
 **Acceptance:** `stage1 == stage2` (byte-identical), and stage-2 passes the full
 conformance suite.
 
 ---
 
-### M15 — Bare metal / toy OS
+### M17 — Zown OS / bare metal
 **Goal:** prove "build anything," including kernels.
 
 **Tasks**
@@ -311,7 +444,9 @@ conformance suite.
 - [ ] MMIO + a bootable image that writes to the VGA text buffer.
 - [ ] Minimal interrupt handler demo.
 
-**Acceptance:** a `.bin` boots in QEMU and prints to screen.
+**Acceptance:** a `.bin` boots in QEMU and prints to screen. End state: a
+microkernel in Zown whose trusted core is only hardware abstraction + capability
+enforcement + isolation; everything else is a Zown module.
 
 ---
 
@@ -326,10 +461,17 @@ conformance suite.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M7 (native backend):** Cranelift first (pure-Rust, fast builds) for real
-   desktop binaries, LLVM later for `-O`/bare metal. Reuse the IR + tagged-value
-   model; swap WASI for a native runtime (operand stack, heap, string helpers).
-2. **Float formatter:** upgrade `$fmt_f64` to a shortest round-tripping algorithm
-   (Ryu/Grisu) so arbitrary floats match the oracle, not just dyadic ones.
-3. **M8+:** runtime/concurrency, the embedded DB, networking, and the path to
-   self-hosting (`zownc` rewritten in Zown).
+1. **M7a (capabilities) is done** — the `` ` `` sigil, `gr`/`rq`/`hv`, and the
+   security `.zerr` codes run in the oracle with their own v0.2 conformance corpus.
+2. **M7b (manifest v2) is next:** extend `zown/manifest.py` to scaffold the
+   per-symbol `caps`/`sec`/`tele`/`i18n` fields and the module provenance block
+   (`MANIFEST.md` v2), bump the manifest `language` tag, and keep the
+   never-clobber merge. Then **M7c** (numeric model + SIMD) and **M7d** (pattern
+   matching + remaining type primitives), each oracle-validated in `cases_v2/`.
+3. **M8 (safety core):** type & capability checker — fat pointers, `[ok?|data]`,
+   `! &` ownership, no-UB, static capability flow (today `rq` is a runtime check).
+   Lands before codegen so it shapes the ABI.
+4. **M9 (native backend):** Cranelift first (pure-Rust, ms JIT for hot-swap), LLVM
+   later for `-O`/bare metal. Reuse the IR + tagged-value model; SIMD; deterministic.
+5. **Carry-over (independent):** upgrade `$fmt_f64` to a shortest round-tripping
+   formatter (Ryu/Grisu) so arbitrary floats match the oracle, not just dyadic ones.
