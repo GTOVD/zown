@@ -61,13 +61,28 @@ back to a clear intent without inflating the code itself.
 
 ---
 
-## Manifest v2 (planned)
+## Manifest v2 (implemented — PLAN M7b)
 
 The v0.1 manifest above carries *meaning*. As Zown grows into the sovereign
 substrate ([`DESIGN.md`](./DESIGN.md)), the manifest also carries *authority*,
 *provenance*, and *telemetry* — without inflating the source. This makes the
 manifest the **single built-in few-shot training signal and audit record** that
-ships with every program. Planned alongside `SPEC.md` Part II (PLAN M7).
+ships with every program.
+
+`zown manifest app.zn` now emits this v2 shape. What the generator does
+automatically vs. what you (or an AI) fill in:
+
+- **Discovered from source:** symbol `type`, builtin `alias`/`desc`, and a bound
+  block's `caps` — every capability token (`` `s ``, `` `r `` …) its body
+  references is collected and **merged** with any you added by hand (never lost).
+- **Scaffolded, then authored:** `desc`/`ai_hint`, and the `sec` / `tele` / `i18n`
+  metadata (defaults that you refine).
+- **Lean by design:** the v2 fields attach to **user symbols only**; builtin words
+  keep the compact v1 shape, since their semantics live in the stdlib, not per
+  program.
+- **Never fabricated:** the `module` block's crypto fields (`content`, `author`,
+  `sig`, …) stay `null` until the M14 distribution layer computes a real BLAKE3
+  hash and Ed25519 signature.
 
 ### Per-symbol additions
 

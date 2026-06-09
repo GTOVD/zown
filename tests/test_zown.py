@@ -6,8 +6,10 @@ and executes them, printing a summary.
 """
 
 import io
+import json
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -196,6 +198,67 @@ def test_require_needs_a_capability_value():
         assert False
     except ZownError as e:
         assert e.code == TYPE_MISMATCH and e.op == "rq"
+
+
+# --- manifest v2 (v0.2) --------------------------------------------------------
+def _gen_manifest(src, prior=None):
+    from zown.manifest import generate, manifest_path
+    d = tempfile.mkdtemp()
+    znp = os.path.join(d, "app.zn")
+    open(znp, "w", encoding="utf-8").write(src)
+    if prior is not None:
+        open(manifest_path(znp), "w", encoding="utf-8").write(json.dumps(prior))
+    return generate(znp)
+
+
+def test_manifest_v2_scaffolds_fields():
+    m = _gen_manifest("[ `s rq `r rq $hi$ . ]:get  5:n")
+    assert m["language"] == "Zown v0.2"
+    # module provenance block exists with crypto fields unset (never fabricated)
+    assert set(m["module"]) >= {"content", "author", "sig", "ver", "deps"}
+    assert m["module"]["content"] is None and m["module"]["ver"] == "0.0.0"
+    get = m["symbols"]["get"]
+    assert get["type"] == "block"
+    assert get["caps"] == ["`r", "`s"]              # discovered from the block body
+    assert get["sec"] == {"ct": False, "secret": False}
+    assert get["tele"] == {"latency": False, "errors": []}
+    assert get["i18n"] == {"keys": []}
+    assert m["symbols"]["n"]["caps"] == []          # a value binding needs no caps
+
+
+def test_manifest_builtins_stay_lean():
+    m = _gen_manifest("$ hi $ tr")
+    tr = m["symbols"]["tr"]
+    assert tr["type"] == "builtin" and tr["alias"] == "trim"
+    assert "caps" not in tr and "sec" not in tr      # builtins keep the v1 shape
+
+
+def test_manifest_never_clobbers_and_merges_caps():
+    prior = {
+        "language": "Zown v0.2",
+        "source": "app.zn",
+        "module": {"author": "zown:node:abc", "ver": "1.2.0"},
+        "symbols": {
+            "get": {
+                "type": "block",
+                "alias": "http_get",
+                "desc": "Fetch a resource.",
+                "ai_hint": "idempotent",
+                "caps": ["`k"],                      # hand-added, not in the source
+                "sec": {"ct": True, "secret": False},
+                "i18n": {"keys": ["err.timeout"]},
+            }
+        },
+    }
+    m = _gen_manifest("[ `s rq $x$ . ]:get", prior=prior)
+    get = m["symbols"]["get"]
+    assert get["alias"] == "http_get"                # authored prose preserved
+    assert get["desc"] == "Fetch a resource."
+    assert get["caps"] == ["`k", "`s"]               # hand-added kept + discovered merged
+    assert get["sec"] == {"ct": True, "secret": False}
+    assert get["i18n"] == {"keys": ["err.timeout"]}
+    assert m["module"]["author"] == "zown:node:abc"  # authored provenance preserved
+    assert m["module"]["ver"] == "1.2.0"
 
 
 # --- errors --------------------------------------------------------------------

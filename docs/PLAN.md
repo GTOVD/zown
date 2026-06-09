@@ -52,7 +52,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅ (oracle: `gr`/`rq`/`hv`, `CAP_DENIED`); remaining: manifest v2, numerics, SIMD/tensor, net/UI/crypto types, match |
+| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅, M7b manifest v2 ✅; remaining: numerics, SIMD/tensor, net/UI/crypto types, match |
 | M8 | Safety core (type & memory model) | ⬜ | fat ptrs, `! & ?`-tuple, no-UB, capability flow in the checker |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
@@ -268,8 +268,11 @@ v0.2.
       probe). Security `.zerr` codes added (`CAP_DENIED`, `AUTH_FAIL`,
       `INTEGRITY_FAIL`, `SIG_INVALID`, `RATE_LIMITED`, `UB_TRAP`). 5 v0.2
       conformance cases + 8 unit tests; v0.1 behavior and Rust parity unchanged.
-- [ ] **M7b — manifest v2.** Generator scaffolds `caps`/`sec`/`tele`/`i18n` per
-      symbol and the module provenance block (`MANIFEST.md` v2).
+- [x] **M7b — manifest v2.** `zown/manifest.py` emits the v2 shape: per user
+      symbol `caps` (discovered from the bound block's body + merged with authored
+      ones), `sec`/`tele`/`i18n` (scaffolded), and a module provenance block
+      (crypto fields null until M14). Builtins keep the lean v1 shape; the
+      never-clobber merge is preserved. 3 unit tests (`MANIFEST.md` v2).
 - [ ] **M7c — numeric model.** Full width set (`i8…i128 u8…u128 f32 f64 dec big
       cx`) with explicit overflow (`wrap`/`sat`/`chk`); SIMD/vector + tensor types.
 - [ ] **M7d — pattern matching** + the remaining type primitives in `SPEC.md`
@@ -461,13 +464,13 @@ enforcement + isolation; everything else is a Zown module.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M7a (capabilities) is done** — the `` ` `` sigil, `gr`/`rq`/`hv`, and the
-   security `.zerr` codes run in the oracle with their own v0.2 conformance corpus.
-2. **M7b (manifest v2) is next:** extend `zown/manifest.py` to scaffold the
-   per-symbol `caps`/`sec`/`tele`/`i18n` fields and the module provenance block
-   (`MANIFEST.md` v2), bump the manifest `language` tag, and keep the
-   never-clobber merge. Then **M7c** (numeric model + SIMD) and **M7d** (pattern
-   matching + remaining type primitives), each oracle-validated in `cases_v2/`.
+1. **M7a (capabilities) and M7b (manifest v2) are done** — the `` ` `` sigil,
+   `gr`/`rq`/`hv`, the security `.zerr` codes, and the v2 manifest generator
+   (caps discovery + `sec`/`tele`/`i18n` + provenance block) all run in the oracle.
+2. **M7c (numeric model) is next:** full width set (`i8…i128 u8…u128 f32 f64 dec
+   big cx`) with explicit overflow (`wrap`/`sat`/`chk`) and SIMD/vector + tensor
+   types, validated in the oracle (`cases_v2/`). Then **M7d** (pattern matching +
+   remaining type primitives: crypto, network `~`-family, UI/GPU).
 3. **M8 (safety core):** type & capability checker — fat pointers, `[ok?|data]`,
    `! &` ownership, no-UB, static capability flow (today `rq` is a runtime check).
    Lands before codegen so it shapes the ABI.
