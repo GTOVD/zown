@@ -297,20 +297,54 @@ or an explicit `wrap`/`sat`/`chk` op.
 | float | `f32 f64` |
 | exact | `dec` (decimal), `big` (bigint), `cx` (complex) |
 
-### Vector / SIMD types
+#### Fixed-width arithmetic — **implemented (M7c-i, oracle)**
 
-Lane-typed values that lower to native SIMD (SSE/AVX/NEON, chosen by target):
+The width names above are **words that push a width tag**. A *policy word* then
+reduces the value below it into that width, so overflow is always an explicit
+choice rather than a silent surprise:
+
+```
+n width wr   # wrap   — two's-complement modulo 2**bits
+n width st   # sat    — clamp to the width's [min..max]
+n width ck   # check  — pass through, or raise OVERFLOW if it won't fit
+```
+
+```
+300 u8 wr .      # 44     (300 mod 256)
+200 _ i8 st .    # -128   (clamped to i8 min)
+256 u8 ck        # zerr[OVERFLOW]: 256 does not fit u8 [0..255]
+```
+
+Policy words are integer-only (a fractional float is a `TYPE_MISMATCH`). `dec`,
+`big` (the default int already is big), and `cx` remain design-only for now.
+
+### Vector / SIMD types — **implemented (M7c-ii, oracle)**
+
+Lane-typed values that will lower to native SIMD (SSE/AVX/NEON, chosen by target).
+A constructor word evaluates a block to produce its lanes:
 
 ```
 f4   = f32 x4      d2 = f64 x2
-i4   = i32 x4      b16 = u8 x16     # naming provisional
-[1.0 2.0 3.0 4.0] f4   [5.0 6.0 7.0 8.0] f4   v*   # SIMD multiply
+i4   = i32 x4      b16 = u8 x16
+[ 1 2 3 4 ] i4               # build an i32x4
+[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd    # i4(11 22 33 44)
+[ 1 2 3 4 ] i4 vsum .        # 10   (horizontal sum -> scalar)
+[ 7 8 9 10 ] i4 2 vat .      # 9    (lane 2)
 ```
+
+Elementwise ops are word-form (`vadd vsub vmul`), **not** `v+`/`v*`: a Zown
+identifier cannot contain an operator char, so `v+` would lex as `v` then `+`.
+Ops require matching vector types (else `TYPE_MISMATCH`); integer lanes wrap to
+their width, the same rule as scalar fixed-width ints.
+
+> Oracle limitation: float lanes are stored as f64; the oracle does not model f32
+> rounding. Lane count, type compatibility, and integer wrap are the observable
+> semantics frozen here — exact f32 behavior is the native backend's job (M9).
 
 ### Tensor types
 
 N-dimensional typed arrays over the same lane types, mapping to CPU or GPU memory;
-the substrate for on-device ML inference (`DESIGN.md` §8).
+the substrate for on-device ML inference (`DESIGN.md` §8). Design-only for now.
 
 ## 12. Capabilities & the security model
 

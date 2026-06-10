@@ -52,7 +52,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅, M7b manifest v2 ✅; remaining: numerics, SIMD/tensor, net/UI/crypto types, match |
+| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅, M7b manifest v2 ✅, M7c numerics+SIMD ✅; remaining (M7d): net/UI/crypto types, pattern match |
 | M8 | Safety core (type & memory model) | ⬜ | fat ptrs, `! & ?`-tuple, no-UB, capability flow in the checker |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
@@ -273,8 +273,12 @@ v0.2.
       ones), `sec`/`tele`/`i18n` (scaffolded), and a module provenance block
       (crypto fields null until M14). Builtins keep the lean v1 shape; the
       never-clobber merge is preserved. 3 unit tests (`MANIFEST.md` v2).
-- [ ] **M7c — numeric model.** Full width set (`i8…i128 u8…u128 f32 f64 dec big
-      cx`) with explicit overflow (`wrap`/`sat`/`chk`); SIMD/vector + tensor types.
+- [~] **M7c — numeric model.** _M7c-i ✅:_ fixed-width integer tags (`i8…i128
+      u8…u128`, each a `WidthTag`) + policy words `wr`/`st`/`ck` make overflow
+      explicit (new `OVERFLOW` code). _M7c-ii ✅:_ fixed-lane SIMD vectors (`f4 d2
+      i4 b16`) with `vadd`/`vsub`/`vmul`/`vsum`/`vat`; integer lanes wrap. 13 unit
+      tests + 5 v0.2 cases/errors. Remaining: `dec`/`cx` and tensors stay design-
+      only (not observable enough in the dynamic oracle; revisit with M8 types).
 - [ ] **M7d — pattern matching** + the remaining type primitives in `SPEC.md`
       Part II (crypto `Key Sig Hash NodeID`, network `~`-family + protocol-as-type,
       UI/GPU types) specified and validated where observable.
@@ -464,13 +468,15 @@ enforcement + isolation; everything else is a Zown module.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M7a (capabilities) and M7b (manifest v2) are done** — the `` ` `` sigil,
-   `gr`/`rq`/`hv`, the security `.zerr` codes, and the v2 manifest generator
-   (caps discovery + `sec`/`tele`/`i18n` + provenance block) all run in the oracle.
-2. **M7c (numeric model) is next:** full width set (`i8…i128 u8…u128 f32 f64 dec
-   big cx`) with explicit overflow (`wrap`/`sat`/`chk`) and SIMD/vector + tensor
-   types, validated in the oracle (`cases_v2/`). Then **M7d** (pattern matching +
-   remaining type primitives: crypto, network `~`-family, UI/GPU).
+1. **M7a–M7c are done** — capabilities (`` ` `` sigil, `gr`/`rq`/`hv`, security
+   `.zerr` codes), manifest v2 (caps discovery + `sec`/`tele`/`i18n` + provenance),
+   and the numeric model: fixed-width ints (`i8…u128` + `wr`/`st`/`ck`, `OVERFLOW`)
+   and fixed-lane SIMD vectors (`f4 d2 i4 b16` + `vadd`/`vsub`/`vmul`/`vsum`/`vat`).
+   All in the oracle; `conformance/v2.py` is 15 green. `dec`/`cx`/tensors are
+   design-only until the M8 type system can pin them.
+2. **M7d (next):** pattern matching + the remaining type primitives in `SPEC.md`
+   Part II (crypto `Key Sig Hash NodeID`, network `~`-family + protocol-as-type,
+   UI/GPU types) — specified and validated where observable in the oracle.
 3. **M8 (safety core):** type & capability checker — fat pointers, `[ok?|data]`,
    `! &` ownership, no-UB, static capability flow (today `rq` is a runtime check).
    Lands before codegen so it shapes the ABI.

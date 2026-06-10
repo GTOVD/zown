@@ -93,6 +93,31 @@ class WidthTag:
         return self.name
 
 
+@dataclass
+class Vec:
+    """A fixed-lane SIMD vector (v0.2; SPEC Part II §11).
+
+    Lane count and lane type are fixed by the constructor word (`f4` = f32x4,
+    `d2` = f64x2, `i4` = i32x4, `b16` = u8x16). Elementwise ops (`vadd`/`vsub`/
+    `vmul`) require matching vector types; integer lanes wrap to their width, the
+    same "no silent overflow" rule as scalar fixed-width ints.
+
+    Note: the oracle stores float lanes as Python floats (f64). It does not model
+    f32 rounding — that precision detail is deferred to the native backend (M9);
+    here the observable semantics are lane count, type compatibility, and wrap.
+    """
+
+    name: str          # "f4" | "d2" | "i4" | "b16"
+    count: int
+    is_float: bool
+    signed: bool       # meaningful only for integer lanes
+    bits: int          # 32/64 (float label) or integer lane width
+    lanes: list
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"{self.name}({len(self.lanes)})"
+
+
 def truthy(v: Any) -> bool:
     if isinstance(v, Block):
         return len(v.nodes) > 0
@@ -100,6 +125,8 @@ def truthy(v: Any) -> bool:
         return len(v) > 0
     if isinstance(v, (Cap, WidthTag)):
         return True  # a token is always a "present" value
+    if isinstance(v, Vec):
+        return len(v.lanes) > 0
     return bool(v)
 
 
@@ -211,6 +238,8 @@ def type_name(v: Any) -> str:
         return "cap"
     if isinstance(v, WidthTag):
         return "width"
+    if isinstance(v, Vec):
+        return "vec"
     if isinstance(v, int):
         return "int"
     if isinstance(v, float):
@@ -400,6 +429,8 @@ def _as_str(v: Any) -> str:
         return f"`{v.name}"
     if isinstance(v, WidthTag):
         return v.name
+    if isinstance(v, Vec):
+        return f"{v.name}({' '.join(_as_str(x) for x in v.lanes)})"
     return str(v)
 
 

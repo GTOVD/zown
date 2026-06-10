@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
-    CAP_DENIED, TYPE_MISMATCH, OVERFLOW,
+    CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP
-from zown.vm import VM, Block, Cap, WidthTag
+from zown.vm import VM, Block, Cap, WidthTag, Vec
 
 
 def run(src):
@@ -249,6 +249,50 @@ def test_width_policy_rejects_fractional_float():
         assert False
     except ZownError as e:
         assert e.code == TYPE_MISMATCH and e.op == "wr"
+
+
+# --- SIMD vectors (v0.2) -------------------------------------------------------
+def test_vec_construct_and_shape():
+    _, vm = run("[ 1 2 3 4 ] i4")
+    v = vm.stack[0]
+    assert isinstance(v, Vec) and v.name == "i4" and v.lanes == [1, 2, 3, 4]
+
+
+def test_vec_elementwise_ops():
+    _, vm = run("[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd")
+    assert vm.stack[0].lanes == [11, 22, 33, 44]
+    _, vm = run("[ 5 5 5 5 ] i4 [ 1 2 3 4 ] i4 vsub")
+    assert vm.stack[0].lanes == [4, 3, 2, 1]
+
+
+def test_vec_integer_lanes_wrap():
+    src = "[ 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16 " \
+          "[ 10 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16 vadd 0 vat"
+    _, vm = run(src)
+    assert vm.stack == [4]  # 260 wraps to 4 in u8
+
+
+def test_vec_sum_and_at():
+    _, vm = run("[ 1 2 3 4 ] i4 vsum")
+    assert vm.stack == [10]
+    _, vm = run("[ 7 8 9 10 ] i4 2 vat")
+    assert vm.stack == [9]
+
+
+def test_vec_wrong_arity_is_bounds():
+    try:
+        run("[ 1 2 3 ] i4")
+        assert False
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "i4"
+
+
+def test_vec_type_mismatch():
+    try:
+        run("[ 1 2 3 4 ] i4 [ 1.0 2.0 ] d2 vadd")
+        assert False
+    except ZownError as e:
+        assert e.code == TYPE_MISMATCH and e.op == "vadd"
 
 
 # --- manifest v2 (v0.2) --------------------------------------------------------

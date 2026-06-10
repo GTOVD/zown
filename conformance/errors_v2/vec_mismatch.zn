@@ -1,0 +1,2 @@
+# Elementwise ops require matching vector types -> TYPE_MISMATCH.
+[ 1 2 3 4 ] i4 [ 1.0 2.0 ] d2 vadd

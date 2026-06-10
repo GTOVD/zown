@@ -1,0 +1,2 @@
+# A vector constructor needs exactly its lane count -> BOUNDS otherwise.
+[ 1 2 3 ] i4

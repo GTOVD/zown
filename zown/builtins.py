@@ -218,15 +218,20 @@ def _pop_intish(vm, op: str, pos: Pos) -> int:
     return v
 
 
+def _wrap_int(n: int, signed: bool, bits: int) -> int:
+    """Reduce n into a `bits`-wide integer, two's complement if signed."""
+    mod = 1 << bits
+    m = n % mod
+    if signed and m >= (1 << (bits - 1)):
+        m -= mod
+    return m
+
+
 def b_wrap(vm, pos: Pos) -> None:
     # n width wr  -> n reduced into width modulo 2**bits (two's complement signed).
     w = _pop_width(vm, "wr", pos)
     n = _pop_intish(vm, "wr", pos)
-    mod = 1 << w.bits
-    m = n % mod
-    if w.signed and m >= (1 << (w.bits - 1)):
-        m -= mod
-    vm.push(m)
+    vm.push(_wrap_int(n, w.signed, w.bits))
 
 
 def b_sat(vm, pos: Pos) -> None:
@@ -246,6 +251,103 @@ def b_chk(vm, pos: Pos) -> None:
                      op="ck", pos=pos,
                      hint="use `wr` to wrap, `st` to saturate, or widen the type")
     vm.push(n)
+
+
+# --- SIMD vectors (v0.2; SPEC Part II §11) -------------------------------------
+# A constructor word evaluates a block to produce its lanes: `[1 2 3 4] f4`. Lane
+# count and type are fixed by the word. Integer lanes wrap to their width (the
+# same no-silent-overflow rule). Elementwise ops (vadd/vsub/vmul) require matching
+# vector types. (Ops are word-form, not `v+`: the lexer would split `v` and `+`.)
+_VECS = [
+    # name, count, is_float, signed, bits
+    ("f4", 4, True, True, 32),
+    ("d2", 2, True, True, 64),
+    ("i4", 4, False, True, 32),
+    ("b16", 16, False, False, 8),
+]
+
+
+def _coerce_lane(vm, name: str, pos: Pos, x, is_float: bool, signed: bool, bits: int):
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`{name}` lanes must be numbers, got {type_name(x)}",
+                     op=name, pos=pos)
+    if is_float:
+        return float(x)
+    if isinstance(x, float):
+        if not x.is_integer():
+            raise vm.err(TYPE_MISMATCH, f"`{name}` integer lanes need whole numbers",
+                         op=name, pos=pos)
+        x = int(x)
+    return _wrap_int(x, signed, bits)
+
+
+def _make_vec(name: str, count: int, is_float: bool, signed: bool, bits: int):
+    def handler(vm, pos: Pos) -> None:
+        from .vm import Vec
+        from .errors import BOUNDS
+        blk = vm.pop_block(name, pos)
+        saved = vm.stack
+        vm.stack = []
+        try:
+            vm.invoke(blk)
+            lanes = vm.stack
+        finally:
+            vm.stack = saved
+        if len(lanes) != count:
+            raise vm.err(BOUNDS, f"`{name}` needs {count} lanes, got {len(lanes)}",
+                         op=name, pos=pos, hint=f"the block must leave exactly {count} numbers")
+        lanes = [_coerce_lane(vm, name, pos, x, is_float, signed, bits) for x in lanes]
+        vm.push(Vec(name, count, is_float, signed, bits, lanes))
+    return handler
+
+
+def _pop_vec(vm, op: str, pos: Pos):
+    from .vm import Vec
+    v = vm.pop(op, pos)
+    if not isinstance(v, Vec):
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a vector, got {type_name(v)}",
+                     op=op, pos=pos)
+    return v
+
+
+def _make_vbinop(op: str, fn):
+    def handler(vm, pos: Pos) -> None:
+        from .vm import Vec
+        b = _pop_vec(vm, op, pos)
+        a = _pop_vec(vm, op, pos)
+        if a.name != b.name:
+            raise vm.err(TYPE_MISMATCH,
+                         f"`{op}` needs matching vector types, got {a.name} and {b.name}",
+                         op=op, pos=pos)
+        out = []
+        for x, y in zip(a.lanes, b.lanes):
+            r = fn(x, y)
+            if not a.is_float:
+                r = _wrap_int(int(r), a.signed, a.bits)
+            out.append(r)
+        vm.push(Vec(a.name, a.count, a.is_float, a.signed, a.bits, out))
+    return handler
+
+
+def b_vsum(vm, pos: Pos) -> None:
+    # vec vsum  -> horizontal sum to a scalar (exact; lane width is not re-applied).
+    v = _pop_vec(vm, "vsum", pos)
+    total = sum(v.lanes)
+    from .vm import _num_result
+    vm.push(_num_result(total) if v.is_float else total)
+
+
+def b_vat(vm, pos: Pos) -> None:
+    # vec idx vat  -> the lane at idx (BOUNDS if out of range).
+    from .errors import BOUNDS
+    idx = _pop_intish(vm, "vat", pos)
+    v = _pop_vec(vm, "vat", pos)
+    if idx < 0 or idx >= len(v.lanes):
+        raise vm.err(BOUNDS, f"lane {idx} is outside {v.name} [0..{len(v.lanes) - 1}]",
+                     op="vat", pos=pos)
+    vm.push(v.lanes[idx])
 
 
 # word -> (handler, alias, description)
@@ -277,6 +379,12 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "ck": (b_chk, "check", "n width ck -> n if it fits width, else OVERFLOW"),
 }
 
+WORDS["vadd"] = (_make_vbinop("vadd", lambda x, y: x + y), "vec_add", "elementwise add two matching vectors")
+WORDS["vsub"] = (_make_vbinop("vsub", lambda x, y: x - y), "vec_sub", "elementwise subtract two matching vectors")
+WORDS["vmul"] = (_make_vbinop("vmul", lambda x, y: x * y), "vec_mul", "elementwise multiply two matching vectors")
+WORDS["vsum"] = (b_vsum, "vec_sum", "horizontal sum of a vector's lanes to a scalar")
+WORDS["vat"] = (b_vat, "vec_at", "vec idx vat -> the lane at idx (BOUNDS if out of range)")
+
 # fixed-width integer type tags (i8..u128): each pushes a WidthTag value.
 for _name, _signed, _bits in _WIDTHS:
     _kind = "signed" if _signed else "unsigned"
@@ -285,6 +393,15 @@ for _name, _signed, _bits in _WIDTHS:
         _make_width(_signed, _bits),
         _alias,
         f"width tag: {_kind} {_bits}-bit integer",
+    )
+
+# SIMD vector constructor words: `[ ...lanes ] f4` etc.
+for _vname, _count, _isf, _vsigned, _vbits in _VECS:
+    _lane = ("f" if _isf else ("i" if _vsigned else "u")) + str(_vbits)
+    WORDS[_vname] = (
+        _make_vec(_vname, _count, _isf, _vsigned, _vbits),
+        f"{_lane}x{_count}",
+        f"build a {_lane} x{_count} SIMD vector from a block of {_count} lanes",
     )
 
 BUILTINS: dict[str, Callable[[Any, Pos], None]] = {k: v[0] for k, v in WORDS.items()}
