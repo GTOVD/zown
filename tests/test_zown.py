@@ -351,6 +351,51 @@ def test_match_op_is_two_char():
     assert [t.value for t in toks] == ["??", "?"]
 
 
+# --- static checker (M8a) ------------------------------------------------------
+def _check(src):
+    from zown.checker import check_src
+    return check_src(src, "<test>")
+
+
+def test_check_clean_program_has_no_diags():
+    assert _check("5 3 + . [ =, ] :dup2") == []
+
+
+def test_check_flags_unbound_name():
+    diags = _check("5 frobnicate .")
+    assert len(diags) == 1
+    assert diags[0].code == NAME_UNRESOLVED and diags[0].op == "frobnicate"
+
+
+def test_check_accepts_name_bound_anywhere():
+    # binding is global; a use before its textual bind still resolves
+    assert _check("x . 5 :x") == []
+
+
+def test_check_does_not_flag_builtins_or_widths():
+    assert _check("ln up 300 u8 wr [ 1 2 3 4 ] i4 vsum") == []
+
+
+def test_check_match_patterns_are_not_names():
+    # `int`/`str` inside patterns must not be reported as unbound names
+    assert _check("42 [ [int] [ , $i$ ] [str] [ , $s$ ] [_] [ , $o$ ] ] ??") == []
+
+
+def test_check_match_body_names_are_checked():
+    diags = _check("42 [ [int] [ , bogus ] [_] [ , $o$ ] ] ??")
+    assert len(diags) == 1 and diags[0].code == NAME_UNRESOLVED
+
+
+def test_check_flags_unrecognized_pattern_statically():
+    diags = _check("1 [ [ foo ] [ , $x$ ] ] ??")
+    assert len(diags) == 1 and diags[0].code == BAD_PATTERN
+
+
+def test_check_flags_odd_match_arms_statically():
+    diags = _check("1 [ [int] ] ??")
+    assert len(diags) == 1 and diags[0].code == BAD_PATTERN
+
+
 # --- manifest v2 (v0.2) --------------------------------------------------------
 def _gen_manifest(src, prior=None):
     from zown.manifest import generate, manifest_path

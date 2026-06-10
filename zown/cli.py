@@ -3,7 +3,7 @@
 Usage:
     zown <file.zn>            run a program (shorthand for `run`)
     zown run <file.zn>        run a program
-    zown check <file.zn>      parse + lint only; emit a .zerr packet on failure
+    zown check <file.zn>      static checker (M8a): name resolution + match shape
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
     zown repl                 interactive stack session
@@ -53,15 +53,29 @@ def cmd_run(args) -> int:
 
 
 def cmd_check(args) -> int:
+    from .checker import check_src
     src = _read(args.file)
     try:
-        parse(src, args.file)
-    except ZownError as e:
+        diags = check_src(src, args.file)
+    except ZownError as e:  # a lex/parse error stops the check
         e.file = e.file or args.file
         _emit_error(e, args.zerr, args.zerr_out)
         return 1
-    sys.stderr.write(f"ok: {args.file} parsed cleanly\n")
-    return 0
+    if not diags:
+        sys.stderr.write(f"ok: {args.file} — no issues\n")
+        return 0
+    if args.zerr_out:
+        with open(args.zerr_out, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps([d.packet() for d in diags], indent=2))
+            fh.write("\n")
+    if args.zerr:
+        sys.stderr.write(json.dumps([d.packet() for d in diags]) + "\n")
+    else:
+        for d in diags:
+            d.file = d.file or args.file
+            sys.stderr.write(d.render_human() + "\n")
+        sys.stderr.write(f"{len(diags)} issue(s) in {args.file}\n")
+    return 1
 
 
 def cmd_ast(args) -> int:
@@ -130,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("file")
     pr.set_defaults(func=cmd_run)
 
-    pc = sub.add_parser("check", help="parse/lint only")
+    pc = sub.add_parser("check", help="static checker: name resolution + match shape")
     pc.add_argument("file")
     pc.set_defaults(func=cmd_check)
 

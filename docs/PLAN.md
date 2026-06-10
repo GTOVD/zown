@@ -53,7 +53,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
-| M8 | Safety core (type & memory model) | ⬜ | fat ptrs, `! & ?`-tuple, no-UB, capability flow in the checker |
+| M8 | Safety core (type & memory model) | 🔄 | M8a static checker (name resolution + match shape) ✅; next: capability flow (M8b), result/ownership/no-UB (M8c) |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
@@ -304,12 +304,14 @@ M8+. Anything that cannot be observed in the oracle is documented, not coded.
 `zown check` pass runs *before* execution and shapes the ABI before codegen.
 
 **Slices**
-- [~] **M8a — checker skeleton + name resolution.** A `Checker` walks the AST and
-      emits structured `.zerr` diagnostics without running the program; `zown
-      check <file>` reports them (and `--zerr` streams the first as JSON). First
-      checks: a `name` never bound anywhere and not a builtin is a *static*
-      `NAME_UNRESOLVED`; `??` arms are validated for shape statically. This is the
-      hook every later static check plugs into.
+- [x] **M8a — checker skeleton + name resolution.** `zown/checker.py` walks the
+      AST and emits structured `.zerr` diagnostics without running the program;
+      `zown check <file>` reports all findings (a JSON array under `--zerr`). Two
+      sound checks: a `name` never bound anywhere and not a builtin is a *static*
+      `NAME_UNRESOLVED`; an arms block literally before `??` is validated for shape
+      (pairs, recognized patterns) — patterns are introspected, never resolved as
+      names. Zero false positives across the runnable corpus; 8 unit tests. This is
+      the hook every later static check plugs into.
 - [ ] **M8b — capability flow.** A `` `cap rq `` reachable with no enclosing `gr`
       is a compile-time `CAP_DENIED` (today purely a runtime check).
 - [ ] **M8c — types & memory.** Result `[ok?|data]`, ownership `! &`, no-UB.
@@ -494,10 +496,9 @@ enforcement + isolation; everything else is a Zown module.
    section is marked *implemented* or *design-only (M11/M12/M14)*.
 2. **M8 (safety core) — in progress.** The static checker that runs *before*
    execution and shapes the ABI before codegen. Slices:
-   - **M8a ✅/next:** checker skeleton + a static **name-resolution** pass
-     (`zown check`): a `name` that is never bound anywhere and is not a builtin is
-     a *static* `NAME_UNRESOLVED`, not a run-time surprise. Also flags malformed
-     `??` arms statically.
+   - **M8a ✅:** checker skeleton + a static **name-resolution** pass (`zown
+     check`): a `name` never bound anywhere and not a builtin is a *static*
+     `NAME_UNRESOLVED`, not a run-time surprise. Also flags malformed `??` arms.
    - **M8b:** static **capability flow** — a `` `cap rq `` reachable on a path with
      no enclosing `gr` is a compile-time `CAP_DENIED` (today it is a runtime check).
    - **M8c:** the result type `[ok?|data]`, ownership (`! &`), and the no-UB story.
