@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
-    CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS,
+    CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP
 from zown.vm import VM, Block, Cap, WidthTag, Vec
@@ -293,6 +293,62 @@ def test_vec_type_mismatch():
         assert False
     except ZownError as e:
         assert e.code == TYPE_MISMATCH and e.op == "vadd"
+
+
+# --- pattern matching (v0.2) ---------------------------------------------------
+def _match_label(subject_src):
+    arms = "[ [int] [ , $int$ ] [str] [ , $str$ ] [float] [ , $float$ ] " \
+           "[_] [ , $other$ ] ]"
+    _, vm = run(f"{subject_src} {arms} ??")
+    return vm.stack[-1]
+
+
+def test_match_by_type():
+    assert _match_label("42") == "int"
+    assert _match_label("$hi$") == "str"
+    assert _match_label("3.5") == "float"
+    assert _match_label("[ 1 ]") == "other"  # a block hits the default arm here
+
+
+def test_match_literal_and_subject_in_body():
+    # body runs with the matched subject on top of the stack
+    _, vm = run("7 [ [7] [ ] [_] [ , 0 ] ] ??")
+    assert vm.stack == [7]
+
+
+def test_match_first_arm_wins():
+    _, vm = run("5 [ [int] [ , $a$ ] [int] [ , $b$ ] ] ??")
+    assert vm.stack == ["a"]
+
+
+def test_match_no_arm_is_no_match():
+    try:
+        run("9 [ [1] [ , $x$ ] ] ??")
+        assert False
+    except ZownError as e:
+        assert e.code == NO_MATCH and e.op == "??"
+
+
+def test_match_odd_arms_is_bad_pattern():
+    try:
+        run("1 [ [int] ] ??")
+        assert False
+    except ZownError as e:
+        assert e.code == BAD_PATTERN and e.op == "??"
+
+
+def test_match_unknown_pattern_is_bad_pattern():
+    try:
+        run("1 [ [ foo ] [ , $x$ ] ] ??")
+        assert False
+    except ZownError as e:
+        assert e.code == BAD_PATTERN and e.op == "??"
+
+
+def test_match_op_is_two_char():
+    from zown.lexer import lex, T_OP
+    toks = [t for t in lex("a ?? b ?") if t.kind == T_OP]
+    assert [t.value for t in toks] == ["??", "?"]
 
 
 # --- manifest v2 (v0.2) --------------------------------------------------------

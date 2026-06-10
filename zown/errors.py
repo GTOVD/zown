@@ -31,6 +31,8 @@ BOUNDS = "BOUNDS"                      # index past an allocated bound
 NOT_CALLABLE = "NOT_CALLABLE"          # tried to invoke a non-block
 UNSUPPORTED = "UNSUPPORTED"            # feature not implemented in this build
 OVERFLOW = "OVERFLOW"                  # a value did not fit a checked fixed-width type
+NO_MATCH = "NO_MATCH"                  # no `??` arm matched the subject
+BAD_PATTERN = "BAD_PATTERN"            # a `??` arm or pattern is malformed
 
 # v0.2 security recovery codes (SPEC.md Part II §18). Security failures ride the
 # same structured channel as every other diagnostic so the AI control plane and

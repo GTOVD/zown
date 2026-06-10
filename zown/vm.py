@@ -409,12 +409,68 @@ def op_while(vm: VM, pos: Pos) -> None:
         vm.invoke(body)
 
 
+# Pattern kinds a `??` arm may use (SPEC Part II §16). Patterns are *introspected*
+# (read from the AST), not executed: a type name, a literal, or `_` (default).
+_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec"}
+
+
+def _pat_desc(n: Node) -> str:
+    tag = n[0]
+    if tag in ("int", "float", "str", "name", "op"):
+        return str(n[1])
+    return tag
+
+
+def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> bool:
+    from .errors import BAD_PATTERN
+    if len(pat_nodes) != 1:
+        raise vm.err(BAD_PATTERN,
+                     f"a pattern holds exactly one token, got {len(pat_nodes)}",
+                     op="??", pos=pos, hint="use [int], [42], [$txt$], or [_] (default)")
+    n = pat_nodes[0]
+    tag = n[0]
+    if tag == "op" and n[1] == "_":
+        return True  # wildcard / default arm
+    if tag in ("int", "float", "str"):
+        return subject == n[1]
+    if tag == "name" and n[1] in _PATTERN_TYPES:
+        return type_name(subject) == n[1]
+    raise vm.err(BAD_PATTERN, f"unrecognized pattern `{_pat_desc(n)}`",
+                 op="??", pos=pos,
+                 hint="a pattern is a type name, a literal, or _ (default)")
+
+
+def op_match(vm: VM, pos: Pos) -> None:
+    # subject [ [pat][body] [pat][body] ... ] ??
+    # First arm whose pattern matches runs; its body gets the subject on the stack.
+    from .errors import BAD_PATTERN, NO_MATCH
+    arms = vm.pop_block("??", pos)
+    subject = vm.pop("??", pos)
+    nodes = arms.nodes
+    if len(nodes) % 2 != 0:
+        raise vm.err(BAD_PATTERN,
+                     f"match arms are [pattern][body] pairs; got {len(nodes)} blocks",
+                     op="??", pos=pos)
+    for i in range(0, len(nodes), 2):
+        pat, body = nodes[i], nodes[i + 1]
+        if pat[0] != "blk" or body[0] != "blk":
+            raise vm.err(BAD_PATTERN, "each arm is [pattern] [body], both blocks",
+                         op="??", pos=pos)
+        if _pattern_matches(vm, subject, pat[1], pos):
+            vm.push(subject)  # the matched value is available to the body
+            vm.invoke(Block(body[1]))
+            return
+    raise vm.err(NO_MATCH, f"no arm matched the {type_name(subject)} subject",
+                 op="??", pos=pos, hint="add a default arm: [_] [ ... ]")
+
+
 _OPS: dict[str, Callable[[VM, Pos], None]] = {
     "+": op_add, "-": op_sub, "*": op_mul, "/": op_div, "%": op_mod,
     "==": op_eq, "!=": op_ne, "<": op_lt, ">": op_gt, "<=": op_le, ">=": op_ge,
     "&&": op_and, "||": op_or, "!": op_not, "_": op_neg,
     "=": op_dup, ",": op_drop, "\\": op_swap, "&": op_over,
     ".": op_print, "@": op_invoke, "?": op_select, ";": op_while,
+    "??": op_match,
 }
 
 

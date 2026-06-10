@@ -26,7 +26,7 @@ T_OP = "OP"            # any operator symbol
 T_EOF = "EOF"
 
 # Two-character operators (checked before single-char).
-TWO_CHAR_OPS = {"==", "!=", "<=", ">=", "&&", "||"}
+TWO_CHAR_OPS = {"==", "!=", "<=", ">=", "&&", "||", "??"}
 # Single-character operators.
 ONE_CHAR_OPS = set("@.,=\\&+-*/%<>!?;_")
 

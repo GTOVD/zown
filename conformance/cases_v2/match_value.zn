@@ -1,0 +1,3 @@
+# Literal patterns, and the matched subject is available to the body.
+7 [ [7] [ . ]            [_] [ , $no$ . ] ] ??   # matches 7 -> body prints the subject
+9 [ [7] [ , $seven$ . ]  [_] [ , $no$ . ] ] ??   # falls through to the default
