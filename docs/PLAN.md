@@ -52,7 +52,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M4 | Tree-walking Rust VM parity | ✅ | `zownc run` == oracle on all 20 conformance cases |
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| M7 | **Design freeze: SPEC v0.2 + oracle** | 🔄 | M7a capabilities ✅, M7b manifest v2 ✅, M7c numerics+SIMD ✅; remaining (M7d): net/UI/crypto types, pattern match |
+| M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
 | M8 | Safety core (type & memory model) | ⬜ | fat ptrs, `! & ?`-tuple, no-UB, capability flow in the checker |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
@@ -279,12 +279,20 @@ v0.2.
       i4 b16`) with `vadd`/`vsub`/`vmul`/`vsum`/`vat`; integer lanes wrap. 13 unit
       tests + 5 v0.2 cases/errors. Remaining: `dec`/`cx` and tensors stay design-
       only (not observable enough in the dynamic oracle; revisit with M8 types).
-- [ ] **M7d — pattern matching** + the remaining type primitives in `SPEC.md`
-      Part II (crypto `Key Sig Hash NodeID`, network `~`-family + protocol-as-type,
-      UI/GPU types) specified and validated where observable.
+- [x] **M7d — pattern matching.** `??` (a two-char op) dispatches `subject
+      [arms] ??` over `[pattern][body]` pairs; patterns are a type name, a literal,
+      or `_` (default); the body runs with the subject on the stack. New codes
+      `NO_MATCH`/`BAD_PATTERN`. 5 v0.2 cases/errors + 7 unit tests. The remaining
+      Part II type primitives — crypto `Key/Sig/Hash/NodeID` (§13), network
+      `~`-family (§14), UI/GPU (§15) — are **design-only**: they need real crypto/
+      I/O/rendering a pure stack oracle can't exhibit honestly, so they are frozen
+      in the spec (with target milestones M14/M11/M12) and not coded. Tuple
+      destructuring waits on compound value types.
 
-**Acceptance:** `SPEC.md` Part II complete and internally consistent; the oracle
-implements every semantically-observable addition; `conformance/v2.py` green.
+**Acceptance (met):** `SPEC.md` Part II is complete and internally consistent —
+every section is marked *implemented (oracle)* or *design-only (M…)*; the oracle
+implements every semantically-observable addition (capabilities, fixed-width +
+SIMD numerics, pattern matching); `conformance/v2.py` is green (20 cases/errors).
 
 **Risks:** scope creep. Mitigation: types/semantics only — implementations are
 M8+. Anything that cannot be observed in the oracle is documented, not coded.
@@ -292,9 +300,21 @@ M8+. Anything that cannot be observed in the oracle is documented, not coded.
 ---
 
 ### M8 — Safety core (type & memory model)
-**Goal:** make the "unhackable" guarantees real in the checker + runtime.
+**Goal:** make the "unhackable" guarantees real in the checker + runtime. A
+`zown check` pass runs *before* execution and shapes the ABI before codegen.
 
-**Tasks**
+**Slices**
+- [~] **M8a — checker skeleton + name resolution.** A `Checker` walks the AST and
+      emits structured `.zerr` diagnostics without running the program; `zown
+      check <file>` reports them (and `--zerr` streams the first as JSON). First
+      checks: a `name` never bound anywhere and not a builtin is a *static*
+      `NAME_UNRESOLVED`; `??` arms are validated for shape statically. This is the
+      hook every later static check plugs into.
+- [ ] **M8b — capability flow.** A `` `cap rq `` reachable with no enclosing `gr`
+      is a compile-time `CAP_DENIED` (today purely a runtime check).
+- [ ] **M8c — types & memory.** Result `[ok?|data]`, ownership `! &`, no-UB.
+
+**Tasks (later slices)**
 - [ ] Fat-pointer descriptors `[base|bounds|perms]` as the only reference type.
 - [ ] Compile-time null elimination: fallible ops yield `[ok? | data]`; `?` must
       consume before data is reachable.
@@ -468,19 +488,20 @@ enforcement + isolation; everything else is a Zown module.
   backend, not the oracle, until the spec says otherwise.
 
 ## Immediate next actions (pick up here)
-1. **M7a–M7c are done** — capabilities (`` ` `` sigil, `gr`/`rq`/`hv`, security
-   `.zerr` codes), manifest v2 (caps discovery + `sec`/`tele`/`i18n` + provenance),
-   and the numeric model: fixed-width ints (`i8…u128` + `wr`/`st`/`ck`, `OVERFLOW`)
-   and fixed-lane SIMD vectors (`f4 d2 i4 b16` + `vadd`/`vsub`/`vmul`/`vsum`/`vat`).
-   All in the oracle; `conformance/v2.py` is 15 green. `dec`/`cx`/tensors are
-   design-only until the M8 type system can pin them.
-2. **M7d (next):** pattern matching + the remaining type primitives in `SPEC.md`
-   Part II (crypto `Key Sig Hash NodeID`, network `~`-family + protocol-as-type,
-   UI/GPU types) — specified and validated where observable in the oracle.
-3. **M8 (safety core):** type & capability checker — fat pointers, `[ok?|data]`,
-   `! &` ownership, no-UB, static capability flow (today `rq` is a runtime check).
-   Lands before codegen so it shapes the ABI.
-4. **M9 (native backend):** Cranelift first (pure-Rust, ms JIT for hot-swap), LLVM
+1. **M7 is complete** — the v0.2 design freeze is done in the oracle: capabilities
+   (M7a), manifest v2 (M7b), the numeric model (M7c: fixed-width ints + SIMD), and
+   pattern matching (M7d). `conformance/v2.py` is 20 green. Every `SPEC.md` Part II
+   section is marked *implemented* or *design-only (M11/M12/M14)*.
+2. **M8 (safety core) — in progress.** The static checker that runs *before*
+   execution and shapes the ABI before codegen. Slices:
+   - **M8a ✅/next:** checker skeleton + a static **name-resolution** pass
+     (`zown check`): a `name` that is never bound anywhere and is not a builtin is
+     a *static* `NAME_UNRESOLVED`, not a run-time surprise. Also flags malformed
+     `??` arms statically.
+   - **M8b:** static **capability flow** — a `` `cap rq `` reachable on a path with
+     no enclosing `gr` is a compile-time `CAP_DENIED` (today it is a runtime check).
+   - **M8c:** the result type `[ok?|data]`, ownership (`! &`), and the no-UB story.
+3. **M9 (native backend):** Cranelift first (pure-Rust, ms JIT for hot-swap), LLVM
    later for `-O`/bare metal. Reuse the IR + tagged-value model; SIMD; deterministic.
-5. **Carry-over (independent):** upgrade `$fmt_f64` to a shortest round-tripping
+4. **Carry-over (independent):** upgrade `$fmt_f64` to a shortest round-tripping
    formatter (Ryu/Grisu) so arbitrary floats match the oracle, not just dyadic ones.

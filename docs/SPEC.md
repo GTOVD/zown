@@ -404,7 +404,13 @@ type-checked flow arrive with M8 (the safety core); today `rq` is a runtime chec
 constant-time `ct-eq`, a single secure-RNG primitive (distinct type from the
 fast non-secure PRNG), and capability-level rate limiting.
 
-## 13. Crypto & identity types
+## 13. Crypto & identity types — *design-only (M14)*
+
+> Frozen here, **not** in the oracle: faithful `Key`/`Sig`/`NodeID` need real
+> Ed25519/X25519/BLAKE3, which a pure stack interpreter cannot exhibit honestly
+> (a stand-in would mislead on a security-critical surface). These land with the
+> network/security phase (M14); the *semantics* are fixed now so M8's type system
+> can reserve them.
 
 First-class types the type system understands (not raw byte arrays):
 
@@ -418,7 +424,11 @@ First-class types the type system understands (not raw byte arrays):
 Defaults are fixed and hard to misuse: BLAKE3 (hash), ChaCha20-Poly1305
 (symmetric), Ed25519 (sign), X25519 (exchange). One algorithm per purpose.
 
-## 14. Network primitives (`~` family) & protocol-as-type
+## 14. Network primitives (`~` family) & protocol-as-type — *design-only (M11/M14)*
+
+> The `~` family is reserved (Part I §5) but unimplemented: real streams, the
+> mesh, and protocol-as-type checking need I/O and the type system, not the
+> oracle. The token allocation and semantics are frozen here.
 
 The reserved `~` family (Part I §5) becomes the network/lane surface. A connection
 targets an **interface**, not an IP; the runtime resolves which peer provides it
@@ -446,7 +456,11 @@ proto Store [ get:[Hash]->[val?]  put:[Hash val]->[ok|err] ]
 Content addresses are written `$zown:<hash>$`; mutable refs are
 `$zown:<pubkey>$` (latest signed version). `~f` fetch / `~p` publish operate on them.
 
-## 15. Native UI & GPU types
+## 15. Native UI & GPU types — *design-only (M12)*
+
+> Frozen here, not in the oracle: a retained scene graph, typed style values, and
+> ZownGPU resources need a renderer. The type vocabulary is fixed so the manifest
+> and type system can carry it.
 
 UI is **typed data**, not markup (no HTML/CSS; `DESIGN.md` §4). A layout node is a
 dense word + a style block + a children block. Style values are **typed** (`Color`
@@ -471,18 +485,31 @@ Accessibility (`role`/`label`/`hotkey`/`hint`) and i18n (translation keys, BiDi,
 CLDR plurals) are node-type fields, carried in the manifest. Shaders are written in
 a **Zown subset**, not GLSL/WGSL.
 
-## 16. Pattern matching
+## 16. Pattern matching — **implemented (M7d, oracle)**
 
-Structural matching over the type system (type / value / shape), destructuring in
-one expression — eliminates a class of control-flow bugs. Provisional dense form
-reuses block selection; final syntax pending the density audit:
+Structural matching over the type system, dispatching in one expression. The form
+is `subject [arms] ??`, where `arms` is a block of `[pattern] [body]` pairs. The
+first arm whose pattern matches runs, **with the matched subject left on the
+stack** for the body to use; if none matches, a structured `NO_MATCH` is raised
+(add a default arm). Patterns are *introspected* — `??` reads the pattern's AST,
+it never executes it.
 
 ```
-v [ [int]   [ ... ]      # matches an int, binds it
-    [str]   [ ... ]
-    [a b]   [ ... ]      # destructures a 2-tuple
-    [_]     [ ... ] ] ?? # default arm
+42 [ [int]   [ , $an int$ . ]      # type pattern: int/float/str/bool/block/cap/width/vec
+     [str]   [ up . ]              # body sees the subject (here: uppercase it)
+     [7]     [ , $seven$ . ]       # literal pattern (int/float/str)
+     [_]     [ , $other$ . ] ] ??  # _ is the default arm
 ```
+
+| Pattern | Matches |
+|---------|---------|
+| `[int]` … `[vec]` | a value of that type (`type_name`) |
+| `[42]` `[$hi$]` | a value equal to the literal |
+| `[_]` | anything (default) |
+
+Malformed arms (odd count, a non-block arm, or an unrecognized pattern token)
+raise `BAD_PATTERN`. **Destructuring** (`[a b]` over a tuple) stays design-only
+until compound value types land — there is no tuple type in v0.2 yet.
 
 ## 17. Reserved-symbol allocation (updated)
 
