@@ -176,6 +176,78 @@ def b_have(vm, pos: Pos) -> None:
     vm.push(1 if cap.name in vm.caps else 0)
 
 
+# --- fixed-width integers (v0.2; SPEC Part II §11) -----------------------------
+# The default Zown int is arbitrary precision. A width tag (i8..u128) plus a
+# policy word makes overflow explicit: `wr` wraps (two's complement), `st`
+# saturates to the width's range, `ck` traps with OVERFLOW if the value won't fit.
+_WIDTHS = [
+    ("i8", True, 8), ("i16", True, 16), ("i32", True, 32), ("i64", True, 64),
+    ("i128", True, 128),
+    ("u8", False, 8), ("u16", False, 16), ("u32", False, 32), ("u64", False, 64),
+    ("u128", False, 128),
+]
+
+
+def _make_width(signed: bool, bits: int):
+    def handler(vm, pos: Pos) -> None:
+        from .vm import WidthTag
+        vm.push(WidthTag(signed, bits))
+    return handler
+
+
+def _pop_width(vm, op: str, pos: Pos):
+    from .vm import WidthTag
+    w = vm.pop(op, pos)
+    if not isinstance(w, WidthTag):
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a width tag (i8..u128) on top",
+                     op=op, pos=pos, hint="push a width like u8 before the policy word")
+    return w
+
+
+def _pop_intish(vm, op: str, pos: Pos) -> int:
+    v = vm.pop(op, pos)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected an integer, got {type_name(v)}",
+                     op=op, pos=pos)
+    if isinstance(v, float):
+        if not v.is_integer():
+            raise vm.err(TYPE_MISMATCH, f"`{op}` expected an integer, got a fractional float",
+                         op=op, pos=pos, hint="round/floor first, or use a float op")
+        v = int(v)
+    return v
+
+
+def b_wrap(vm, pos: Pos) -> None:
+    # n width wr  -> n reduced into width modulo 2**bits (two's complement signed).
+    w = _pop_width(vm, "wr", pos)
+    n = _pop_intish(vm, "wr", pos)
+    mod = 1 << w.bits
+    m = n % mod
+    if w.signed and m >= (1 << (w.bits - 1)):
+        m -= mod
+    vm.push(m)
+
+
+def b_sat(vm, pos: Pos) -> None:
+    # n width st  -> n clamped to the width's [lo..hi].
+    w = _pop_width(vm, "st", pos)
+    n = _pop_intish(vm, "st", pos)
+    vm.push(w.lo if n < w.lo else w.hi if n > w.hi else n)
+
+
+def b_chk(vm, pos: Pos) -> None:
+    # n width ck  -> n unchanged if it fits the width, else a structured OVERFLOW.
+    from .errors import OVERFLOW
+    w = _pop_width(vm, "ck", pos)
+    n = _pop_intish(vm, "ck", pos)
+    if n < w.lo or n > w.hi:
+        raise vm.err(OVERFLOW, f"{n} does not fit {w.name} [{w.lo}..{w.hi}]",
+                     op="ck", pos=pos,
+                     hint="use `wr` to wrap, `st` to saturate, or widen the type")
+    vm.push(n)
+
+
 # word -> (handler, alias, description)
 WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "ln": (b_len, "length", "length of a string (chars) or block (nodes)"),
@@ -200,6 +272,19 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "gr": (b_grant, "grant", "`cap [body] gr -> run body with `cap granted, then restore"),
     "rq": (b_require, "require", "`cap rq -> assert capability is granted (CAP_DENIED if not)"),
     "hv": (b_have, "have", "`cap hv -> push 1 if capability is granted, else 0"),
+    "wr": (b_wrap, "wrap", "n width wr -> n wrapped into width (two's complement)"),
+    "st": (b_sat, "saturate", "n width st -> n clamped to width's [min..max]"),
+    "ck": (b_chk, "check", "n width ck -> n if it fits width, else OVERFLOW"),
 }
+
+# fixed-width integer type tags (i8..u128): each pushes a WidthTag value.
+for _name, _signed, _bits in _WIDTHS:
+    _kind = "signed" if _signed else "unsigned"
+    _alias = ("int" if _signed else "uint") + str(_bits)
+    WORDS[_name] = (
+        _make_width(_signed, _bits),
+        _alias,
+        f"width tag: {_kind} {_bits}-bit integer",
+    )
 
 BUILTINS: dict[str, Callable[[Any, Pos], None]] = {k: v[0] for k, v in WORDS.items()}

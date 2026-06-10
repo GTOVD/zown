@@ -30,6 +30,7 @@ DIV_ZERO = "DIV_ZERO"                  # division / modulo by zero
 BOUNDS = "BOUNDS"                      # index past an allocated bound
 NOT_CALLABLE = "NOT_CALLABLE"          # tried to invoke a non-block
 UNSUPPORTED = "UNSUPPORTED"            # feature not implemented in this build
+OVERFLOW = "OVERFLOW"                  # a value did not fit a checked fixed-width type
 
 # v0.2 security recovery codes (SPEC.md Part II §18). Security failures ride the
 # same structured channel as every other diagnostic so the AI control plane and
@@ -110,12 +111,14 @@ class ZownError(Exception):
 
 def _snap(v: Any) -> Any:
     """Compact, JSON-safe snapshot of a stack value."""
-    from .vm import Block, Cap  # local import to avoid a cycle
+    from .vm import Block, Cap, WidthTag  # local import to avoid a cycle
 
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
     if isinstance(v, Cap):
         return f"`{v.name}"
+    if isinstance(v, WidthTag):
+        return v.name
     if isinstance(v, (int, float, str, bool)) or v is None:
         return v
     return repr(v)

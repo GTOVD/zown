@@ -64,13 +64,42 @@ class Cap:
         return f"`{self.name}"
 
 
+@dataclass
+class WidthTag:
+    """A fixed-width integer type tag (v0.2; SPEC Part II §11).
+
+    The default Zown integer is arbitrary precision. A `WidthTag` (pushed by words
+    `i8 i16 i32 i64 i128 u8 u16 u32 u64 u128`) names a bounded representation; the
+    policy words `wr`/`st`/`ck` then reduce a value into that width. Overflow is
+    therefore *never silent* — it is always wrap, saturate, or a checked trap.
+    """
+
+    signed: bool
+    bits: int
+
+    @property
+    def name(self) -> str:
+        return f"{'i' if self.signed else 'u'}{self.bits}"
+
+    @property
+    def lo(self) -> int:
+        return -(1 << (self.bits - 1)) if self.signed else 0
+
+    @property
+    def hi(self) -> int:
+        return (1 << (self.bits - 1)) - 1 if self.signed else (1 << self.bits) - 1
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return self.name
+
+
 def truthy(v: Any) -> bool:
     if isinstance(v, Block):
         return len(v.nodes) > 0
     if isinstance(v, str):
         return len(v) > 0
-    if isinstance(v, Cap):
-        return True  # a capability token is always a "present" value
+    if isinstance(v, (Cap, WidthTag)):
+        return True  # a token is always a "present" value
     return bool(v)
 
 
@@ -180,6 +209,8 @@ def type_name(v: Any) -> str:
         return "block"
     if isinstance(v, Cap):
         return "cap"
+    if isinstance(v, WidthTag):
+        return "width"
     if isinstance(v, int):
         return "int"
     if isinstance(v, float):
@@ -367,6 +398,8 @@ def _as_str(v: Any) -> str:
         return f"[blk:{len(v.nodes)}]"
     if isinstance(v, Cap):
         return f"`{v.name}"
+    if isinstance(v, WidthTag):
+        return v.name
     return str(v)
 
 

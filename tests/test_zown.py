@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
-    CAP_DENIED, TYPE_MISMATCH,
+    CAP_DENIED, TYPE_MISMATCH, OVERFLOW,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP
-from zown.vm import VM, Block, Cap
+from zown.vm import VM, Block, Cap, WidthTag
 
 
 def run(src):
@@ -198,6 +198,57 @@ def test_require_needs_a_capability_value():
         assert False
     except ZownError as e:
         assert e.code == TYPE_MISMATCH and e.op == "rq"
+
+
+# --- fixed-width numerics (v0.2) -----------------------------------------------
+def test_width_tag_pushes_value():
+    _, vm = run("u8")
+    assert vm.stack == [WidthTag(False, 8)]
+    _, vm = run("i16")
+    assert vm.stack == [WidthTag(True, 16)] and vm.stack[0].lo == -32768
+
+
+def test_wrap_two_complement():
+    for src, want in [("300 u8 wr", 44), ("1 _ u8 wr", 255), ("128 i8 wr", -128),
+                      ("65536 u16 wr", 0), ("255 u8 wr", 255)]:
+        _, vm = run(src)
+        assert vm.stack == [want], (src, vm.stack)
+
+
+def test_saturate_clamps():
+    for src, want in [("300 u8 st", 255), ("1 _ u8 st", 0), ("200 _ i8 st", -128),
+                      ("200 i8 st", 127), ("50 i8 st", 50)]:
+        _, vm = run(src)
+        assert vm.stack == [want], (src, vm.stack)
+
+
+def test_check_passes_in_range():
+    _, vm = run("127 i8 ck 255 u8 ck")
+    assert vm.stack == [127, 255]
+
+
+def test_check_overflow_is_structured():
+    try:
+        run("256 u8 ck")
+        assert False
+    except ZownError as e:
+        assert e.code == OVERFLOW and e.op == "ck"
+
+
+def test_width_policy_needs_a_width_tag():
+    try:
+        run("5 wr")
+        assert False
+    except ZownError as e:
+        assert e.code == TYPE_MISMATCH and e.op == "wr"
+
+
+def test_width_policy_rejects_fractional_float():
+    try:
+        run("3.5 u8 wr")
+        assert False
+    except ZownError as e:
+        assert e.code == TYPE_MISMATCH and e.op == "wr"
 
 
 # --- manifest v2 (v0.2) --------------------------------------------------------

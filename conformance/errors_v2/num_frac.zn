@@ -1,0 +1,2 @@
+# Width policies are integer-only: a fractional float is a TYPE_MISMATCH.
+3.5 u8 wr
