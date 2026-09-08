@@ -220,11 +220,23 @@ recovery **code**, the source position, a **stack snapshot**, and a dense
 emit JSON instead of the human form.
 
 Recovery codes: `REPAIR_SYNTAX`, `STACK_UNDERFLOW`, `TYPE_MISMATCH`,
-`NAME_UNRESOLVED`, `DIV_ZERO`, `BOUNDS`, `NOT_CALLABLE`, `UNSUPPORTED`.
+`NAME_UNRESOLVED`, `DIV_ZERO`, `BOUNDS`, `NOT_CALLABLE`, `UNSUPPORTED`
+(v0.1), plus `OVERFLOW`, `NO_MATCH`, `BAD_PATTERN` and the security codes of
+§18 (v0.2). `kind` is `lex`, `parse`, `run`, `sec` (security), or `check`
+(a static finding from the checker, §12/§16 — emitted *before* execution).
+
+**Check-before-run.** `zown run` is gated by the static checker: a program with
+any static finding is **rejected before a single node executes**, the findings
+are reported as `check` packets (a JSON array under `--zerr`), and the process
+exits with status **2**. Status 1 is a lex/parse/runtime `.zerr`; 0 is success.
+The distinct status lets a pipeline route a rejected program back for rework
+rather than treating it as a crash. `--unchecked` bypasses the gate for
+debugging only. (The reference VM API, `VM.run_src`, is the *runtime* oracle and
+is not gated; the conformance runners exercise it directly.)
 
 ```json
 {
-  "zerr": "0.1",
+  "zerr": "0.2",
   "kind": "run",
   "code": "STACK_UNDERFLOW",
   "msg": "`+` needs a value but the stack is empty",

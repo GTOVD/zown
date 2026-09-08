@@ -29,11 +29,12 @@ pushes it, and `@` runs it.
 No dependencies — just Python 3.10+.
 
 ```bash
-# run a program
+# run a program (the static checker runs first; a program it faults is
+# rejected with exit status 2 before anything executes)
 python3 bin/zown examples/hello.zn
 python3 bin/zown examples/fizzbuzz.zn
 
-# static checker (no execution): unresolved names, malformed `??` arms,
+# static checker only (no execution): unresolved names, malformed `??` arms,
 # capability requirements that can never be satisfied
 python3 bin/zown check examples/fib.zn
 

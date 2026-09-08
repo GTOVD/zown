@@ -2,15 +2,25 @@
 
 Usage:
     zown <file.zn>            run a program (shorthand for `run`)
-    zown run <file.zn>        run a program
+    zown run <file.zn>        check, then run a program
     zown check <file.zn>      static checker (M8): names, match shape, capability flow
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
     zown repl                 interactive stack session
 
-Errors are printed in a human form by default, or as a JSON .zerr packet with
+`run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
+with any static finding is rejected before a single node executes. The findings
+are reported exactly as `check` reports them, and the process exits with status
+2 so a pipeline can tell "rejected by the checker — rework the code" apart from
+a lex/parse/runtime `.zerr` (status 1) and success (0). `--unchecked` skips the
+gate; it exists to observe the runtime behavior of a rejected program (e.g. to
+compare a static diagnosis with the runtime packet) and is not for production.
+
+Errors are printed in a human form by default, or as JSON .zerr packets with
 --zerr (and optionally written to a file with --zerr-out PATH) so an AI agent can
-consume them directly.
+consume them directly. A static rejection is a JSON *array* of packets.
+
+Exit codes:  0 ok · 1 lex/parse/runtime error · 2 rejected by the static checker
 """
 
 from __future__ import annotations
@@ -40,30 +50,14 @@ def _emit_error(e: ZownError, as_json: bool, zerr_out: str | None) -> None:
         sys.stderr.write(e.render_human() + "\n")
 
 
-def cmd_run(args) -> int:
-    src = _read(args.file)
-    vm = VM(file=args.file)
-    try:
-        vm.run_src(src)
-    except ZownError as e:
-        e.file = e.file or args.file
-        _emit_error(e, args.zerr, args.zerr_out)
-        return 1
-    return 0
+EXIT_OK, EXIT_ERROR, EXIT_REJECTED = 0, 1, 2
 
 
-def cmd_check(args) -> int:
-    from .checker import check_src
-    src = _read(args.file)
-    try:
-        diags = check_src(src, args.file)
-    except ZownError as e:  # a lex/parse error stops the check
-        e.file = e.file or args.file
-        _emit_error(e, args.zerr, args.zerr_out)
-        return 1
-    if not diags:
-        sys.stderr.write(f"ok: {args.file} — no issues\n")
-        return 0
+def _emit_diags(diags: list[ZownError], args, tail: str) -> None:
+    """Report static-checker findings: a JSON array under --zerr (and to
+    --zerr-out), else the human form of each followed by `tail`."""
+    for d in diags:
+        d.file = d.file or args.file
     if args.zerr_out:
         with open(args.zerr_out, "w", encoding="utf-8") as fh:
             fh.write(json.dumps([d.packet() for d in diags], indent=2))
@@ -72,10 +66,53 @@ def cmd_check(args) -> int:
         sys.stderr.write(json.dumps([d.packet() for d in diags]) + "\n")
     else:
         for d in diags:
-            d.file = d.file or args.file
             sys.stderr.write(d.render_human() + "\n")
-        sys.stderr.write(f"{len(diags)} issue(s) in {args.file}\n")
-    return 1
+        sys.stderr.write(tail + "\n")
+
+
+def _static_check(src: str, args) -> tuple[list[ZownError], int | None]:
+    """Run the checker. Returns (diags, None) or ([], exit_code) when a lex/parse
+    error stopped the check (already reported)."""
+    from .checker import check_src
+    try:
+        return check_src(src, args.file), None
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return [], EXIT_ERROR
+
+
+def cmd_run(args) -> int:
+    src = _read(args.file)
+    if not getattr(args, "unchecked", False):
+        diags, code = _static_check(src, args)
+        if code is not None:
+            return code
+        if diags:
+            _emit_diags(diags, args,
+                        f"rejected: {args.file} — {len(diags)} issue(s) found by the "
+                        f"static checker; not run (--unchecked overrides)")
+            return EXIT_REJECTED
+    vm = VM(file=args.file)
+    try:
+        vm.run_src(src)
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    return EXIT_OK
+
+
+def cmd_check(args) -> int:
+    src = _read(args.file)
+    diags, code = _static_check(src, args)
+    if code is not None:
+        return code
+    if not diags:
+        sys.stderr.write(f"ok: {args.file} — no issues\n")
+        return EXIT_OK
+    _emit_diags(diags, args, f"{len(diags)} issue(s) in {args.file}")
+    return EXIT_REJECTED
 
 
 def cmd_ast(args) -> int:
@@ -138,9 +175,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zown", description="Zown language toolchain (reference build)")
     p.add_argument("--zerr", action="store_true", help="emit errors as JSON .zerr packets")
     p.add_argument("--zerr-out", metavar="PATH", help="also write the .zerr packet to PATH")
+    p.add_argument("--unchecked", action="store_true",
+                   help="run without the static check gate (debugging aid; exit 2 otherwise "
+                        "rejects a program the checker faults)")
     sub = p.add_subparsers(dest="cmd")
 
-    pr = sub.add_parser("run", help="run a program")
+    pr = sub.add_parser("run", help="static-check, then run a program (exit 2 if rejected)")
     pr.add_argument("file")
     pr.set_defaults(func=cmd_run)
 

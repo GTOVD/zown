@@ -479,6 +479,53 @@ def test_check_corpus_has_no_false_positives():
         assert diags == [], (f, [(d.code, d.op) for d in diags])
 
 
+# --- cli: `run` is gated by `check` (M8c-0, D2) --------------------------------
+def _cli(argv, src):
+    """Run the CLI on a temp program; return (exit_code, stdout, stderr)."""
+    import contextlib
+    from zown.cli import main
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "prog.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = main(argv + [path])
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_cli_run_refuses_a_program_the_checker_faults():
+    code, out, err = _cli(["--zerr", "run"], "`s rq $never$ .")
+    assert code == 2                                   # rejected, distinct from a runtime error
+    assert out == ""                                   # nothing executed
+    pkts = json.loads(err)
+    assert isinstance(pkts, list) and pkts[0]["code"] == CAP_DENIED
+    assert pkts[0]["kind"] == "check" and pkts[0]["zerr"] == "0.2"
+
+
+def test_cli_run_clean_program_executes():
+    code, out, err = _cli(["run"], "[$hi$.]:h h@")
+    assert code == 0 and out == "hi\n" and err == ""
+
+
+def test_cli_run_unchecked_reaches_the_runtime_error():
+    code, out, err = _cli(["--unchecked", "--zerr", "run"], "`s rq")
+    assert code == 1
+    pkt = json.loads(err)
+    assert pkt["code"] == CAP_DENIED and pkt["kind"] == "sec"   # the runtime packet
+
+
+def test_cli_run_shorthand_is_gated_too():
+    code, _, err = _cli(["--zerr"], "zz .")           # `zown file.zn` == `zown run file.zn`
+    assert code == 2 and json.loads(err)[0]["code"] == NAME_UNRESOLVED
+
+
+def test_cli_check_exit_codes():
+    assert _cli(["check"], "1 2 + .")[0] == 0
+    assert _cli(["check"], "zz")[0] == 2
+    assert _cli(["check"], "[ 1 2")[0] == 1            # a parse error is not a static finding
+
+
 # --- manifest v2 (v0.2) --------------------------------------------------------
 def _gen_manifest(src, prior=None):
     from zown.manifest import generate, manifest_path

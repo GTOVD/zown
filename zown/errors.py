@@ -18,7 +18,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-ZERR_VERSION = "0.1"
+# Packet schema version. 0.2 (PLAN M8c-0, decision D5): adds the optional `cap`
+# field on security packets and the `check` kind for static findings. Consumers
+# key off `code`/`kind`; the version is informational.
+ZERR_VERSION = "0.2"
 
 # Deterministic recovery codes. An AI agent keys its repair strategy off these
 # rather than parsing free-form text.
@@ -61,7 +64,7 @@ class ZownError(Exception):
 
     code: str
     msg: str
-    kind: str = "run"  # lex | parse | run | sec
+    kind: str = "run"  # lex | parse | run | sec | check (static, from `zown check`)
     op: str | None = None
     pos: Pos | None = None
     stack: list[Any] = field(default_factory=list)
