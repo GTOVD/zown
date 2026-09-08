@@ -1,0 +1,3 @@
+# int ** int that cannot fit the checked int is refused up front (no giant is
+# computed); `2 b 100 pw` is the exact big alternative.
+2 100 pw

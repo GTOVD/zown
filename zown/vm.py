@@ -34,11 +34,14 @@ from .errors import (
     DIV_ZERO,
     NAME_UNRESOLVED,
     NOT_CALLABLE,
+    OVERFLOW,
     STACK_UNDERFLOW,
     TYPE_MISMATCH,
+    UB_TRAP,
     Pos,
     ZownError,
 )
+from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
 
 
@@ -50,6 +53,23 @@ class Block:
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"Block(len={len(self.nodes)})"
+
+
+@dataclass
+class Big:
+    """An arbitrary-precision integer (v0.2; SPEC Part II §11, decision D1).
+
+    The default `int` is a *checked* 64-bit integer: an int-typed result outside
+    [INT_MIN, INT_MAX] is a structured OVERFLOW, never a silent wrap. `big` is the
+    explicit opt-in to unbounded precision — `n b` or `$digits$ b` — and any
+    arithmetic touching a big stays big (and exact). Mixing with a float gives a
+    float (IEEE-754), the same promotion rule as int.
+    """
+
+    v: int
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"Big({self.v})"
 
 
 @dataclass
@@ -93,6 +113,14 @@ class WidthTag:
     def hi(self) -> int:
         return (1 << (self.bits - 1)) - 1 if self.signed else (1 << self.bits) - 1
 
+    @property
+    def fits_int(self) -> bool:
+        """Does the width's *entire* range fit the checked 64-bit `int`? A policy
+        word (`wr`/`st`/`ck`) yields an `int` for such widths (i8..i64, u8..u32)
+        and a `big` otherwise (u64, i128, u128) — the type is decided by the
+        width, not by the value, so it is static."""
+        return self.lo >= INT_MIN and self.hi <= INT_MAX
+
     def __repr__(self) -> str:  # pragma: no cover
         return self.name
 
@@ -131,7 +159,24 @@ def truthy(v: Any) -> bool:
         return True  # a token is always a "present" value
     if isinstance(v, Vec):
         return len(v.lanes) > 0
+    if isinstance(v, Big):
+        return v.v != 0
     return bool(v)
+
+
+# --- numeric model helpers (SPEC §1/§11) ----------------------------------------
+def is_num(v: Any) -> bool:
+    """int (checked i64), float (IEEE-754), or big — never bool."""
+    return not isinstance(v, bool) and isinstance(v, (int, float, Big))
+
+
+def ival(v: Any) -> Any:
+    """Unwrap a big to its Python int; other values pass through."""
+    return v.v if isinstance(v, Big) else v
+
+
+def fits_int(n: int) -> bool:
+    return INT_MIN <= n <= INT_MAX
 
 
 class VM:
@@ -158,12 +203,42 @@ class VM:
                            op=op, pos=pos, hint="push a value before this operator")
         return self.stack.pop()
 
-    def pop_num(self, op: str, pos: Pos | None = None) -> float | int:
+    def pop_num(self, op: str, pos: Pos | None = None) -> Any:
+        """Pop an int, float, or big (TYPE_MISMATCH otherwise)."""
         v = self.pop(op, pos)
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        if not is_num(v):
             raise self.err(TYPE_MISMATCH, f"`{op}` expected a number, got {type_name(v)}",
                            op=op, pos=pos, hint="this operator only works on numbers")
         return v
+
+    # --- numeric results (SPEC §11: overflow is never silent) -------------------
+    def int_result(self, op: str, pos: Pos | None, n: int) -> int:
+        """An int-typed result must fit the checked 64-bit int, else OVERFLOW."""
+        if not fits_int(n):
+            raise self.err(OVERFLOW, f"`{op}` result {n} does not fit int "
+                           f"[{INT_MIN}..{INT_MAX}]", op=op, pos=pos,
+                           hint="convert an operand with `b` for arbitrary-precision big math")
+        return n
+
+    def to_float(self, op: str, pos: Pos | None, v: Any) -> float:
+        """Promote a number to float; a big beyond the float range is OVERFLOW."""
+        if isinstance(v, Big):
+            try:
+                return float(v.v)
+            except OverflowError:
+                raise self.err(OVERFLOW, f"`{op}`: big value is too large for a float",
+                               op=op, pos=pos, hint="keep the computation in big (no float operand)")
+        return float(v)
+
+    def int_from_float(self, op: str, pos: Pos | None, f: float) -> int:
+        """Convert a whole float to int: nan is a UB_TRAP, ±inf an OVERFLOW, and a
+        finite value beyond the int range an OVERFLOW (never a garbage int)."""
+        if f != f:
+            raise self.err(UB_TRAP, f"`{op}` cannot convert nan to an integer", op=op, pos=pos,
+                           hint="guard with a comparison: nan is not equal to itself")
+        if f in (float("inf"), float("-inf")):
+            raise self.err(OVERFLOW, f"`{op}` cannot convert {f} to an integer", op=op, pos=pos)
+        return self.int_result(op, pos, int(f))
 
     def pop_block(self, op: str, pos: Pos | None = None) -> Block:
         v = self.pop(op, pos)
@@ -244,6 +319,8 @@ def type_name(v: Any) -> str:
         return "width"
     if isinstance(v, Vec):
         return "vec"
+    if isinstance(v, Big):
+        return "big"
     if isinstance(v, int):
         return "int"
     if isinstance(v, float):
@@ -254,11 +331,26 @@ def type_name(v: Any) -> str:
 
 
 # --- operator implementations --------------------------------------------------
-def _num_result(v: float) -> Any:
-    """Collapse whole floats produced by int math back to int."""
-    if isinstance(v, float) and v.is_integer():
+def _num_result(v: Any) -> Any:
+    """Collapse a whole float produced by numeric math back to int — only when it
+    fits the checked int; larger whole floats (and inf/nan) stay floats."""
+    if isinstance(v, float) and v.is_integer() and fits_int(int(v)):
         return int(v)
     return v
+
+
+def _numeric(vm: VM, op: str, pos: Pos, a: Any, b: Any, fn) -> Any:
+    """Binary arithmetic with Zown's promotion rule (SPEC §11):
+       int ∘ int   -> int   (checked: OVERFLOW if the result leaves the int range)
+       big involved -> big  (exact, unbounded) — unless a float is involved
+       float involved -> float (IEEE-754 binary64; inf/nan are values)"""
+    _require_nums(vm, op, pos, a, b)
+    if isinstance(a, float) or isinstance(b, float):
+        return fn(vm.to_float(op, pos, a), vm.to_float(op, pos, b))
+    r = fn(ival(a), ival(b))
+    if isinstance(a, Big) or isinstance(b, Big):
+        return Big(r)
+    return vm.int_result(op, pos, r)
 
 
 def op_add(vm: VM, pos: Pos) -> None:
@@ -267,48 +359,62 @@ def op_add(vm: VM, pos: Pos) -> None:
     if isinstance(a, str) or isinstance(b, str):
         vm.push(_as_str(a) + _as_str(b))  # `+` concatenates when either side is text
         return
-    _require_nums(vm, "+", pos, a, b)
-    vm.push(a + b)
+    vm.push(_numeric(vm, "+", pos, a, b, lambda x, y: x + y))
 
 
 def op_sub(vm: VM, pos: Pos) -> None:
     b = vm.pop_num("-", pos)
     a = vm.pop_num("-", pos)
-    vm.push(a - b)
+    vm.push(_numeric(vm, "-", pos, a, b, lambda x, y: x - y))
 
 
 def op_mul(vm: VM, pos: Pos) -> None:
     b = vm.pop("*", pos)
     a = vm.pop("*", pos)
-    if isinstance(a, str) and isinstance(b, int):  # str repeat: $ab$ 3 *
-        vm.push(a * b)
+    if isinstance(a, str) and isinstance(b, int) and not isinstance(b, bool):
+        vm.push(a * b)  # str repeat: $ab$ 3 *  (a count <= 0 yields "" — defined)
         return
-    _require_nums(vm, "*", pos, a, b)
-    vm.push(a * b)
+    vm.push(_numeric(vm, "*", pos, a, b, lambda x, y: x * y))
+
+
+def _is_zero(v: Any) -> bool:
+    return ival(v) == 0
 
 
 def op_div(vm: VM, pos: Pos) -> None:
     b = vm.pop_num("/", pos)
     a = vm.pop_num("/", pos)
-    if b == 0:
+    if _is_zero(b):
         raise vm.err(DIV_ZERO, "division by zero", op="/", pos=pos,
                      hint="guard the denominator with `=0 ==` before dividing")
-    vm.push(_num_result(a / b))
+    if isinstance(a, float) or isinstance(b, float):
+        vm.push(_num_result(vm.to_float("/", pos, a) / vm.to_float("/", pos, b)))
+        return
+    av, bv = ival(a), ival(b)
+    if av % bv == 0:  # exact quotient stays integral (big if either side is big)
+        q = av // bv
+        vm.push(Big(q) if isinstance(a, Big) or isinstance(b, Big) else vm.int_result("/", pos, q))
+        return
+    try:
+        vm.push(av / bv)  # true division -> float (correctly rounded, even for big)
+    except OverflowError:
+        raise vm.err(OVERFLOW, "`/`: quotient is too large for a float", op="/", pos=pos)
 
 
 def op_mod(vm: VM, pos: Pos) -> None:
     b = vm.pop_num("%", pos)
     a = vm.pop_num("%", pos)
-    if b == 0:
+    if _is_zero(b):
         raise vm.err(DIV_ZERO, "modulo by zero", op="%", pos=pos)
-    vm.push(a % b)
+    # Python semantics: the result takes the sign of the divisor (defined, SPEC §19).
+    vm.push(_numeric(vm, "%", pos, a, b, lambda x, y: x % y))
 
 
 def _cmp(vm: VM, op: str, pos: Pos, fn) -> None:
     b = vm.pop(op, pos)
     a = vm.pop(op, pos)
     try:
-        vm.push(1 if fn(a, b) else 0)
+        vm.push(1 if fn(ival(a), ival(b)) else 0)  # big compares by value
     except TypeError:
         raise vm.err(TYPE_MISMATCH, f"`{op}` cannot compare {type_name(a)} and {type_name(b)}",
                      op=op, pos=pos)
@@ -357,7 +463,12 @@ def op_not(vm: VM, pos: Pos) -> None:
 
 def op_neg(vm: VM, pos: Pos) -> None:
     a = vm.pop_num("_", pos)
-    vm.push(-a)
+    if isinstance(a, Big):
+        vm.push(Big(-a.v))
+    elif isinstance(a, float):
+        vm.push(-a)
+    else:
+        vm.push(vm.int_result("_", pos, -a))  # -INT_MIN does not fit: OVERFLOW
 
 
 def op_dup(vm: VM, pos: Pos) -> None:
@@ -415,7 +526,8 @@ def op_while(vm: VM, pos: Pos) -> None:
 
 # Pattern kinds a `??` arm may use (SPEC Part II §16). Patterns are *introspected*
 # (read from the AST), not executed: a type name, a literal, or `_` (default).
-_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec"}
+# The checker imports this set so static and runtime pattern vocabularies agree.
+_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec", "big"}
 
 
 def _pat_desc(n: Node) -> str:
@@ -436,7 +548,7 @@ def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> bool:
     if tag == "op" and n[1] == "_":
         return True  # wildcard / default arm
     if tag in ("int", "float", "str"):
-        return subject == n[1]
+        return ival(subject) == n[1]  # literal patterns compare by value (big too)
     if tag == "name" and n[1] in _PATTERN_TYPES:
         return type_name(subject) == n[1]
     raise vm.err(BAD_PATTERN, f"unrecognized pattern `{_pat_desc(n)}`",
@@ -482,7 +594,13 @@ def _as_str(v: Any) -> str:
     if isinstance(v, bool):
         return "1" if v else "0"
     if isinstance(v, float):
-        return str(int(v)) if v.is_integer() else str(v)
+        # Whole floats that fit the int range display as integers (`7.0` -> `7`);
+        # larger ones keep float notation (`1e+30`); inf/-inf/nan print as such.
+        if v.is_integer() and fits_int(int(v)):
+            return str(int(v))
+        return str(v)
+    if isinstance(v, Big):
+        return str(v.v)
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
     if isinstance(v, Cap):
@@ -496,7 +614,7 @@ def _as_str(v: Any) -> str:
 
 def _require_nums(vm: VM, op: str, pos: Pos, *vals: Any) -> None:
     for v in vals:
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        if not is_num(v):
             raise vm.err(TYPE_MISMATCH, f"`{op}` expected numbers, got {type_name(v)}",
                          op=op, pos=pos)
 

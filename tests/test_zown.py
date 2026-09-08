@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
-    CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN,
+    CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
 )
-from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP
-from zown.vm import VM, Block, Cap, WidthTag, Vec
+from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
+from zown.vm import VM, Big, Block, Cap, WidthTag, Vec
 
 
 def run(src):
@@ -249,6 +249,125 @@ def test_width_policy_rejects_fractional_float():
         assert False
     except ZownError as e:
         assert e.code == TYPE_MISMATCH and e.op == "wr"
+
+
+# --- numeric model: checked int + big (M8c-i, D1) -----------------------------
+def _fails(src, code, op=None):
+    try:
+        run(src)
+        assert False, f"expected {code} from {src!r}"
+    except ZownError as e:
+        assert e.code == code, (src, e.code, e.msg)
+        if op is not None:
+            assert e.op == op, (src, e.op)
+        return e
+
+
+def test_int_is_checked_i64():
+    _, vm = run(f"{INT_MAX} 0 +")
+    assert vm.stack == [INT_MAX]
+    _fails(f"{INT_MAX} 1 +", OVERFLOW, "+")
+    _fails(f"{INT_MAX} _ 1 - _", OVERFLOW, "_")     # -(INT_MIN) does not fit
+    _fails(f"{INT_MAX} 2 *", OVERFLOW, "*")
+    _fails(f"{INT_MAX} _ 1 - ab", OVERFLOW, "ab")
+    _fails("2 63 pw", OVERFLOW, "pw")
+    _fails("2 100 pw", OVERFLOW, "pw")               # refused before computing a giant
+    _, vm = run("2 62 pw")
+    assert vm.stack == [1 << 62]
+
+
+def test_int_literal_must_fit():
+    e = _fails(str(INT_MAX + 1), OVERFLOW)
+    assert e.kind == "lex"
+    assert lex(str(INT_MAX))[0].value == INT_MAX
+
+
+def test_big_is_explicit_and_exact():
+    _, vm = run("5 b")
+    assert vm.stack == [Big(5)]
+    _, vm = run("2 b 100 pw")
+    assert vm.stack == [Big(2 ** 100)]
+    _, vm = run("$99999999999999999999$ b 1 +")       # a literal beyond int: string + b
+    assert vm.stack == [Big(10 ** 20)]
+    _, vm = run("5 b 3 +")                            # big ∘ int -> big
+    assert vm.stack == [Big(8)]
+    out, _ = run("2 b 70 pw .")
+    assert out == str(2 ** 70) + "\n"
+
+
+def test_big_division_modulo_and_float_promotion():
+    _, vm = run("10 b 5 /")
+    assert vm.stack == [Big(2)]                       # exact quotient stays big
+    _, vm = run("10 b 4 /")
+    assert vm.stack == [2.5]                          # inexact -> float
+    _, vm = run("7 b 3 %")
+    assert vm.stack == [Big(1)]
+    _, vm = run("5 b 2.5 +")
+    assert vm.stack == [7.5]                          # any float -> float
+    _fails("10 b 0 /", DIV_ZERO, "/")
+
+
+def test_big_compares_and_matches_by_value():
+    _, vm = run("5 b 5 ==")
+    assert vm.stack == [1]
+    _, vm = run("5 b 6 <")
+    assert vm.stack == [1]
+    _, vm = run("0 b !")
+    assert vm.stack == [1]                            # big zero is falsy
+    _, vm = run("5 b [ [big] [ , $big$ ] [int] [ , $int$ ] ] ??")
+    assert vm.stack == ["big"]                        # a big is not an int
+    _, vm = run("5 b [ [5] [ , $five$ ] [_] [ , $other$ ] ] ??")
+    assert vm.stack == ["five"]                       # literal patterns compare by value
+
+
+def test_big_math_words():
+    _, vm = run("9 b sq")
+    assert vm.stack == [Big(3)]                       # perfect square stays big
+    _, vm = run("3 b _ ab")
+    assert vm.stack == [Big(3)]
+    _, vm = run("7 b 4 mx")
+    assert vm.stack == [Big(7)]
+    _fails("$x$ b", TYPE_MISMATCH, "b")
+    _fails("2.5 b", TYPE_MISMATCH, "b")
+
+
+def test_width_policy_result_type_is_static():
+    _, vm = run("300 u8 wr")
+    assert vm.stack == [44]                           # u8 fits int -> int
+    _, vm = run("5 u64 ck")
+    assert vm.stack == [Big(5)]                       # u64's range exceeds int -> big
+    _, vm = run("1 _ u64 wr")
+    assert vm.stack == [Big(2 ** 64 - 1)]
+    _, vm = run("5 b u8 wr")                          # a big input reduces like any int
+    assert vm.stack == [5]
+
+
+def test_float_is_ieee_and_non_finite_conversions_trap():
+    out, _ = run("10.5 400 pw . 10.5 400 pw _ . 10.5 400 pw = - .")
+    assert out == "inf\n-inf\nnan\n"                  # overflow to inf is a value, not a crash
+    out, _ = run("10.0 30 pw .")
+    assert out == "1e+30\n"                           # whole float beyond int stays a float
+    _fails("10.5 400 pw fl", OVERFLOW, "fl")
+    _fails("10.5 400 pw = - fl", UB_TRAP, "fl")       # nan -> int is undefined: trapped
+    _fails("10.0 30 pw rd", OVERFLOW, "rd")
+    _fails("4 _ sq", UB_TRAP, "sq")
+    _fails("2 _ 0.5 pw", UB_TRAP, "pw")
+    _fails("0 1 _ pw", DIV_ZERO, "pw")
+
+
+def test_to_num_respects_int_range():
+    _fails("$99999999999999999999$ n", OVERFLOW, "n")
+    _, vm = run("$99999999999999999999$ b")
+    assert vm.stack == [Big(10 ** 20 - 1)]
+    _, vm = run("$inf$ n")
+    assert vm.stack == [float("inf")]
+
+
+def test_big_snapshot_is_json_safe():
+    e = _fails("5 b $x$ -", TYPE_MISMATCH, "-")
+    pkt = e.packet()
+    assert pkt["stack"] == ["big:5"]                  # snapshot after the offending pop
+    json.dumps(pkt)
 
 
 # --- SIMD vectors (v0.2) -------------------------------------------------------

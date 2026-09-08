@@ -1,0 +1,3 @@
+# `n` parses into the checked int; digits beyond its range are an OVERFLOW
+# (use `b` on the string for a big instead).
+$99999999999999999999$ n

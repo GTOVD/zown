@@ -1,0 +1,3 @@
+# An integer literal beyond the int range is a lex-time OVERFLOW (write it as
+# a digit string and convert with `b` for arbitrary precision).
+9223372036854775808

@@ -52,9 +52,7 @@ from __future__ import annotations
 
 from .builtins import BUILTINS
 from .errors import BAD_PATTERN, CAP_DENIED, NAME_UNRESOLVED, ZownError
-
-# Pattern tokens recognized by `??` (mirrors vm._PATTERN_TYPES).
-_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec"}
+from .vm import _PATTERN_TYPES  # one vocabulary for static and runtime `??` patterns
 
 # Builtin words that invoke a block literal *inline*, in the caller's context.
 _VEC_CTORS = {"f4", "d2", "i4", "b16"}

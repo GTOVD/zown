@@ -54,7 +54,9 @@ python3 conformance/wasm_parity.py      # also requires wasmtime on PATH
   `NAME_UNRESOLVED`, `NOT_CALLABLE`, `TYPE_MISMATCH`, `REPAIR_SYNTAX` (lex + parse).
 - **v0.2** (`cases_v2/`, `errors_v2/`): capabilities (`gr rq hv`, `CAP_DENIED`),
   fixed-width ints (`wr st ck`, `OVERFLOW`), SIMD vectors (`vadd vsub vmul vsum
-  vat`, `BOUNDS`), pattern matching (`??`, `NO_MATCH`, `BAD_PATTERN`).
+  vat`, `BOUNDS`), pattern matching (`??`, `NO_MATCH`, `BAD_PATTERN`), the
+  checked-int / `big` / IEEE-float numeric model (`b`, `OVERFLOW` on int results
+  and literals, `inf`/`nan` values, `UB_TRAP` on nan→int and negative `sq`).
 - **check** (`check/`): name resolution, `??` arm shape, and capability flow —
   both definite denials and the sound-silence cases (dynamic extent, escaped
   blocks, inline consumers).

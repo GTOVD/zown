@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .errors import Pos, REPAIR_SYNTAX, ZownError
+from .errors import OVERFLOW, Pos, REPAIR_SYNTAX, ZownError
+
+# The default `int` is a *checked* 64-bit signed integer (SPEC §1/§11, decision
+# D1): every int-typed result must fit this range or it is a structured OVERFLOW.
+# Arbitrary precision is the explicit `big` type (`n b`, `$digits$ b`).
+INT_MIN = -(1 << 63)
+INT_MAX = (1 << 63) - 1
 
 # --- token kinds ---------------------------------------------------------------
 T_INT = "INT"
@@ -197,8 +203,16 @@ class Lexer:
         text = self.src[start:self.i]
         span = (start, self.i - start)
         if is_float:
-            return Token(T_FLOAT, float(text), p, span)
-        return Token(T_INT, int(text), p, span)
+            return Token(T_FLOAT, float(text), p, span)  # IEEE-754: may round, or be inf
+        n = int(text)
+        if n > INT_MAX:  # literals are unsigned digits; `_` negates at run time
+            raise ZownError(
+                code=OVERFLOW, kind="lex", pos=p, file=self.file,
+                msg=f"integer literal {text} does not fit int (max {INT_MAX})",
+                hint="int is a checked 64-bit integer; for arbitrary precision write "
+                     "it as a string and convert: $digits$ b",
+            )
+        return Token(T_INT, n, p, span)
 
     def _read_ident(self) -> Token:
         p, start = self._pos(), self.i

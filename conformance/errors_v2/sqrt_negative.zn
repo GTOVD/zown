@@ -1,0 +1,2 @@
+# Where IEEE would silently produce nan from a real input, Zown traps (UB_TRAP).
+4 _ sq

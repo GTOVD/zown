@@ -38,13 +38,20 @@ live on the stack, costing zero tokens to name.
 
 | Type   | Example                | Notes                                        |
 |--------|------------------------|----------------------------------------------|
-| int    | `42`                   | arbitrary precision                          |
-| float  | `3.14`                 | whole-valued results collapse back to int    |
+| int    | `42`                   | **checked 64-bit** signed integer (`-2^63 .. 2^63-1`); a result outside the range is an `OVERFLOW` error, never a silent wrap |
+| big    | `42 b` · `$digits$ b`  | arbitrary precision, exact; the explicit opt-in (§11) |
+| float  | `3.14`                 | IEEE-754 binary64; whole-valued results that fit `int` collapse back to int |
 | str    | `$hello$`              | bounded by `$ ... $`                          |
 | block  | `[ ... ]`              | a first-class quotation (deferred code)       |
 
-**Truthiness:** `0`, `0.0`, `""` (empty string), and the empty block are false;
-everything else is true.
+> **Changed in v0.2 (decision D1, 2026-09-07):** v0.1 made `int` arbitrary
+> precision. Both native backends already used 64-bit integers and the
+> "overflow is never silent" rule of §11 covers the difference, so the default is
+> now a *checked* 64-bit int and `big` is the explicit unbounded type. No program
+> in the conformance corpus observed the difference.
+
+**Truthiness:** `0`, `0 b`, `0.0`, `""` (empty string), and the empty block are
+false; everything else is true.
 
 ---
 
@@ -59,7 +66,10 @@ The lexer is a two-state machine: **code mode** and **literal mode**.
   next `$`. Escapes inside a string: `\$`, `\\`, `\n`, `\t`, `\r`, `\0`.
 - **Numbers**: `[0-9]+` optionally followed by `.` + `[0-9]+`. A trailing `.`
   with no following digit is the **print** operator, not a decimal point — so
-  `5.` means "push 5, print", while `5.5` is a float.
+  `5.` means "push 5, print", while `5.5` is a float. An integer literal must
+  fit `int` (`≤ 9223372036854775807`; literals are unsigned — `_` negates at run
+  time), else it is a lex-time `OVERFLOW`; write larger values as a digit string
+  and convert: `$99999999999999999999$ b`.
 - **Identifiers**: `[A-Za-z][A-Za-z0-9]*`. (No `_`; `_` is the negate operator.)
 - **Binding**: `:name` — a `:` immediately followed by an identifier.
 
@@ -205,7 +215,8 @@ also feeds the manifest generator.
 | `ce`  | ceil      | ceiling                                      |
 | `rd`  | round     | round to nearest int                         |
 | `s`   | to_str    | convert top value to its string form         |
-| `n`   | to_num    | parse a string into a number                 |
+| `n`   | to_num    | parse a string into a number (`OVERFLOW` beyond `int`) |
+| `b`   | big       | convert an int / whole float / digit string to a `big` (§11) |
 | `dp`  | depth     | push the current stack depth                 |
 | `rt`  | rot       | rotate top three (`a b c -> b c a`)          |
 | `clr` | clear     | clear the whole stack                        |
@@ -297,9 +308,26 @@ Two principles carry over from Part I and govern every addition:
 
 ## 11. Numeric model
 
-The default integer remains **arbitrary precision** (Part I). Typed contexts may
-pin an explicit width; overflow is **never silent** — it is a compile-time error
-or an explicit `wrap`/`sat`/`chk` op.
+Three scalar kinds, one rule: **overflow is never silent.**
+
+| Kind | Representation | Overflow behavior |
+|------|----------------|-------------------|
+| `int` (default) | checked 64-bit signed | a result outside `[-2^63, 2^63-1]` is a run-time `OVERFLOW` (op `+ - * _ pw ab fl ce rd n`); a literal outside it is a lex-time `OVERFLOW` |
+| `big` | arbitrary precision | cannot overflow; exact |
+| `float` | IEEE-754 binary64 | overflows to `±inf` (a value); `nan` is a value; converting a non-finite float to an integer traps (§19) |
+
+**Promotion.** `int ∘ int → int` (checked). Any `big` operand makes the result
+`big` (exact). Any `float` operand makes the result `float` (a `big` too large
+for a float is `OVERFLOW`). `/` keeps an exact integral quotient integral (`10 b
+5 /` → `2 b`, `10 5 /` → `2`) and yields a float otherwise. Comparisons and
+literal `??` patterns compare by value across the three kinds (`5 b 5 ==` → `1`);
+type patterns do not (`[int]` does not match a big).
+
+**`b` — the big constructor — implemented (M8c-i, oracle).** `v b` converts an
+int, a whole float, a big (no-op), or a **string of digits** — which is how a
+literal beyond the int range is written: `$99999999999999999999$ b`. Whole floats
+print as integers only while they fit `int`; larger whole floats keep float
+notation (`1e+30`); `inf`, `-inf`, `nan` print as such and `n` parses them.
 
 | Class | Types |
 |-------|-------|
@@ -307,7 +335,7 @@ or an explicit `wrap`/`sat`/`chk` op.
 | unsigned int | `u8 u16 u32 u64 u128` |
 | pointer-size | `usize isize` |
 | float | `f32 f64` |
-| exact | `dec` (decimal), `big` (bigint), `cx` (complex) |
+| exact | `dec` (decimal), `big` (arbitrary precision — **implemented**, the `b` word), `cx` (complex) |
 
 #### Fixed-width arithmetic — **implemented (M7c-i, oracle)**
 
@@ -327,8 +355,11 @@ n width ck   # check  — pass through, or raise OVERFLOW if it won't fit
 256 u8 ck        # zerr[OVERFLOW]: 256 does not fit u8 [0..255]
 ```
 
-Policy words are integer-only (a fractional float is a `TYPE_MISMATCH`). `dec`,
-`big` (the default int already is big), and `cx` remain design-only for now.
+Policy words are integer-only (a fractional float is a `TYPE_MISMATCH`); a `big`
+input is reduced like any integer. **The result's type is decided by the width,
+not the value:** widths whose entire range fits `int` (`i8…i64`, `u8…u32`) yield
+an `int`; the others (`u64`, `i128`, `u128`) yield a `big` — so `5 u64 ck` is
+`5 b`, and the type is static. `dec` and `cx` remain design-only.
 
 ### Vector / SIMD types — **implemented (M7c-ii, oracle)**
 
@@ -547,16 +578,16 @@ stack** for the body to use; if none matches, a structured `NO_MATCH` is raised
 it never executes it.
 
 ```
-42 [ [int]   [ , $an int$ . ]      # type pattern: int/float/str/bool/block/cap/width/vec
+42 [ [int]   [ , $an int$ . ]      # type pattern: int/big/float/str/bool/block/cap/width/vec
      [str]   [ up . ]              # body sees the subject (here: uppercase it)
-     [7]     [ , $seven$ . ]       # literal pattern (int/float/str)
+     [7]     [ , $seven$ . ]       # literal pattern (int/float/str), compared by value
      [_]     [ , $other$ . ] ] ??  # _ is the default arm
 ```
 
 | Pattern | Matches |
 |---------|---------|
-| `[int]` … `[vec]` | a value of that type (`type_name`) |
-| `[42]` `[$hi$]` | a value equal to the literal |
+| `[int]` `[big]` … `[vec]` | a value of that type (`type_name`) |
+| `[42]` `[$hi$]` | a value equal to the literal (`5 b` matches `[5]`) |
 | `[_]` | anything (default) |
 
 Malformed arms (odd count, a non-block arm, or an unrecognized pattern token)

@@ -116,10 +116,12 @@ class ZownError(Exception):
 
 def _snap(v: Any) -> Any:
     """Compact, JSON-safe snapshot of a stack value."""
-    from .vm import Block, Cap, WidthTag, Vec  # local import to avoid a cycle
+    from .vm import Big, Block, Cap, WidthTag, Vec  # local import to avoid a cycle
 
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
+    if isinstance(v, Big):
+        return f"big:{v.v}"  # a string: JSON consumers need not handle >64-bit numbers
     if isinstance(v, Cap):
         return f"`{v.name}"
     if isinstance(v, WidthTag):
