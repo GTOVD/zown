@@ -16,7 +16,11 @@ Blocks `[ ... ]` are first-class values (quotations). Control flow is built from
 blocks + operators:
     cond [then] [else] ?    -> select: leaves `then` if cond is truthy else `else`
     [cond] [body] ;         -> while: run body while cond evaluates truthy
-    n [body] tm             -> run body n times (index pushed each iteration)
+    subject [arms] ??       -> pattern match (v0.2): first [pattern][body] arm wins
+
+v0.2 additions (SPEC Part II): capability tokens (`c) with `gr`/`rq`/`hv`,
+fixed-width integer tags (i8..u128) with `wr`/`st`/`ck`, and SIMD vectors
+(f4 d2 i4 b16). Static checks that run before execution live in checker.py.
 """
 
 from __future__ import annotations

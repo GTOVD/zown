@@ -20,7 +20,8 @@ import subprocess
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ZOWNC = os.path.join(ROOT, "zownc", "target", "debug", "zownc")
+ZOWNC = os.path.join(ROOT, "zownc", "target", "debug",
+                     "zownc.exe" if os.name == "nt" else "zownc")
 CASES = os.path.join(ROOT, "conformance", "cases")
 
 GREEN, RED, YEL, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m"

@@ -54,9 +54,17 @@ These are added to `SPEC.md` (Part II) and exercised in the Python oracle.
 
 ---
 
-## Phase 2 — Safety core (the "unhackable" foundation)
+## Phase 2 — Safety core (the "unhackable" foundation)  🔄
 
 Make the guarantees real, in the type checker and runtime.
+
+- [x] Static checker (`zown check`) with a soundness contract (no false
+      positives): name resolution, `??` arm shape, and **static capability flow**
+      (a `rq` the checker can prove unsatisfiable is a compile-time `CAP_DENIED`)
+      — PLAN M8a/M8b, goldens in `conformance/check/`.
+- [ ] Result values consumed through `??`; the no-undefined-behavior catalogue
+      with a conformance case per row (PLAN M8c).
+- [ ] The Rust toolchain reaches v0.2 and ports the checker (PLAN M8d).
 
 - Fat-pointer descriptors `[base | bounds | perms]` as the only reference kind.
 - Compile-time null elimination: fallible ops yield `[ok? | data]`; `?` must

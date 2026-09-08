@@ -13,7 +13,8 @@ behavioral **oracle**; everything here is differentially tested against it.
 | `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
 | `zown-ir` | ✅ IR + lowering; lossless round-trip (`zownc ir` / `irast`) |
 | `zown-wasm` | ✅ M6: full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| native backend | ⬜ (M7) |
+| v0.2 language (caps, widths, SIMD, `??`) + `zown-check` | ⬜ (M8d) — the oracle has them; `zownc` is still v0.1 |
+| native backend | ⬜ (M9, after M8d) |
 
 ## Build & run
 
@@ -52,11 +53,17 @@ crates/
   zown-cli/     the `zownc` binary (run / lex / ast / ir / irast / wat / build)
 ```
 
-The native code crate (`zown-codegen`) is added when M7 begins.
+Next crates, in order: `zown-check` (M8d — port of `zown/checker.py`, validated
+against `conformance/check/`), then `zown-codegen` (M9, Cranelift → LLVM).
+
+> The parity runners currently scan the v0.1 corpus only (`conformance/cases`,
+> `errors`). The v0.2 corpus (`cases_v2`, `errors_v2`) and the checker corpus
+> (`check/`) become targets in M8d. Milestone numbers follow `docs/PLAN.md`'s
+> Status Board (older commit messages may use the pre-expansion numbering).
 
 ## The endgame
 
-Once the native toolchain can compile Zown to a runnable binary (M6/M7) and the
+Once the native toolchain can compile Zown to a runnable binary (M9) and the
 memory model is in place (M8), we begin rewriting the compiler **in Zown itself**
-and bootstrap to a self-hosting fixed point (M14). At that point this Rust crate
+and bootstrap to a self-hosting fixed point (M16). At that point this Rust crate
 becomes the bootstrap stage and a differential oracle.

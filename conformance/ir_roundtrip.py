@@ -18,7 +18,8 @@ import os
 import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ZOWNC = os.path.join(ROOT, "zownc", "target", "debug", "zownc")
+ZOWNC = os.path.join(ROOT, "zownc", "target", "debug",
+                     "zownc.exe" if os.name == "nt" else "zownc")
 
 GREEN, RED, RST = "\033[32m", "\033[31m", "\033[0m"
 

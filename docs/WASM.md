@@ -122,8 +122,14 @@ formatter is future work.
 extension writes `.wat`. Both run identically under wasmtime, verified by
 `conformance/wasm_parity.py` (each case is checked in both formats).
 
-## Next: M7 — native backend
+## Next: M8d (v0.2 in the Rust toolchain), then M9 — native backend
 
-Real desktop binaries via Cranelift (then LLVM). The IR and the tagged-value
-model carry over; the operand-stack/heap/string-runtime design is reused with a
-native calling convention instead of WASI.
+The backend covers **v0.1** only. The v0.2 surface (capability tokens, width
+tags, SIMD vectors, `??`) exists in the oracle and must reach the Rust frontend,
+VM, and IR first (PLAN M8d); this backend then either lowers those values (new
+tags after `3`) or fails with a structured `UNSUPPORTED` naming the milestone —
+never a silent divergence.
+
+M9 then adds real desktop binaries via Cranelift (then LLVM). The IR and the
+tagged-value model carry over; the operand-stack/heap/string-runtime design is
+reused with a native calling convention instead of WASI.

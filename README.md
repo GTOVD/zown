@@ -133,14 +133,21 @@ v0.1 runs three ways that are kept byte-for-byte identical via a conformance sui
   WebAssembly text (`.wat`) **and** binary (`.wasm`); all 13 conformance cases run
   under `wasmtime` and match the goldens (`conformance/wasm_parity.py`).
 
-Still ahead, in dependency order (the milestone-by-milestone plan is in
-[`docs/PLAN.md`](docs/PLAN.md)):
+The v0.2 design freeze (M7) is done: capabilities, fixed-width + SIMD numerics,
+and pattern matching run in the oracle (`conformance/v2.py`), and a static
+checker (`zown check`) already rejects unresolved names, malformed `??` arms, and
+capability requirements it can prove will fail (`conformance/check.py`).
 
-1. **Design freeze (M7)** — the type, capability/security, network, and graphics
+Still ahead, in dependency order (the milestone-by-milestone plan is in
+[`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md)):
+
+1. **Design freeze (M7) ✅** — the type, capability/security, network, and graphics
    SPEC is frozen and validated in the oracle *before* the native compiler,
    because those decisions shape the ABI ([`docs/SPEC.md`](docs/SPEC.md) Part II).
-2. **Safety core (M8)** — fat pointers, no undefined behavior, **capabilities as
-   the type system** (zero authority by default — the "unhackable" foundation).
+2. **Safety core (M8) 🔄** — the static checker (names ✅, match shape ✅,
+   capability flow ✅), then result values + a no-undefined-behavior catalogue,
+   then the Rust toolchain catching up to v0.2 (`zownc check`). Fat pointers and
+   ownership are specified here and enforced with the native memory model (M9).
 3. **Native backend + perf (M9–M10)** — Cranelift→LLVM, SIMD, zero-copy I/O,
    deterministic builds, dynamic fast lanes.
 4. **Batteries (M11)** — the zero-install stdlib: crypto, collections, full
