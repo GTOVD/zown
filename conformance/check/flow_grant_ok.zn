@@ -1,0 +1,4 @@
+# M8b static capability flow — literal grants satisfy `rq`; nested grants accumulate.
+# Must check clean: every `rq` runs under exact authority that contains its cap.
+`s [ `s rq $send-ok$ . ] gr
+`s [ `r [ `s rq `r rq $both$ . ] gr ] gr

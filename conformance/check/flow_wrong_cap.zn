@@ -1,0 +1,3 @@
+# M8b — the authority inside a literal grant is exactly {the granted cap}.
+# Holding `r does not satisfy `s. (Runtime golden: errors_v2/caps_denied_scope.)
+`r [ `s rq ] gr

@@ -1,0 +1,5 @@
+# M8b — "never granted" rule. The block escapes (bound to a name), so its
+# invocation context is unknown — but no free `s literal exists anywhere in the
+# program, so `s can never reach `gr` and this `rq` is denied on every path.
+[ `s rq ] :send
+`r [ send @ ] gr

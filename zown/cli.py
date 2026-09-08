@@ -3,7 +3,7 @@
 Usage:
     zown <file.zn>            run a program (shorthand for `run`)
     zown run <file.zn>        run a program
-    zown check <file.zn>      static checker (M8a): name resolution + match shape
+    zown check <file.zn>      static checker (M8): names, match shape, capability flow
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
     zown repl                 interactive stack session
@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("file")
     pr.set_defaults(func=cmd_run)
 
-    pc = sub.add_parser("check", help="static checker: name resolution + match shape")
+    pc = sub.add_parser("check", help="static checker: name resolution, match shape, capability flow")
     pc.add_argument("file")
     pc.set_defaults(func=cmd_check)
 

@@ -396,6 +396,89 @@ def test_check_flags_odd_match_arms_statically():
     assert len(diags) == 1 and diags[0].code == BAD_PATTERN
 
 
+# --- static capability flow (M8b) ----------------------------------------------
+def _denied(src):
+    """The CAP_DENIED diagnostics for src (and assert nothing else was raised)."""
+    diags = _check(src)
+    assert all(d.code == CAP_DENIED for d in diags), [d.code for d in diags]
+    return diags
+
+
+def test_capflow_top_level_require_is_static_cap_denied():
+    diags = _denied("`s rq")
+    assert len(diags) == 1
+    d = diags[0]
+    assert d.op == "rq" and d.cap == "s" and d.kind == "check"
+    assert d.packet()["cap"] == "s"          # same packet shape as the runtime error
+
+
+def test_capflow_literal_grant_is_clean():
+    assert _denied("`s [ `s rq $ok$ . ] gr") == []
+
+
+def test_capflow_wrong_capability_granted():
+    # exact authority in scope is {r}; `s can never be satisfied there
+    diags = _denied("`r [ `s rq ] gr")
+    assert len(diags) == 1 and diags[0].cap == "s"
+
+
+def test_capflow_nested_grants_accumulate():
+    assert _denied("`s [ `r [ `s rq `r rq ] gr ] gr") == []
+
+
+def test_capflow_authority_ends_with_the_grant_block():
+    src = "`s [ `s rq ] gr  `s rq"
+    diags = _denied(src)
+    assert len(diags) == 1
+    assert diags[0].pos.offset > src.index("gr")        # only the trailing rq is flagged
+
+
+def test_capflow_dynamic_extent_is_respected():
+    # grants are dynamic, not lexical: a bound block invoked under a grant is fine
+    assert _denied("[ `s rq ] :send   `s [ send @ ] gr") == []
+    # ...and so is a block that reaches `gr` through the stack rather than literally
+    assert _denied("[ `s rq ]  `s \\ gr") == []
+    # ...or a grant whose capability arrived through a name
+    assert _denied("`s :k  k [ `s rq ] gr") == []
+
+
+def test_capflow_never_granted_anywhere_is_denied_even_when_escaped():
+    diags = _denied("[ `s rq ] :send   `r [ send @ ] gr")
+    assert len(diags) == 1 and "never granted" in diags[0].msg
+    assert len(_denied("[ `s rq ] :f")) == 1    # bound and never granted -> denied
+
+
+def test_capflow_inline_consumers_inherit_authority():
+    # @ / ; / ? @ / ?? / vector constructors run a literal block in the caller's scope
+    assert _denied("`s [ [ `s rq ] @ ] gr") == []
+    assert _denied("`s [ 1 [ [int] [ , `s rq ] ] ?? ] gr") == []
+    assert _denied("`s [ [ `s rq 1 2 3 4 ] i4 , ] gr") == []
+    for src in ("[ `s rq ] @", "0 [ `s rq ] [ ] ? @", "0 [ ] [ `s rq ] ? @",
+                "[ `s hv ] [ `s rq ] ;", "[ `s rq ] [ ] ;", "1 [ [int] [ , `s rq ] ] ??"):
+        assert len(_denied(src)) == 1, src
+
+
+def test_capflow_shadowed_words_are_honored():
+    assert _denied("5 :rq  `s rq") == []                 # no require word in this program
+    assert len(_denied("5 :gr  `s [ `s rq ] gr")) == 1  # nothing can ever be granted
+
+
+def test_check_corpus_has_no_false_positives():
+    # Soundness guard: every program that runs successfully must check clean.
+    import glob
+    from zown.checker import check_src
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    files = []
+    for d in ("examples", os.path.join("conformance", "cases"),
+              os.path.join("conformance", "cases_v2")):
+        files += glob.glob(os.path.join(root, d, "*.zn"))
+    assert files
+    for f in files:
+        with open(f, encoding="utf-8") as fh:
+            diags = check_src(fh.read(), f)
+        assert diags == [], (f, [(d.code, d.op) for d in diags])
+
+
 # --- manifest v2 (v0.2) --------------------------------------------------------
 def _gen_manifest(src, prior=None):
     from zown.manifest import generate, manifest_path

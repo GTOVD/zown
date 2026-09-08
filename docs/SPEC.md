@@ -397,8 +397,48 @@ move authority through the stack. A program starts with **zero** grants.
 
 Grants nest and unwind independently. Privileged stdlib operations (net, disk,
 GPU, …) will gate on `rq` for their capability, so "zero authority by default"
-holds uniformly. Capability *scoping* (rate/path sub-scopes) and static
-type-checked flow arrive with M8 (the safety core); today `rq` is a runtime check.
+holds uniformly. Capability *scoping* (rate/path sub-scopes) arrives with the
+capability type work in M8c+; `rq` remains the runtime check, and the static
+checker below rejects the failures it can prove before the program runs.
+
+### Static capability flow — **implemented (M8b, checker)**
+
+`zown check` reports a `` `c rq `` as a compile-time `CAP_DENIED` (kind `check`,
+`op: "rq"`, `cap: "c"` — the same packet shape as the runtime error) whenever it
+can **prove** the capability is not granted at that point. The checker's contract
+is *if this node executes, it definitely faults*: it never reasons about whether
+a node is reached (dead branches are still checked), and it never reports a
+`rq` that could succeed on some execution. Zero false positives is the invariant
+every runnable program in the conformance corpus guards.
+
+Because a grant has **dynamic extent** — `gr` holds the capability only while it
+invokes its block — flow is not lexical scope. Two facts are provable:
+
+1. **Exact authority.** Top-level code runs with exactly **zero** grants. A block
+   literal that is *anchored* — consumed inline by `@`, `;`, `? @`, `??`, a SIMD
+   constructor (`f4 d2 i4 b16`), or `gr` — runs with exactly the enclosing
+   authority, plus `c` for the literal form `` `c [ ... ] gr ``. Inside such
+   blocks the granted set is still exact, so `c ∉ set` is a definite denial.
+2. **Never granted.** Capability values are created only by `` ` `` literals, and
+   `gr` needs one on the stack. A literal immediately consumed by `rq`/`hv` can
+   never reach `gr`; if no *free* `` `c `` literal exists anywhere in the program,
+   `c` can never be granted and every `` `c rq `` is denied — wherever it sits.
+
+Anything else makes authority *unknown* and only rule 2 applies inside: a block
+bound to a name, left on the stack, selected by `?` without an immediate `@`, or
+granted a capability that arrived through a name. A user binding named `rq`,
+`gr`, or `hv` shadows the builtin and is honored (a shadowed `gr` means nothing
+can ever be granted).
+
+```
+`s rq                              # check: CAP_DENIED — top level holds nothing
+`r [ `s rq ] gr                    # check: CAP_DENIED — authority is exactly {`r}
+`s [ `s rq ] gr  `s rq             # check: CAP_DENIED on the trailing rq only
+[ `s rq ] :send   `s [ send @ ] gr # clean — dynamic extent; send runs under `s
+[ `s rq ] :send   `r [ send @ ] gr # check: CAP_DENIED — `s is never granted anywhere
+```
+
+Goldens: `conformance/check/` (`python3 conformance/check.py`).
 
 **Hygiene types:** `Secret[T]` (auto-zeroing, never logged/serialized/`.zerr`'d),
 constant-time `ct-eq`, a single secure-RNG primitive (distinct type from the

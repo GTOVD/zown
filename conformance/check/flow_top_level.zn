@@ -1,0 +1,3 @@
+# M8b — top-level code runs with exactly zero authority: a bare `rq` can never
+# succeed. (Runtime golden: errors_v2/caps_denied; now caught before execution.)
+`s rq

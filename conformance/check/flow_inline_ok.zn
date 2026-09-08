@@ -1,0 +1,9 @@
+# M8b — block literals consumed inline (@, ? @, ;, ??, SIMD constructors) inherit
+# the exact authority of their caller. Inside a grant they must check clean.
+`s [
+  [ `s rq ] @
+  1 [ [int] [ , `s rq ] [_] [ , ] ] ??
+  0 [ `s rq ] [ `s rq ] ? @
+  [ `s rq 0 ] [ `s rq ] ;
+  [ `s rq 1 2 3 4 ] i4 ,
+] gr

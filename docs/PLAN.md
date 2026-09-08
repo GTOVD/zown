@@ -53,7 +53,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
-| M8 | Safety core (type & memory model) | 🔄 | M8a static checker (name resolution + match shape) ✅; next: capability flow (M8b), result/ownership/no-UB (M8c) |
+| M8 | Safety core (type & memory model) | 🔄 | M8a static checker (names + match shape) ✅; M8b static capability flow ✅ (`conformance/check.py`); next: M8c result/no-UB, M8d Rust v0.2 parity |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
@@ -312,8 +312,17 @@ M8+. Anything that cannot be observed in the oracle is documented, not coded.
       (pairs, recognized patterns) — patterns are introspected, never resolved as
       names. Zero false positives across the runnable corpus; 8 unit tests. This is
       the hook every later static check plugs into.
-- [ ] **M8b — capability flow.** A `` `cap rq `` reachable with no enclosing `gr`
-      is a compile-time `CAP_DENIED` (today purely a runtime check).
+- [x] **M8b — static capability flow.** `` `c rq `` is a compile-time `CAP_DENIED`
+      (kind `check`, with the `cap` field) whenever the checker can *prove* `c` is
+      not granted. Grants have dynamic extent, so this is flow, not lexical scope:
+      (1) top level holds exactly zero authority and block literals consumed
+      inline (`@ ; ?@ ?? gr`, SIMD ctors) inherit an *exact* granted set; (2) a
+      capability with no free `` `c `` literal anywhere can never reach `gr`, so
+      its `rq` is denied even in escaped blocks. Everything else is "unknown" and
+      stays silent — `[ `s rq ] :f  `s [ f @ ] gr` is clean. Shadowed `rq`/`gr`/`hv`
+      are honored. 10 unit tests + a corpus zero-false-positive guard; new golden
+      runner `conformance/check.py` (10 cases incl. the sound-silence ones) that the
+      Rust `zownc check` port will target. SPEC §12 documents the rules.
 - [ ] **M8c — types & memory.** Result `[ok?|data]`, ownership `! &`, no-UB.
 
 **Tasks (later slices)**

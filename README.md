@@ -33,7 +33,8 @@ No dependencies — just Python 3.10+.
 python3 bin/zown examples/hello.zn
 python3 bin/zown examples/fizzbuzz.zn
 
-# parse/lint only
+# static checker (no execution): unresolved names, malformed `??` arms,
+# capability requirements that can never be satisfied
 python3 bin/zown check examples/fib.zn
 
 # get a machine-readable error packet

@@ -1,0 +1,4 @@
+# M8b — authority ends when the granted block returns. The first `rq` is fine;
+# the trailing one is back at top level with nothing granted.
+`s [ `s rq ] gr
+`s rq

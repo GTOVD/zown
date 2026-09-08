@@ -1,0 +1,8 @@
+# M8b soundness — grants have DYNAMIC extent, not lexical scope.
+# None of these `rq`s are lexically inside a `gr`, yet all succeed at runtime, so
+# the checker must stay silent (authority is unknown inside escaped blocks, and `s
+# is free somewhere, so it is grantable).
+[ `s rq $sent$ . ] :send     # bound block: invoked later under a grant
+`s [ send @ ] gr
+[ `s rq ] `s \ gr            # block reaches `gr` through the stack (swap)
+`s :k  k [ `s rq ] gr        # the granted capability arrived through a name
