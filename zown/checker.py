@@ -63,6 +63,17 @@ Checks
   and `err` — via `[ok]`+`[err]`, `[res]`, or a default `[_]` — else a static
   `NO_MATCH`. A `??` whose subject is not syntactically known to be a result is
   not judged.
+
+* **Use after move (M8c-iv).** `'x` moves a binding out (SPEC §20): afterwards
+  `x` is unbound until rebound. Within one node sequence the checker tracks the
+  names moved so far; a later `x` (unless `x` is also a builtin, which the
+  lookup would fall back to) or a second `'x` is a definite `NAME_UNRESOLVED`.
+  A `:x` clears the mark; any node that can run arbitrary code (`@ ; ??`, `gr`,
+  `at`, SIMD constructors) clears *all* marks, since it may have rebound
+  anything. Blocks that run immediately at their position (`@`, the `;`
+  condition, `? @` branches, `??` bodies, `gr`, `at`, constructors) inherit the
+  marks; the `;` body and escaped blocks start clean. A move of a name that is
+  bound nowhere is a well-formedness error (builtins cannot be moved).
 """
 
 from __future__ import annotations
@@ -73,6 +84,9 @@ from .vm import _PATTERN_TYPES, _RES_PATTERNS  # one vocabulary, static and runt
 
 # Builtin words that invoke a block literal *inline*, in the caller's context.
 _VEC_CTORS = {"f4", "d2", "i4", "b16"}
+# Nodes that may run arbitrary code — and therefore rebind any name.
+_INVOKING_OPS = {"@", ";", "??"}
+_INVOKING_WORDS = {"gr", "at"} | _VEC_CTORS
 
 # `known` authority: a frozenset of granted capability names when the set is
 # exact, or UNKNOWN when the block may be invoked from any context.
@@ -152,9 +166,11 @@ class Checker:
                 self._scan_free_caps(n[1])
 
     # --- main walk ---------------------------------------------------------------
-    def _walk(self, nodes: list, known, in_at: bool) -> None:
+    def _walk(self, nodes: list, known, in_at: bool, moved=None) -> None:
         """`known`: exact granted set or UNKNOWN. `in_at`: are we (dynamically)
-        inside an `at` body, where faults are caught and become `err`?"""
+        inside an `at` body, where faults are caught and become `err`? `moved`:
+        names moved out (`'x`) earlier on this straight-line path and not rebound."""
+        moved = set() if moved is None else set(moved)  # this sequence owns its copy
         for i, n in enumerate(nodes):
             tag = n[0]
             if tag == "name":
@@ -164,16 +180,41 @@ class Checker:
                                f"`{name}` is never bound and is not a builtin",
                                n[2], op=name,
                                hint=f"bind it with :{name}, or check the stdlib word list")
+                elif name in moved and name not in BUILTINS and not in_at:
+                    self._diag(NAME_UNRESOLVED,
+                               f"`{name}` was moved out by '{name} above and not rebound",
+                               n[2], op=name,
+                               hint=f"a bare name is a borrow; move it last, or rebind with :{name}")
+            elif tag == "move":
+                name = n[1]
+                if name not in self.bound:
+                    self._diag(NAME_UNRESOLVED,
+                               f"`'{name}`: {name} is never bound (builtins cannot be moved)",
+                               n[2], op=f"'{name}", hint=f"bind it first: value :{name}")
+                elif name in moved and not in_at:
+                    self._diag(NAME_UNRESOLVED,
+                               f"`'{name}`: {name} was already moved out above",
+                               n[2], op=f"'{name}",
+                               hint=f"rebind it with :{name} before moving it again")
+                moved.add(name)
+            elif tag == "bind":
+                moved.discard(n[1])
             elif tag == "cap":
                 nxt = self._at(nodes, i + 1)
                 if self._is_word(nxt, "rq") and not in_at:
                     self._check_require(n[1], nxt[2], known)
             elif tag == "blk":
-                self._walk_block(nodes, i, known, in_at)
+                self._walk_block(nodes, i, known, in_at, moved)
+            # Anything that runs code may have rebound any name: forget the marks.
+            if (tag == "op" and n[1] in _INVOKING_OPS) or \
+                    (tag == "name" and n[1] in _INVOKING_WORDS and n[1] not in self.bound):
+                moved.clear()
 
-    def _walk_block(self, nodes: list, i: int, known, in_at: bool) -> None:
+    def _walk_block(self, nodes: list, i: int, known, in_at: bool, moved: set) -> None:
         """Decide how the block literal at `nodes[i]` is consumed, then walk its
-        body with the authority it will *definitely* run under."""
+        body with the authority — and the moved-out names — it will *definitely*
+        run under. Blocks that run immediately at this position inherit `moved`;
+        the `;` body (its condition may rebind) and escaped blocks start clean."""
         blk = nodes[i]
         prev, prev2 = self._at(nodes, i - 1), self._at(nodes, i - 2)
         nxt, nxt2, nxt3 = self._at(nodes, i + 1), self._at(nodes, i + 2), self._at(nodes, i + 3)
@@ -182,13 +223,14 @@ class Checker:
             # `[ body ] at [ arms ] ??` — the subject is syntactically a result.
             subject_is_res = (self._is_word(prev, "at") and prev2 is not None
                               and prev2[0] == "blk")
-            self._check_match_arms(blk, known, in_at, subject_is_res)
+            self._check_match_arms(blk, known, in_at, subject_is_res, moved)
             return
 
+        inherit = moved
         if self._is_op(nxt, "@"):                                   # [b] @
             inner = known
         elif self._is_op(nxt, ";"):                                 # [c] [b] ;  (body)
-            inner = known
+            inner, inherit = known, None  # the condition ran first and may have rebound
         elif nxt is not None and nxt[0] == "blk" and self._is_op(nxt2, ";"):
             inner = known                                           # [c] [b] ;  (cond)
         elif self._is_op(nxt, "?") and self._is_op(nxt2, "@"):      # x [t] [e] ? @  (else)
@@ -207,8 +249,8 @@ class Checker:
                 and nxt[1] not in self.bound:                       # [lanes] i4
             inner = known
         else:
-            inner = UNKNOWN  # escapes: bound, left on the stack, or unknown consumer
-        self._walk(blk[1], inner, in_at)
+            inner, inherit = UNKNOWN, None  # escapes: bound, on the stack, or unknown consumer
+        self._walk(blk[1], inner, in_at, inherit)
 
     # --- capability flow (M8b) ---------------------------------------------------
     def _check_require(self, cap: str, pos, known) -> None:
@@ -226,7 +268,8 @@ class Checker:
                        hint=f"add a grant scope `{cap} [ ... ] gr around the caller")
 
     # --- match arms (M8a) + result exhaustiveness (M8c-ii) -----------------------
-    def _check_match_arms(self, blk, known, in_at: bool, subject_is_res: bool) -> None:
+    def _check_match_arms(self, blk, known, in_at: bool, subject_is_res: bool,
+                          moved: set | None = None) -> None:
         children, pos = blk[1], blk[2]
         if len(children) % 2 != 0:
             self._diag(BAD_PATTERN,
@@ -243,7 +286,7 @@ class Checker:
             label = self._check_pattern(pat)
             if label is not None:
                 seen.add(label)
-            self._walk(body[1], known, in_at)  # bodies run inline; patterns are not code
+            self._walk(body[1], known, in_at, moved)  # bodies run inline; patterns are not code
         if subject_is_res and not ("_" in seen or "res" in seen or {"ok", "err"} <= seen):
             missing = " and ".join(sorted({"ok", "err"} - seen))
             self._diag(NO_MATCH,

@@ -1,0 +1,9 @@
+# M8c-iv — where the checker must stay silent: the name is rebound; something
+# that runs code (f @) may have rebound it; the loop body runs after a condition
+# that rebinds; the name is also a builtin (the lookup falls back to it); the
+# use is inside `at` (a caught fault is the handled path). Must check clean.
+5 :x 'x , 6 :x x .
+[ 5 :x ] :f 5 :x 'x , f @ x .
+0 :c 5 :x 'x , [ 5 :x c 1 < ] [ x . c 1 + :c ] ;
+$hi$ :s 's , $x$ s .
+5 :x 'x , [ x ] at [ [_] [ , ] ] ??

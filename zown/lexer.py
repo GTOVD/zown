@@ -25,6 +25,7 @@ T_FLOAT = "FLOAT"
 T_STR = "STR"
 T_IDENT = "IDENT"
 T_BIND = "BIND"        # :name  -> value of `name` is the binding target
+T_MOVE = "MOVE"        # 'name  -> move the binding out: push its value, unbind (v0.2; §20)
 T_CAP = "CAP"          # `name  -> a capability token (v0.2; SPEC Part II §12)
 T_LBRACK = "LBRACK"    # [
 T_RBRACK = "RBRACK"    # ]
@@ -113,6 +114,9 @@ class Lexer:
             if c == ":":
                 out.append(self._read_bind())
                 continue
+            if c == "'":
+                out.append(self._read_move())
+                continue
             if c == "`":
                 out.append(self._read_cap())
                 continue
@@ -171,6 +175,22 @@ class Lexer:
             name_chars.append(self._advance())
         name = "".join(name_chars)
         return Token(T_BIND, name, p, (start, self.i - start))
+
+    def _read_move(self) -> Token:
+        # 'name  -> a move: push the binding's value and unbind it (SPEC §3/§20).
+        # A bare `name` is a borrow (copy); this is the one ownership sigil.
+        p, start = self._pos(), self.i
+        self._advance()  # the apostrophe
+        if self._peek() not in _IDENT_START:
+            raise self._err(
+                REPAIR_SYNTAX,
+                "expected an identifier after `'`",
+                hint="move form is 'name: push x's value and unbind it (a bare name is a borrow)",
+            )
+        name_chars: list[str] = []
+        while self._peek() in _IDENT_CONT:
+            name_chars.append(self._advance())
+        return Token(T_MOVE, "".join(name_chars), p, (start, self.i - start))
 
     def _read_cap(self) -> Token:
         # `name  -> a capability token. The dense 1-char codes (`s net-send,

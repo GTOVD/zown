@@ -1,0 +1,3 @@
+# Moving a name that was already moved out is NAME_UNRESOLVED at run time
+# (and the static checker rejects this straight-line shape before it runs).
+5 :x 'x 'x

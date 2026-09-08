@@ -471,6 +471,44 @@ def test_match_op_is_two_char():
     assert [t.value for t in toks] == ["??", "?"]
 
 
+# --- linear bindings: 'x move (M8c-iv, D4) -------------------------------------
+def test_lex_move_token():
+    from zown.lexer import T_MOVE
+    toks = [t for t in lex("'x") if t.kind != "EOF"]
+    assert toks[0].kind == T_MOVE and toks[0].value == "x"
+    _fails("' ", REPAIR_SYNTAX)                          # a bare apostrophe
+
+
+def test_move_pushes_and_unbinds():
+    out, vm = run("5 :x 'x . 7 :x x .")                  # move out, rebind, use again
+    assert out == "5\n7\n" and vm.env == {"x": 7}
+    _fails("5 :x 'x . x", NAME_UNRESOLVED, "x")         # a bare name after a move
+    _fails("5 :x 'x 'x", NAME_UNRESOLVED, "'x")         # moving twice
+    _fails("'zz", NAME_UNRESOLVED, "'zz")               # never bound
+    _fails("'ln", NAME_UNRESOLVED, "'ln")               # builtins are not bindings
+    _, vm = run("[ 1 2 + ] :f 'f @")                    # a block moves out and runs
+    assert vm.stack == [3] and vm.env == {}
+
+
+def test_check_use_after_move():
+    for src in ("5 :x 'x , x", "5 :x 'x 'x", "5 :x 'x 3 + . x",
+                "'x [ x ] @ 5 :x",                         # inline block inherits the mark
+                "5 :x 'x , [ x ] [ ] ;",                   # the loop condition runs first
+                "5 :x 'x , 1 [ x ] [ ] ? @"):              # selected branch runs at once
+        diags = _check(src)
+        assert [d.code for d in diags] == [NAME_UNRESOLVED], src
+    assert [d.op for d in _check("'zz")] == ["'zz"]     # never bound: well-formedness
+
+
+def test_check_move_stays_silent_when_it_cannot_know():
+    assert _check("5 :x 'x , 6 :x x") == []              # rebound
+    assert _check("[ 1 ] :f 5 :x 'x , f @ x") == []      # f @ may have rebound x
+    assert _check("5 :s 's , s") == []                   # falls back to the builtin s
+    assert _check("0 :c 5 :x 'x , [ 5 :x c 1 < ] [ x ] ;") == []   # cond rebinds before body
+    assert _check("5 :x 'x , [ x ] at [ [_] [ , ] ] ??") == []    # inside at: handled
+    assert [d.code for d in _check("5 :x [ 'x , x ] :g")] == [NAME_UNRESOLVED]  # within one block
+
+
 # --- no undefined behavior: structured traps (M8c-iii) -------------------------
 def test_unbounded_recursion_is_a_structured_trap():
     e = _fails("[ f @ ] :f f @", STACK_OVERFLOW, "@")

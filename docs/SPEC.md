@@ -12,9 +12,10 @@ sovereign-substrate architecture) is tracked in [`ROADMAP.md`](./ROADMAP.md) and
 [`DESIGN.md`](./DESIGN.md). Where the original design notes contradicted
 themselves, this spec is the authority and the contradictions are called out.
 
-**Part II (§11–§19)** is the **v0.2 language surface** — the type primitives
+**Part II (§11–§20)** is the **v0.2 language surface** — the type primitives
 (capabilities, full numerics, SIMD/tensor, network, crypto, UI/GPU), pattern
-matching and result values, and the no-undefined-behavior catalogue — frozen in
+matching and result values, the no-undefined-behavior catalogue, and linear
+bindings — frozen in
 the spec and validated in the Python oracle *before* the native compiler is
 built (`DESIGN.md` §1). Each section is marked **implemented** (oracle and/or
 checker) or **design-only** (with its target milestone). Part II tokens are
@@ -74,6 +75,8 @@ The lexer is a two-state machine: **code mode** and **literal mode**.
   and convert: `$99999999999999999999$ b`.
 - **Identifiers**: `[A-Za-z][A-Za-z0-9]*`. (No `_`; `_` is the negate operator.)
 - **Binding**: `:name` — a `:` immediately followed by an identifier.
+- **Move**: `'name` — an apostrophe immediately followed by an identifier (v0.2,
+  §20). **Capability**: `` `name `` (v0.2, §12).
 
 ---
 
@@ -84,7 +87,8 @@ Zown keeps the brainstorm's `:name` / `name` / `@` triad, made fully consistent:
 | Form     | Meaning                                                              |
 |----------|----------------------------------------------------------------------|
 | `:name`  | Pop the top value and bind `name` to it.                             |
-| `name`   | Push the value bound to `name`. If unbound but a **builtin word**, run it. |
+| `name`   | Push the value bound to `name` (a **borrow**: the binding stays). If unbound but a **builtin word**, run it. |
+| `'name`  | **Move** (v0.2, §20): push the value bound to `name` and **unbind** it. `NAME_UNRESOLVED` if there is no live binding (builtins cannot be moved). |
 | `@`      | Pop a block and execute it.                                          |
 
 ```
@@ -276,9 +280,11 @@ into the manifest **without** clobbering descriptions you've already written.
 
 ```
 program  = { node } ;
-node     = int | float | str | block | name | bind | op ;
+node     = int | float | str | block | name | bind | move | cap | op ;
 block    = "[" { node } "]" ;
 bind     = ":" ident ;
+move     = "'" ident ;          (* v0.2, §20 *)
+cap      = "`" ident ;          (* v0.2, §12 *)
 name     = ident ;
 int      = digit { digit } ;
 float    = digit { digit } "." digit { digit } ;
@@ -645,6 +651,8 @@ Part I §5 reservations stand. Part II claims:
 | Symbol | Now reserved for |
 |--------|------------------|
 | `` ` `` | capability sigil (§12) |
+| `'` | move sigil (§20) — **implemented** |
+| `"` | reserved for a future *mutable reference* sigil once heap values exist (§20) |
 | `~x` words | network/lane primitives (§14) |
 | `» « →` | embedded graph DB query pipeline (`DESIGN.md` §6) |
 | `??` | pattern-match dispatch (§16, provisional) |
@@ -715,3 +723,44 @@ Every trap above is a value when it happens inside `at` (§16.1):
 `[ f @ ] :f [ f @ ] at` yields `err(STACK_OVERFLOW)`. The oracle's limits are
 128 nested invocations and 256 nested blocks; native runtimes set their own but
 the *kind* of outcome is fixed by this table.
+
+## 20. Ownership — linear bindings — **implemented (M8c-iv, oracle + checker)**
+
+`DESIGN.md` §2.2 asks for move/borrow tokens. In a stack language most of that
+discipline already exists: **pop is a move, dup/over is a borrow**, and values on
+the stack have exactly one owner. Only *bindings* can hold a value indefinitely,
+so ownership needs exactly one token (decision D4, 2026-09-07; `!` and `&`
+remain logical-not and over):
+
+| Form | Meaning |
+|------|---------|
+| `name`  | **borrow** — push a copy; the binding stays live (Part I §3, unchanged) |
+| `'name` | **move** — push the value and **unbind** `name`; the value now has one owner: the stack |
+
+```
+5 :x  x x + .      # 10  borrows
+'x .               # 5   moved out — x is unbound from here on
+x                  # NAME_UNRESOLVED (static and run time)
+7 :x  x .          # 7   rebinding makes it live again
+[ 1 2 + ] :f 'f @  # a block moves out and runs; f is gone
+```
+
+- A move of a name with no live binding is `NAME_UNRESOLVED` (op `'name`).
+  Builtins are not bindings and cannot be moved; after `'s`, a bare `s` falls
+  back to the builtin `to_str` exactly as if the binding had never existed.
+- **Static use-after-move.** Within one node sequence the checker (§8) tracks
+  names moved so far: a later bare `name` (unless it is also a builtin) or a
+  second `'name` is a static `NAME_UNRESOLVED` and the program is rejected.
+  A `:name` clears the mark; any node that can run code (`@ ; ??`, `gr`, `at`,
+  SIMD constructors) clears all marks, since it may have rebound anything.
+  Blocks that run immediately at their position (`@`, the `;` condition, the
+  `? @` branches, `??` bodies, `gr`, `at`, constructors) inherit the marks; the
+  `;` body (its condition ran first) and escaped blocks start clean. Inside `at`
+  the fault is the handled path and is not reported. Goldens: `conformance/check/
+  move_*`.
+- **Why it matters later.** Today every value is immutable, so a move is only a
+  rebinding discipline. When the M9 memory model introduces heap values (`buf`,
+  fat pointers), `'name` is the transfer of *exclusive* ownership the drop/no-GC
+  story needs, and `"` is reserved for the mutable-reference sigil that story
+  will add. The rule is fixed now so the checker's flow analysis is already in
+  place when memory arrives.

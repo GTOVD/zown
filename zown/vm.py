@@ -305,6 +305,8 @@ class VM:
             self._exec_name(node[1], node[2])
         elif tag == "bind":
             self.env[node[1]] = self.pop(f":{node[1]}", node[2])
+        elif tag == "move":
+            self._exec_move(node[1], node[2])
         elif tag == "cap":
             self.push(Cap(node[1]))
         elif tag == "op":
@@ -323,6 +325,16 @@ class VM:
         raise self.err(NAME_UNRESOLVED, f"`{name}` is not bound and is not a builtin",
                        op=name, pos=pos,
                        hint="bind it with `:%s` or check the stdlib word list" % name)
+
+    def _exec_move(self, name: str, pos: Pos) -> None:
+        # 'name: the binding's value moves onto the stack and the name is unbound
+        # (SPEC §20). Builtins are not bindings, so they cannot be moved.
+        if name in self.env:
+            self.push(self.env.pop(name))
+            return
+        raise self.err(NAME_UNRESOLVED, f"`'{name}`: {name} is not bound; a move needs a live binding",
+                       op=f"'{name}", pos=pos,
+                       hint=f"was {name} already moved out? rebind it with :{name} first")
 
     def invoke(self, blk: Block, op: str | None = None, pos: Pos | None = None) -> None:
         """Run a block. `op`/`pos` name the invoking site for diagnostics."""
