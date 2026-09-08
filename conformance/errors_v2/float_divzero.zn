@@ -1,0 +1,3 @@
+# Division by zero traps for floats too (Zown chooses a trap over IEEE's inf/nan
+# here, the same as for ints — SPEC §19).
+1.5 0 /

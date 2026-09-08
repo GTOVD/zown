@@ -35,6 +35,7 @@ from .errors import (
     NAME_UNRESOLVED,
     NOT_CALLABLE,
     OVERFLOW,
+    STACK_OVERFLOW,
     STACK_UNDERFLOW,
     TYPE_MISMATCH,
     UB_TRAP,
@@ -43,6 +44,11 @@ from .errors import (
 )
 from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
+
+# Nested block invocations allowed before a structured STACK_OVERFLOW (SPEC §19).
+# Implementation-defined; the oracle keeps it modest so unbounded recursion is
+# always a `.zerr`, never a host-language crash. Native runtimes set their own.
+MAX_INVOKE_DEPTH = 128
 
 
 @dataclass
@@ -207,6 +213,7 @@ class VM:
         # Granted capabilities. Empty by default: a program has zero authority
         # until a `gr` block brings a capability into scope (SPEC Part II §12).
         self.caps: set[str] = set()
+        self.depth = 0  # current block-invocation depth (see MAX_INVOKE_DEPTH)
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
@@ -317,8 +324,18 @@ class VM:
                        op=name, pos=pos,
                        hint="bind it with `:%s` or check the stdlib word list" % name)
 
-    def invoke(self, blk: Block) -> None:
-        self.run(blk.nodes)
+    def invoke(self, blk: Block, op: str | None = None, pos: Pos | None = None) -> None:
+        """Run a block. `op`/`pos` name the invoking site for diagnostics."""
+        if self.depth >= MAX_INVOKE_DEPTH:
+            raise self.err(STACK_OVERFLOW,
+                           f"block invocations nested deeper than the limit ({MAX_INVOKE_DEPTH})",
+                           op=op, pos=pos,
+                           hint="unbounded recursion? give it a base case, or iterate with `;`")
+        self.depth += 1
+        try:
+            self.run(blk.nodes)
+        finally:
+            self.depth -= 1
 
     # --- operators -------------------------------------------------------------
     def _exec_op(self, op: str, pos: Pos) -> None:
@@ -525,7 +542,7 @@ def op_print(vm: VM, pos: Pos) -> None:
 
 def op_invoke(vm: VM, pos: Pos) -> None:
     blk = vm.pop_block("@", pos)
-    vm.invoke(blk)
+    vm.invoke(blk, "@", pos)
 
 
 def op_select(vm: VM, pos: Pos) -> None:
@@ -541,10 +558,10 @@ def op_while(vm: VM, pos: Pos) -> None:
     body = vm.pop_block(";", pos)
     cond = vm.pop_block(";", pos)
     while True:
-        vm.invoke(cond)
+        vm.invoke(cond, ";", pos)
         if not truthy(vm.pop(";", pos)):
             break
-        vm.invoke(body)
+        vm.invoke(body, ";", pos)
 
 
 # Pattern kinds a `??` arm may use (SPEC Part II §16). Patterns are *introspected*
@@ -607,7 +624,7 @@ def op_match(vm: VM, pos: Pos) -> None:
         matched, value = _pattern_matches(vm, subject, pat[1], pos)
         if matched:
             vm.push(value)  # the matched value is available to the body
-            vm.invoke(Block(body[1]))
+            vm.invoke(Block(body[1]), "??", pos)
             return
     what = ("err result" if isinstance(subject, Res) and not subject.ok
             else "ok result" if isinstance(subject, Res) else f"{type_name(subject)} subject")

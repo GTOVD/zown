@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
+    STACK_OVERFLOW,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
 from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
@@ -468,6 +469,43 @@ def test_match_op_is_two_char():
     from zown.lexer import lex, T_OP
     toks = [t for t in lex("a ?? b ?") if t.kind == T_OP]
     assert [t.value for t in toks] == ["??", "?"]
+
+
+# --- no undefined behavior: structured traps (M8c-iii) -------------------------
+def test_unbounded_recursion_is_a_structured_trap():
+    e = _fails("[ f @ ] :f f @", STACK_OVERFLOW, "@")
+    assert e.pos is not None                          # points at the recursive call site
+    _fails("[ g @ ] :g `s [ g @ ] gr", STACK_OVERFLOW)  # through gr too
+
+
+def test_depth_counts_nesting_not_iterations():
+    out, _ = run("0 :n [ n 300 < ] [ n 1 + :n ] ; n .")
+    assert out == "300\n"                             # loops never accumulate depth
+    _, vm = run("[ 1 ] :o [ o @ o @ ] :p p @")
+    assert vm.stack == [1, 1] and vm.depth == 0       # depth unwinds after each invoke
+
+
+def test_recursion_trap_is_a_catchable_result():
+    _, vm = run("[ f @ ] :f [ f @ ] at")
+    assert vm.stack == [Res(False, "STACK_OVERFLOW")]
+
+
+def test_deep_block_nesting_is_a_parse_error_not_a_crash():
+    from zown.parser import MAX_NESTING
+    e = _fails("[" * (MAX_NESTING + 1) + "]" * (MAX_NESTING + 1), REPAIR_SYNTAX)
+    assert e.kind == "parse"
+    _, vm = run("[" * MAX_NESTING + "]" * MAX_NESTING + " ,")
+    assert vm.stack == []
+
+
+def test_defined_behavior_rows():
+    _fails("1.5 0 /", DIV_ZERO, "/")                  # float division by zero traps too
+    _fails("1 0 %", DIV_ZERO, "%")
+    _, vm = run("7 _ 3 %  7 3 _ %")
+    assert vm.stack == [2, -2]                        # modulo takes the divisor's sign
+    _, vm = run("$ab$ 2 _ *  $ab$ 0 *")
+    assert vm.stack == ["", ""]                       # repeat with count <= 0 is ""
+    _fails("[ 1 2 3 4 ] i4 4 vat", BOUNDS, "vat")     # lane index out of range
 
 
 # --- result values (M8c-ii, D3) ------------------------------------------------

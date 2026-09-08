@@ -36,12 +36,17 @@ from .lexer import (
 
 Node = tuple
 
+# Block nesting allowed before a structured REPAIR_SYNTAX (SPEC §19): the parser
+# is recursive, and a pathological `[[[[…]]]]` must be a `.zerr`, not a crash.
+MAX_NESTING = 256
+
 
 class Parser:
     def __init__(self, tokens: list[Token], file: str | None = None):
         self.toks = tokens
         self.i = 0
         self.file = file
+        self.depth = 0
 
     def _peek(self) -> Token:
         return self.toks[self.i]
@@ -101,7 +106,18 @@ class Parser:
         if t.kind == T_OP:
             return ("op", t.value, t.pos)
         if t.kind == T_LBRACK:
-            inner = self._sequence(top=False)
+            if self.depth >= MAX_NESTING:
+                raise ZownError(
+                    code=REPAIR_SYNTAX,
+                    msg=f"blocks nested deeper than the limit ({MAX_NESTING})",
+                    kind="parse", pos=t.pos, file=self.file,
+                    hint="flatten the structure; bind inner blocks to names",
+                )
+            self.depth += 1
+            try:
+                inner = self._sequence(top=False)
+            finally:
+                self.depth -= 1
             return ("blk", inner, t.pos)
         # T_RBRACK / T_EOF handled by caller; anything else is a bug
         raise ZownError(

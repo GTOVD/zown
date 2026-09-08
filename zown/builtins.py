@@ -257,7 +257,7 @@ def b_grant(vm, pos: Pos) -> None:
     had = cap.name in vm.caps
     vm.caps.add(cap.name)
     try:
-        vm.invoke(blk)
+        vm.invoke(blk, "gr", pos)
     finally:
         if not had:
             vm.caps.discard(cap.name)
@@ -297,7 +297,7 @@ def b_attempt(vm, pos: Pos) -> None:
     vm.stack = []
     try:
         try:
-            vm.invoke(blk)
+            vm.invoke(blk, "at", pos)
         except ZownError as e:
             vm.stack = saved
             vm.push(Res(False, e.code))
@@ -437,7 +437,7 @@ def _make_vec(name: str, count: int, is_float: bool, signed: bool, bits: int):
         saved = vm.stack
         vm.stack = []
         try:
-            vm.invoke(blk)
+            vm.invoke(blk, name, pos)
             lanes = vm.stack
         finally:
             vm.stack = saved

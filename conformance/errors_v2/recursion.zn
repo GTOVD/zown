@@ -1,0 +1,3 @@
+# Unbounded recursion is a structured STACK_OVERFLOW at the invoking site, never
+# a host-language crash (SPEC §19). The depth limit is implementation-defined.
+[ f @ ] :f f @

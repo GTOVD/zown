@@ -1,0 +1,2 @@
+# A lane index outside the vector is BOUNDS — there is no out-of-bounds read.
+[ 1 2 3 4 ] i4 4 vat

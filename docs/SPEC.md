@@ -12,10 +12,12 @@ sovereign-substrate architecture) is tracked in [`ROADMAP.md`](./ROADMAP.md) and
 [`DESIGN.md`](./DESIGN.md). Where the original design notes contradicted
 themselves, this spec is the authority and the contradictions are called out.
 
-**Part II (§11–§18)** is the **planned v0.2 language surface** — the type
-primitives (capabilities, full numerics, SIMD/tensor, network, crypto, UI/GPU) and
-pattern matching that must be frozen in the spec and validated in the Python
-oracle *before* the native compiler is built (`DESIGN.md` §1). Part II tokens are
+**Part II (§11–§19)** is the **v0.2 language surface** — the type primitives
+(capabilities, full numerics, SIMD/tensor, network, crypto, UI/GPU), pattern
+matching and result values, and the no-undefined-behavior catalogue — frozen in
+the spec and validated in the Python oracle *before* the native compiler is
+built (`DESIGN.md` §1). Each section is marked **implemented** (oracle and/or
+checker) or **design-only** (with its target milestone). Part II tokens are
 **provisional**, pending a density audit; the design intent is stable even where a
 specific symbol may change.
 
@@ -655,7 +657,9 @@ Security events use the same structured channel as Part I §8, so the AI control
 plane and the self-healing loop act on them uniformly. New recovery codes:
 
 `CAP_DENIED`, `AUTH_FAIL`, `INTEGRITY_FAIL`, `SIG_INVALID`, `RATE_LIMITED`,
-`UB_TRAP` (a would-be-undefined operation trapped at runtime).
+`UB_TRAP` (an operation whose result would be undefined or unrepresentable —
+domain errors, `nan` → integer — trapped at runtime), plus the runtime traps
+`OVERFLOW`, `STACK_OVERFLOW`, `NO_MATCH`, `BAD_PATTERN` (§19).
 
 ```json
 {
@@ -669,3 +673,45 @@ plane and the self-healing loop act on them uniformly. New recovery codes:
   "hint": "grant `s in the module manifest, or route via a capability holder"
 }
 ```
+
+## 19. Defined behavior — the no-UB catalogue — **implemented (M8c-iii, oracle)**
+
+**Zown has no undefined behavior.** Every operation that is undefined,
+implementation-defined, or a silent footgun in other languages has exactly one
+outcome here: a *defined value*, a *structured runtime trap* (a `.zerr`), or a
+*static rejection* (`zown check`). Each row has a conformance golden; a native
+backend must reproduce the row or fail with `UNSUPPORTED` — never diverge silently.
+
+| Situation | Outcome | Golden |
+|-----------|---------|--------|
+| `int` result outside `[-2^63, 2^63-1]` (`+ - * _ ab pw fl ce rd n`) | trap `OVERFLOW` | `errors_v2/int_overflow`, `pw_overflow`, `n_overflow` |
+| integer literal beyond `int` | lex trap `OVERFLOW` | `errors_v2/lit_overflow` |
+| `big` arithmetic | exact, unbounded (value) | `cases_v2/big_arith` |
+| width policy result (`wr st ck`) | `int` for widths inside `int`, `big` for `u64 i128 u128` | `cases_v2/int_checked` |
+| division / modulo by zero — int, big, **and float** | trap `DIV_ZERO` | `errors/divzero`, `errors_v2/float_divzero` |
+| zero to a negative power | trap `DIV_ZERO` | (unit test) |
+| float overflow (`* + pw`) | `±inf` (value) | `cases_v2/float_ieee` |
+| `inf - inf` and other IEEE invalid results *from non-finite inputs* | `nan` (value) | `cases_v2/float_ieee` |
+| square root of a negative; negative base with fractional exponent | trap `UB_TRAP` (Zown traps where IEEE would create `nan` from *finite* inputs) | `errors_v2/sqrt_negative` |
+| `nan` → integer (`fl ce rd`, `b`) | trap `UB_TRAP` | `errors_v2/float_nan_to_int` |
+| `±inf` → integer | trap `OVERFLOW` | `errors_v2/float_inf_to_int` |
+| whole float beyond `int` | stays a float (`1e+30`) | `cases_v2/float_ieee` |
+| `%` with negative operands | result takes the divisor's sign (Python rule), ints and floats | `cases_v2/defined_behavior` |
+| string repeat with count ≤ 0 | `""` | `cases_v2/defined_behavior` |
+| vector lane index out of range | trap `BOUNDS` | `errors_v2/vec_oob` |
+| wrong lane count / `at` body arity | trap `BOUNDS` | `errors_v2/vec_arity`, `res_arity` |
+| stack underflow | trap `STACK_UNDERFLOW` | `errors/underflow` |
+| **unbounded recursion** (invocations nested past the limit) | trap `STACK_OVERFLOW` at the invoking site; loops (`;`) never consume depth | `errors_v2/recursion`, `cases_v2/defined_behavior` |
+| **block nesting past the parser's limit** | parse trap `REPAIR_SYNTAX` | (unit test) |
+| type confusion (`+` on a block, `@` on an int, …) | trap `TYPE_MISMATCH` / `NOT_CALLABLE` | `errors/typemismatch`, `notcallable` |
+| unresolved name | **static** `NAME_UNRESOLVED` (rejected before running); runtime trap if reached unchecked | `check/name_unresolved`, `errors/unresolved` |
+| capability used without a grant | **static** `CAP_DENIED` when provable; runtime trap `CAP_DENIED` otherwise | `check/flow_*`, `errors_v2/caps_denied*` |
+| result not handled exhaustively | **static** `NO_MATCH`; runtime trap `NO_MATCH` | `check/res_exhaustive`, `errors_v2/res_unhandled` |
+| null / uninitialized value | **impossible** — no null exists; a name is bound or `NAME_UNRESOLVED` | — |
+| use-after-free, out-of-bounds memory, data race | **impossible in v0.2** — no raw memory or shared mutable state; the M9 memory model must keep it so (fat pointers, `BOUNDS`) | M9 |
+| resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
+
+Every trap above is a value when it happens inside `at` (§16.1):
+`[ f @ ] :f [ f @ ] at` yields `err(STACK_OVERFLOW)`. The oracle's limits are
+128 nested invocations and 256 nested blocks; native runtimes set their own but
+the *kind* of outcome is fixed by this table.
