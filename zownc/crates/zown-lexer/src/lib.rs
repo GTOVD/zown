@@ -7,12 +7,17 @@
 //! tested. See `docs/PLAN.md` milestone M3.
 
 /// Source position. `offset` is a character index (matches the Python reference).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Pos {
     pub line: u32,
     pub col: u32,
     pub offset: usize,
 }
+
+/// Checked 64-bit `int` range (SPEC §1/§11, decision D1). Literals outside it
+/// are a lex-time `OVERFLOW`; arbitrary precision is the explicit `big` (`b`).
+pub const INT_MIN: i64 = i64::MIN;
+pub const INT_MAX: i64 = i64::MAX;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -22,9 +27,13 @@ pub enum TokenKind {
     Ident(String),
     /// `:name` — bind the top of stack to `name`.
     Bind(String),
+    /// `'name` — move the binding out (push + unbind). SPEC §20.
+    Move(String),
+    /// `` `name `` — a capability token. SPEC §12.
+    Cap(String),
     LBrack,
     RBrack,
-    /// An operator symbol (e.g. `+`, `==`, `@`).
+    /// An operator symbol (e.g. `+`, `==`, `@`, `??`).
     Op(String),
     Eof,
 }
@@ -47,8 +56,9 @@ pub struct LexError {
 }
 
 pub const REPAIR_SYNTAX: &str = "REPAIR_SYNTAX";
+pub const OVERFLOW: &str = "OVERFLOW";
 
-const TWO_CHAR_OPS: [&str; 6] = ["==", "!=", "<=", ">=", "&&", "||"];
+const TWO_CHAR_OPS: [&str; 7] = ["==", "!=", "<=", ">=", "&&", "||", "??"];
 const ONE_CHAR_OPS: &str = "@.,=\\&+-*/%<>!?;_";
 
 fn is_ident_start(c: char) -> bool {
@@ -91,7 +101,11 @@ impl Lexer {
     }
 
     fn err(&self, msg: impl Into<String>, hint: &'static str) -> LexError {
-        LexError { code: REPAIR_SYNTAX, msg: msg.into(), pos: self.pos(), hint }
+        self.err_code(REPAIR_SYNTAX, msg, hint)
+    }
+
+    fn err_code(&self, code: &'static str, msg: impl Into<String>, hint: &'static str) -> LexError {
+        LexError { code, msg: msg.into(), pos: self.pos(), hint }
     }
 
     pub fn tokens(&mut self) -> Result<Vec<Token>, LexError> {
@@ -128,8 +142,16 @@ impl Lexer {
                 out.push(self.read_bind()?);
                 continue;
             }
+            if c == '\'' {
+                out.push(self.read_move()?);
+                continue;
+            }
+            if c == '`' {
+                out.push(self.read_cap()?);
+                continue;
+            }
             if c.is_ascii_digit() {
-                out.push(self.read_number());
+                out.push(self.read_number()?);
                 continue;
             }
             if is_ident_start(c) {
@@ -207,7 +229,44 @@ impl Lexer {
         Ok(Token { kind: TokenKind::Bind(name), pos: p, span: (start, self.i - start) })
     }
 
-    fn read_number(&mut self) -> Token {
+    fn read_named(&mut self, kind_tag: &str) -> Result<(String, Pos, (usize, usize)), LexError> {
+        let (p, start) = (self.pos(), self.i);
+        self.advance(); // the sigil
+        match self.peek(0) {
+            Some(c) if is_ident_start(c) => {}
+            _ => {
+                return Err(self.err(
+                    format!("expected an identifier after `{kind_tag}`"),
+                    match kind_tag {
+                        "'" => "move form is 'name: push x's value and unbind it (a bare name is a borrow)",
+                        "`" => "capability form is `name, e.g. `s (net-send); see SPEC Part II §12",
+                        _ => "expected an identifier after the sigil",
+                    },
+                ))
+            }
+        }
+        let mut name = String::new();
+        while let Some(c) = self.peek(0) {
+            if is_ident_cont(c) {
+                name.push(self.advance());
+            } else {
+                break;
+            }
+        }
+        Ok((name, p, (start, self.i - start)))
+    }
+
+    fn read_move(&mut self) -> Result<Token, LexError> {
+        let (name, pos, span) = self.read_named("'")?;
+        Ok(Token { kind: TokenKind::Move(name), pos, span })
+    }
+
+    fn read_cap(&mut self) -> Result<Token, LexError> {
+        let (name, pos, span) = self.read_named("`")?;
+        Ok(Token { kind: TokenKind::Cap(name), pos, span })
+    }
+
+    fn read_number(&mut self) -> Result<Token, LexError> {
         let (p, start) = (self.pos(), self.i);
         while matches!(self.peek(0), Some(c) if c.is_ascii_digit()) {
             self.advance();
@@ -223,12 +282,19 @@ impl Lexer {
         }
         let text: String = self.src[start..self.i].iter().collect();
         let span = (start, self.i - start);
-        let kind = if is_float {
-            TokenKind::Float(text.parse().unwrap())
-        } else {
-            TokenKind::Int(text.parse().unwrap())
-        };
-        Token { kind, pos: p, span }
+        if is_float {
+            // IEEE-754: may round, or be inf — never a lex error (SPEC §11).
+            let v: f64 = text.parse().unwrap();
+            return Ok(Token { kind: TokenKind::Float(v), pos: p, span });
+        }
+        match text.parse::<i64>() {
+            Ok(n) => Ok(Token { kind: TokenKind::Int(n), pos: p, span }),
+            Err(_) => Err(self.err_code(
+                OVERFLOW,
+                format!("integer literal {text} does not fit int (max {INT_MAX})"),
+                "int is a checked 64-bit integer; for arbitrary precision write it as a string and convert: $digits$ b",
+            )),
+        }
     }
 
     fn read_ident(&mut self) -> Token {
@@ -329,6 +395,25 @@ mod tests {
     fn lone_pipe_reserved() {
         let e = lex("|").unwrap_err();
         assert_eq!(e.code, REPAIR_SYNTAX);
+    }
+
+    #[test]
+    fn capability_and_move() {
+        assert_eq!(kinds("`s 'x"), vec![TokenKind::Cap("s".into()), TokenKind::Move("x".into())]);
+    }
+
+    #[test]
+    fn match_op_is_two_char() {
+        assert_eq!(
+            kinds("a ?? b ?"),
+            vec![TokenKind::Ident("a".into()), TokenKind::Op("??".into()), TokenKind::Ident("b".into()), TokenKind::Op("?".into())]
+        );
+    }
+
+    #[test]
+    fn int_literal_overflow() {
+        let e = lex("9223372036854775808").unwrap_err(); // i64::MAX + 1
+        assert_eq!(e.code, OVERFLOW);
     }
 
     #[test]

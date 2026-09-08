@@ -106,6 +106,9 @@ dependencies = [
 [[package]]
 name = "zown-ast"
 version = "0.1.0"
+dependencies = [
+ "zown-lexer",
+]
 
 [[package]]
 name = "zown-cli"

@@ -14,7 +14,7 @@
 //! the exact AST, which is how we verify the IR faithfully represents a program
 //! before any backend trusts it (see `conformance/ir_roundtrip.py`).
 
-use zown_ast::Node;
+use zown_ast::{Node, NodeKind, Pos};
 
 /// One IR instruction.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +26,10 @@ pub enum Instr {
     ConstBlock(usize),
     /// `:name` — pop the top of stack and bind it.
     Bind(String),
+    /// `'name` — push the binding and unbind it (SPEC §20).
+    Move(String),
+    /// `` `name `` — push a capability token (SPEC §12).
+    ConstCap(String),
     /// Resolve a name: user binding first, else a builtin word.
     Load(String),
     /// A value operator: `+ - * / % _ == != < > <= >= && || ! = , \ & .`
@@ -57,19 +61,21 @@ impl Builder {
     fn lower_seq(&mut self, nodes: &[Node]) -> usize {
         let mut instrs = Vec::with_capacity(nodes.len());
         for n in nodes {
-            match n {
-                Node::Int(v) => instrs.push(Instr::ConstInt(*v)),
-                Node::Float(v) => instrs.push(Instr::ConstFloat(*v)),
-                Node::Str(s) => instrs.push(Instr::ConstStr(s.clone())),
-                Node::Name(s) => instrs.push(Instr::Load(s.clone())),
-                Node::Bind(s) => instrs.push(Instr::Bind(s.clone())),
-                Node::Op(s) => instrs.push(match s.as_str() {
+            match &n.kind {
+                NodeKind::Int(v) => instrs.push(Instr::ConstInt(*v)),
+                NodeKind::Float(v) => instrs.push(Instr::ConstFloat(*v)),
+                NodeKind::Str(s) => instrs.push(Instr::ConstStr(s.clone())),
+                NodeKind::Name(s) => instrs.push(Instr::Load(s.clone())),
+                NodeKind::Bind(s) => instrs.push(Instr::Bind(s.clone())),
+                NodeKind::Move(s) => instrs.push(Instr::Move(s.clone())),
+                NodeKind::Cap(s) => instrs.push(Instr::ConstCap(s.clone())),
+                NodeKind::Op(s) => instrs.push(match s.as_str() {
                     "@" => Instr::Invoke,
                     "?" => Instr::Select,
                     ";" => Instr::While,
                     _ => Instr::Op(s.clone()),
                 }),
-                Node::Blk(inner) => {
+                NodeKind::Blk(inner) => {
                     let id = self.lower_seq(inner);
                     instrs.push(Instr::ConstBlock(id));
                 }
@@ -97,17 +103,22 @@ fn unlower_block(prog: &IrProgram, id: usize) -> Vec<Node> {
     prog.blocks[id]
         .0
         .iter()
-        .map(|instr| match instr {
-            Instr::ConstInt(v) => Node::Int(*v),
-            Instr::ConstFloat(v) => Node::Float(*v),
-            Instr::ConstStr(s) => Node::Str(s.clone()),
-            Instr::ConstBlock(bid) => Node::Blk(unlower_block(prog, *bid)),
-            Instr::Bind(s) => Node::Bind(s.clone()),
-            Instr::Load(s) => Node::Name(s.clone()),
-            Instr::Op(s) => Node::Op(s.clone()),
-            Instr::Invoke => Node::Op("@".into()),
-            Instr::Select => Node::Op("?".into()),
-            Instr::While => Node::Op(";".into()),
+        .map(|instr| {
+            let kind = match instr {
+                Instr::ConstInt(v) => NodeKind::Int(*v),
+                Instr::ConstFloat(v) => NodeKind::Float(*v),
+                Instr::ConstStr(s) => NodeKind::Str(s.clone()),
+                Instr::ConstBlock(bid) => NodeKind::Blk(unlower_block(prog, *bid)),
+                Instr::Bind(s) => NodeKind::Bind(s.clone()),
+                Instr::Move(s) => NodeKind::Move(s.clone()),
+                Instr::ConstCap(s) => NodeKind::Cap(s.clone()),
+                Instr::Load(s) => NodeKind::Name(s.clone()),
+                Instr::Op(s) => NodeKind::Op(s.clone()),
+                Instr::Invoke => NodeKind::Op("@".into()),
+                Instr::Select => NodeKind::Op("?".into()),
+                Instr::While => NodeKind::Op(";".into()),
+            };
+            Node::new(kind, Pos::default())
         })
         .collect()
 }
@@ -137,6 +148,8 @@ fn instr_str(instr: &Instr) -> String {
         Instr::ConstStr(s) => format!("push.s   {s:?}"),
         Instr::ConstBlock(id) => format!("push.blk b{id}"),
         Instr::Bind(s) => format!("bind     {s}"),
+        Instr::Move(s) => format!("move     {s}"),
+        Instr::ConstCap(s) => format!("push.cap {s}"),
         Instr::Load(s) => format!("load     {s}"),
         Instr::Op(s) => format!("op       {s}"),
         Instr::Invoke => "invoke".into(),
@@ -176,6 +189,13 @@ mod tests {
             let ir = lower(&a);
             assert_eq!(unlower(&ir), a, "roundtrip failed for {src:?}");
         }
+    }
+
+    #[test]
+    fn roundtrip_cap_and_move() {
+        let a = ast("`s [ 'x ] :f");
+        let ir = lower(&a);
+        assert_eq!(unlower(&ir), a);
     }
 
     #[test]

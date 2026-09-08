@@ -320,6 +320,8 @@ fn render(t: &Token) -> String {
         TokenKind::Str(v) => format!("STR      {v:?}"),
         TokenKind::Ident(v) => format!("IDENT    {v}"),
         TokenKind::Bind(v) => format!("BIND     :{v}"),
+        TokenKind::Move(v) => format!("MOVE     '{v}"),
+        TokenKind::Cap(v) => format!("CAP      `{v}"),
         TokenKind::LBrack => "LBRACK   [".to_string(),
         TokenKind::RBrack => "RBRACK   ]".to_string(),
         TokenKind::Op(v) => format!("OP       {v}"),

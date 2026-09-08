@@ -4,7 +4,7 @@
 //! mirror the reference: unclosed `[` and stray `]` both report `REPAIR_SYNTAX`
 //! with a position, so an agent can self-heal off the structured code.
 
-use zown_ast::Node;
+use zown_ast::{Node, NodeKind};
 use zown_lexer::{lex, LexError, Pos, Token, TokenKind};
 
 pub const REPAIR_SYNTAX: &str = "REPAIR_SYNTAX";
@@ -81,28 +81,31 @@ impl Parser {
 
     fn node(&mut self) -> Result<Node, ParseError> {
         let t = self.advance();
-        Ok(match t.kind {
-            TokenKind::Int(v) => Node::Int(v),
-            TokenKind::Float(v) => Node::Float(v),
-            TokenKind::Str(s) => Node::Str(s),
-            TokenKind::Ident(s) => Node::Name(s),
-            TokenKind::Bind(s) => Node::Bind(s),
-            TokenKind::Op(s) => Node::Op(s),
+        let pos = t.pos;
+        let kind = match t.kind {
+            TokenKind::Int(v) => NodeKind::Int(v),
+            TokenKind::Float(v) => NodeKind::Float(v),
+            TokenKind::Str(s) => NodeKind::Str(s),
+            TokenKind::Ident(s) => NodeKind::Name(s),
+            TokenKind::Bind(s) => NodeKind::Bind(s),
+            TokenKind::Move(s) => NodeKind::Move(s),
+            TokenKind::Cap(s) => NodeKind::Cap(s),
+            TokenKind::Op(s) => NodeKind::Op(s),
             TokenKind::LBrack => {
                 let inner = self.sequence(false)?;
-                Node::Blk(inner)
+                NodeKind::Blk(inner)
             }
-            // RBrack / Eof are handled by `sequence`; reaching here is a bug.
             other => {
                 return Err(ParseError {
                     code: REPAIR_SYNTAX,
                     msg: format!("unexpected token {other:?}"),
                     kind: "parse",
-                    pos: t.pos,
+                    pos,
                     hint: "",
                 })
             }
-        })
+        };
+        Ok(Node::new(kind, pos))
     }
 }
 
@@ -120,19 +123,33 @@ pub fn parse(src: &str) -> Result<Vec<Node>, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zown_ast::Node;
+    use zown_ast::NodeKind;
+
+    fn kinds(src: &str) -> Vec<NodeKind> {
+        parse(src).unwrap().into_iter().map(|n| n.kind).collect()
+    }
 
     #[test]
     fn hello_world_ast() {
-        let ast = parse("[$Hello, World!$.]:h h@").unwrap();
         assert_eq!(
-            ast,
+            kinds("[$Hello, World!$.]:h h@"),
             vec![
-                Node::Blk(vec![Node::Str("Hello, World!".into()), Node::Op(".".into())]),
-                Node::Bind("h".into()),
-                Node::Name("h".into()),
-                Node::Op("@".into()),
+                NodeKind::Blk(vec![
+                    Node::new(NodeKind::Str("Hello, World!".into()), Pos::default()),
+                    Node::new(NodeKind::Op(".".into()), Pos::default()),
+                ]),
+                NodeKind::Bind("h".into()),
+                NodeKind::Name("h".into()),
+                NodeKind::Op("@".into()),
             ]
+        );
+    }
+
+    #[test]
+    fn cap_and_move_nodes() {
+        assert_eq!(
+            kinds("`s 'x"),
+            vec![NodeKind::Cap("s".into()), NodeKind::Move("x".into())]
         );
     }
 
@@ -157,7 +174,12 @@ mod tests {
 
     #[test]
     fn nested_blocks() {
-        let ast = parse("[ [ 1 ] ]").unwrap();
-        assert_eq!(ast, vec![Node::Blk(vec![Node::Blk(vec![Node::Int(1)])])]);
+        assert_eq!(
+            kinds("[ [ 1 ] ]"),
+            vec![NodeKind::Blk(vec![Node::new(
+                NodeKind::Blk(vec![Node::new(NodeKind::Int(1), Pos::default())]),
+                Pos::default(),
+            )])]
+        );
     }
 }

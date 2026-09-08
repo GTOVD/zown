@@ -204,6 +204,12 @@ fn emit_instr(
                  \x20     (br $loop{k})))\n"
             ));
         }
+        Instr::ConstCap(_) | Instr::Move(_) => {
+            return Err(
+                "UNSUPPORTED: v0.2 capability/move values are not in the WASM backend yet (PLAN M8d-iv)"
+                    .into(),
+            );
+        }
     }
     Ok(())
 }

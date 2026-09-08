@@ -57,9 +57,13 @@ python3 conformance/wasm_parity.py      # also requires wasmtime on PATH
   vat`, `BOUNDS`), pattern matching (`??`, `NO_MATCH`, `BAD_PATTERN`), the
   checked-int / `big` / IEEE-float numeric model (`b`, `OVERFLOW` on int results
   and literals, `inf`/`nan` values, `UB_TRAP` on nan→int and negative `sq`).
-- **check** (`check/`): name resolution, `??` arm shape, and capability flow —
-  both definite denials and the sound-silence cases (dynamic extent, escaped
-  blocks, inline consumers).
+  Also: result values (`at`, `[ok]`/`[err]`, `NO_MATCH`, `BOUNDS`), linear
+  bindings (`'x`), and the SPEC §19 no-UB rows (`STACK_OVERFLOW`, float
+  `DIV_ZERO`, `vec_oob`, `defined_behavior`).
+- **check** (`check/`): name resolution, `??` arm shape, capability flow, result
+  exhaustiveness, and use-after-move — both the definite findings and the
+  sound-silence cases (dynamic extent, escaped blocks, inline consumers, faults
+  inside `at`, rebinding, the `;` body).
 
 The Rust parity runners scan `cases/`+`errors/` only: `zownc` does not implement
 v0.2 or the checker yet (PLAN M8d). When it does, `v2.py`'s and `check.py`'s

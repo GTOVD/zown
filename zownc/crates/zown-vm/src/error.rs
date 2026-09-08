@@ -1,12 +1,12 @@
 //! Structured runtime diagnostics (`.zerr` packets), parity with `zown/errors.py`.
 //!
-//! Note: the v0.1 AST does not yet carry source positions, so runtime packets
-//! omit `pos` (it is threaded in a later milestone). Conformance compares the
-//! recovery `code` and offending `op`, both of which are exact here.
+//! Runtime packets carry `pos` from the AST (M8d-i). Conformance compares the
+//! recovery `code` and offending `op`.
 
 use crate::value::json_str;
+use zown_ast::Pos;
 
-pub const ZERR_VERSION: &str = "0.1";
+pub const ZERR_VERSION: &str = "0.2";
 
 pub const STACK_UNDERFLOW: &str = "STACK_UNDERFLOW";
 pub const TYPE_MISMATCH: &str = "TYPE_MISMATCH";
@@ -24,6 +24,7 @@ pub struct RunError {
     /// JSON fragments captured from the operand stack at fault time.
     pub stack: Vec<String>,
     pub file: Option<String>,
+    pub pos: Option<Pos>,
 }
 
 impl RunError {
@@ -36,8 +37,15 @@ impl RunError {
             Some(f) => json_str(f),
             None => "null".to_string(),
         };
+        let pos = match self.pos {
+            Some(p) => format!(
+                "{{\"line\": {}, \"col\": {}, \"offset\": {}}}",
+                p.line, p.col, p.offset
+            ),
+            None => "null".into(),
+        };
         format!(
-            "{{\n  \"zerr\": \"{ver}\",\n  \"kind\": \"run\",\n  \"code\": \"{code}\",\n  \"msg\": {msg},\n  \"op\": {op},\n  \"pos\": null,\n  \"stack\": [{stack}],\n  \"hint\": {hint},\n  \"file\": {file}\n}}",
+            "{{\n  \"zerr\": \"{ver}\",\n  \"kind\": \"run\",\n  \"code\": \"{code}\",\n  \"msg\": {msg},\n  \"op\": {op},\n  \"pos\": {pos},\n  \"stack\": [{stack}],\n  \"hint\": {hint},\n  \"file\": {file}\n}}",
             ver = ZERR_VERSION,
             code = self.code,
             msg = json_str(&self.msg),

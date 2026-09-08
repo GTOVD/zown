@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-07 (late — M8d-i frontend in Rust).
 
 ---
 
@@ -60,7 +60,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
-| M8 | Safety core (type & memory model) | 🔄 | M8a static checker (names + match shape) ✅; M8b static capability flow ✅ (`conformance/check.py`); **⏳ M8c** result values + no-UB catalogue; M8d Rust v0.2 parity + `zownc check` |
+| M8 | Safety core (type & memory model) | 🔄 | M8a–M8c ✅; **M8d-i ✅** Rust frontend (Cap/`'x`/`??`/checked int literals + AST spans); **⏳ M8d-ii** checked-int VM + `big` |
 | M9 | Native backend + perf (Cranelift→LLVM) | ⬜ | `-o .exe`, SIMD, zero-copy I/O, deterministic builds — **blocked on M8d** (needs v0.2 in Rust) |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
@@ -96,9 +96,12 @@ machines it has been developed on.
     `python -m zown.cli …` from the repo root instead.
 - **Rust (stable ≥ 1.96) + cargo** are required only for `zownc` and the four
   parity runners. Install with rustup; then `cd zownc && cargo build && cargo test`.
-  The 2026-09 Windows dev machine did **not** have Rust installed — the Rust side
-  was last verified on macOS/arm64 (M6, 2026-06). The parity runners locate the
-  binary at `zownc/target/debug/zownc` (`.exe` on Windows).
+  The 2026-09 Windows machine has rustup + `stable-x86_64-pc-windows-gnu`
+  (no Visual C++ `link.exe`, so the default `windows-msvc` host cannot link).
+  Build with `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`; do not change
+  `zownc/rust-toolchain.toml` (it stays host-default for macOS/Linux). The
+  parity runners locate the binary at `zownc/target/debug/zownc` (`.exe` on
+  Windows).
 - **wasmtime** is required only for `conformance/wasm_parity.py`.
 - **git** on the Windows machine lives at `C:\Program Files\Git\cmd` (not on PATH
   in every shell). Commits carry `Co-authored-by: Cursor <cursoragent@cursor.com>`
@@ -107,11 +110,11 @@ machines it has been developed on.
 Full verification (what "green" means for the oracle side, ~2 s):
 
 ```bash
-python3 tests/test_zown.py          # unit tests (67)
+python3 tests/test_zown.py          # unit tests (98)
 python3 tests/test_examples.py      # the shipped examples
 python3 conformance/run.py          # v0.1 goldens (20)
-python3 conformance/v2.py           # v0.2 goldens (20)
-python3 conformance/check.py        # static-checker goldens (10)
+python3 conformance/v2.py           # v0.2 goldens (39)
+python3 conformance/check.py        # static-checker goldens (14)
 ```
 
 ---
@@ -374,11 +377,16 @@ implements every semantically-observable addition; `conformance/v2.py` is green.
 **Goal:** make the "unhackable" guarantees real in the checker + runtime. A
 `zown check` pass runs *before* execution and shapes the ABI before codegen.
 
-**The checker's contract (binding for every slice):** a diagnostic means *"if this
-node executes, it definitely faults."* The checker never reasons about whether a
-node is reached (dead branches are checked too) and never reports something that
-could succeed. **Zero false positives** is the invariant; the whole runnable corpus
-must check clean (`test_check_corpus_has_no_false_positives`).
+**The checker's contract (binding for every slice):** a diagnostic is either *a
+definite unhandled fault* ("if this node executes, it raises a `.zerr` nothing
+catches" — inside `at` a fault is the handled path and is not reported) or *a
+violation of a mandatory static rule the SPEC declares* (a name bound nowhere,
+malformed `??` arms, non-exhaustive result handling). The checker never reasons
+about whether a node is reached (dead branches are checked too) and never reports
+something that could succeed. **Zero false positives** is the invariant; the whole
+runnable corpus must check clean (`test_check_corpus_has_no_false_positives`), and
+since M8c-0 a finding *rejects the program* (`zown run` exits 2), so a false
+positive is a false rejection.
 
 #### Slices
 
@@ -400,68 +408,81 @@ must check clean (`test_check_corpus_has_no_false_positives`).
       runner `conformance/check.py` (10 cases incl. the sound-silence ones) that the
       Rust `zownc check` port will target. SPEC §12 documents the rules.
 
-- [ ] **M8c — result values + the no-UB catalogue (oracle-observable).**
-      `DESIGN.md` §2.2 promises "fallible ops yield `[ok? | data]` and the data is
-      unreachable until consumed" and ownership tokens `! &`. Two collisions with
-      v0.1 that earlier plans did not acknowledge: `!` is logical-not and `&` is
-      over (SPEC §4), and `?` is select (arity 3), so "`?` must consume" cannot be
-      literal. Resolution (see Open decisions D3/D4): results are consumed by
-      **`??`**, which already forces the caller to handle each shape; ownership
-      annotations wait for mutable heap values (M8c-iii). Sub-slices:
-      - **M8c-i — result values.** New value kind `Res` = `ok(v)` | `err(code)`. A
-        word (provisional token `at`, "attempt") runs a block on an *isolated*
-        stack — the same mechanism the SIMD constructors use — and pushes `ok(v)`
-        if the body left exactly one value, or `err(code)` if it raised any
-        `.zerr` (the code string is the payload; security packets keep `cap`).
-        `??` gains patterns `[ok]` / `[err]`: the `[ok]` body receives the
-        **unwrapped** value, the `[err]` body the code. A `Res` reaching any other
-        operator is `TYPE_MISMATCH` (data stays unreachable until matched). Static
-        rule for the checker: a literal `[ … ] at [ arms ] ??` must cover both
-        `ok` and `err` (or `_`), else a static `NO_MATCH`. Add a `Res` row to
-        `type_name`, `_snap`, `_as_str`, and the manifest. This is the in-language
-        half of the self-healing loop: `.zerr` becomes a value a program can act on.
-      - **M8c-ii — the no-UB catalogue.** Add SPEC §19 *"Defined behavior"*: a
-        table of every operation with a C-undefined analogue → Zown's defined
-        outcome (compile-time `.zerr`, structured runtime trap, or a defined
-        value), with a conformance case per row. Two rows are **known bugs today**
-        (the oracle dies with a raw Python traceback instead of a `.zerr`):
-        unbounded recursion `[ f @ ] :f f @` (→ define a `STACK_OVERFLOW`/`UB_TRAP`
-        trap with a depth limit) and float overflow in `pw` (`10.5 400 pw` →
-        `OverflowError`; define `inf` semantics or an `OVERFLOW` trap). Other rows:
-        `inf`/`nan` printing and comparison, `fl`/`ce`/`rd` on non-finite floats,
-        `n` on out-of-range text, string `*` with a negative count, `%` sign rules
-        (already Python-style, documented), width policies on floats (done),
-        resource exhaustion (`pw` with huge exponents — a structured limit, not a
-        hang). Every row must also hold in the Rust VM and WASM (M8d follow-up).
-      - **M8c-iii — ownership & memory model: specify now, enforce with M9.**
-        Fat pointers `[base|bounds|perms]`, move/borrow, linear frames, no GC have
-        nothing observable in the oracle until a mutable heap type exists (a
-        `buf`/byte buffer is the first candidate, needed anyway by M11/M12). Write
-        the rules in SPEC Part II as *design-only (M9)*; choose ownership tokens
-        via the density audit (D4); enforcement lands with the native backend's
-        memory model. **Re-sequencing proposal:** treat M8c-iii and M9's runtime
-        design as one piece of work rather than a prerequisite of M9 — confirm
-        with the maintainer.
+- [x] **M8c — the language-level safety story (oracle + checker).** Five slices,
+      each its own commit, driven by the maintainer's decisions of 2026-09-07
+      (D1 checked-int default, D2 check gates run, D3 results via `??`, D4 keep
+      `!`/`&` and make ownership one concise sigil, D5 `.zerr` 0.2):
+      - [x] **M8c-0 — check-before-run (D2).** `zown run` (and the shorthand) runs
+        `check` first; any finding is reported as `check` packets and the process
+        exits **2** ("rejected — rework the code") vs 1 (lex/parse/runtime error)
+        and 0. `--unchecked` is a debugging bypass. `VM.run_src` stays ungated (it
+        is the runtime oracle). `.zerr` version 0.2. SPEC §8.
+      - [x] **M8c-i — numeric model (D1).** `int` is a **checked 64-bit** integer:
+        results of `+ - * _ pw ab fl ce rd n` outside the range are `OVERFLOW`,
+        literals beyond it are a lex-time `OVERFLOW`. `b` is the one-char word for
+        the exact, unbounded `big` (`5 b`, `$digits$ b`); any big operand keeps
+        the result big; `[big]` pattern; literal patterns compare by value. Floats
+        are IEEE-754: `±inf`/`nan` are values (printed as such), non-finite →
+        integer traps (`nan` `UB_TRAP`, `inf` `OVERFLOW`), negative `sq` and a
+        negative base with a fractional `pw` exponent are `UB_TRAP`. Width-policy
+        results are `int` for widths inside `int`, `big` for `u64 i128 u128`
+        (static rule). SPEC §1/§2/§11.
+      - [x] **M8c-ii — result values (D3).** `[ body ] at` runs the body on an
+        isolated stack → `ok(value)` or `err(code)`; fixed stack effect `( blk --
+        res )`. The payload is reachable **only** via `??` `[ok]`/`[err]` arms
+        (unwrapped); `[res]` is the type pattern; opaque to other operators;
+        truthy iff ok. **Exhaustiveness is a static rule**: `[…] at [arms] ??`
+        must cover ok and err (or `_`/`res`) else static `NO_MATCH`. Checker
+        contract refined: definite *unhandled* fault, or a mandatory static rule;
+        capability-flow denials inside `at` are the handled path (suppressed).
+        SPEC §16.1; DESIGN §2.2 wording.
+      - [x] **M8c-iii — the no-UB catalogue.** SPEC §19: a table of every
+        undefined/implementation-defined situation → one Zown outcome (value,
+        structured trap, or static rejection), each with a golden. Closed the two
+        raw-crash holes: unbounded recursion → `STACK_OVERFLOW` (depth limit 128,
+        op/pos at the call site, loops never consume depth) and pathological
+        nesting → parse `REPAIR_SYNTAX` (limit 256).
+      - [x] **M8c-iv — linear bindings (D4).** `'x` **moves** a binding out (push +
+        unbind); a bare `x` is the borrow. One char for move, zero for borrow;
+        `!`/`&` untouched; `"` reserved for a future mutable-reference sigil.
+        Static **use-after-move** on straight-line paths (with sound inherit/clear
+        rules for inline blocks, `;` cond vs body, invokers, `at`). SPEC §3/§20.
+      The fat-pointer/`buf` memory model is *specified* (§19 last rows, §20 "why
+      it matters later") and **enforced with M9**, where memory first exists —
+      the re-sequencing the previous plan proposed, now adopted.
 
-- [ ] **M8d — Rust toolchain reaches v0.2 + `zownc check`.** *The biggest
-      structural gap in earlier plans:* `zownc` still implements **v0.1 only**.
-      Capabilities, fixed-width ints, SIMD vectors, `??`, and the checker exist
-      only in the oracle, yet M9 says "real binaries built with the full type
-      system". Nothing in M9 can start until the Rust frontend/VM/IR speak v0.2.
-      - Lexer: `Cap` token, `??`; AST: `Cap` node; `zownc ast` parity on the v2
-        corpus (`ast_parity.py` scans `cases_v2`/`errors_v2` too).
-      - VM: `Cap`/`WidthTag`/`Vec` values; `gr rq hv`, `wr st ck`, width words,
-        vector ctors/ops, `??`; `.zerr` `cap` field. Parity: `vm_parity.py`
-        extended to the v2 corpus (40 cases total).
-      - IR: `ConstCap(name)` and `Match` instructions (+ lossless `unlower`);
-        `ir_roundtrip.py` over the v2 corpus. WASM: implement or fail with a
-        structured `UNSUPPORTED` naming the milestone — never silently diverge.
-      - New crate `zown-check` porting `checker.py`; `zownc check` output parity
-        via a `check_parity.py` over `conformance/check/`.
-      - Settle the two v0.1 debts while here: integer semantics (D1) and `pos`
-        on Rust runtime errors (spans in the Rust AST).
+- [ ] **M8d — Rust toolchain reaches v0.2 + `zownc check`.**  🔄
+      The frontend now speaks v0.2. The VM still runs v0.1 arithmetic (wrapping
+      `i64`, no `big`/`Res`/widths/vecs/words). Nothing in M9 can start until
+      the rest of this milestone lands. Remaining slices:
+      - [x] **M8d-i frontend.** Lexer: `Cap` + `Move` tokens, `??`, the int-literal
+        range check (`OVERFLOW` past `i64::MAX`); AST: `cap`/`move` nodes plus a
+        source `Pos` on every node (JSON still omits it, matching `zown ast`);
+        `zownc ast` parity on v0.1 + v0.2 + check + examples (45/45). IR gained
+        `ConstCap`/`Move` so unlower stays lossless (45/45). Runtime `.zerr`s
+        now carry `pos` (zerr 0.2). WASM refuses those two instrs with a
+        structured `UNSUPPORTED` naming M8d-iv. `ast_parity.py` /
+        `ir_roundtrip.py` scan `cases_v2` and `check/`.
+      - **M8d-ii VM values + numerics.** ⏳ `WidthTag`/`Vec`/`Big`/`Res` values;
+        **checked i64 arithmetic** (`OVERFLOW` per SPEC §11 — today the Rust VM
+        and WASM wrap silently, which is now non-conformant) with `b` (`i128`
+        fast path spilling to a bigint crate, or a small bigint); the §19 float
+        rules; the width-result typing rule. `Cap` tokens already push.
+      - **M8d-iii VM words.** `gr rq hv`, `wr st ck`, width words, vector
+        ctors/ops, `??` with ok/err unwrap, `at` (isolated stack), `'x`,
+        `STACK_OVERFLOW` depth trap, `.zerr` `cap` field. Parity: `vm_parity.py`
+        over the v2 corpus (59 cases total).
+      - **M8d-iv IR + WASM.** `Match` + `Attempt` instructions (`ConstCap`/`Move`
+        already land in M8d-i). WASM: new
+        tags after `3` for cap/width/vec/big/res, or a structured `UNSUPPORTED`
+        naming M9 — never a silent divergence; `wasm_parity` stays 13/13.
+      - **M8d-v `zown-check`.** Port `checker.py` (name resolution, match shape,
+        capability flow, result exhaustiveness, use-after-move) to a crate;
+        `zownc check` and the gate in `zownc run` (exit 2); `check_parity.py`
+        over `conformance/check/`.
       **Acceptance:** `vm_parity` green on all v0.1+v0.2 cases; `check_parity`
       green on the check corpus; `cargo test` green; `wasm_parity` still 13/13.
+      **Prereq on the current dev machine:** install Rust (`rustup`).
 
 **Tasks (later, enforced from M9 with the memory model)**
 - [ ] Fat-pointer descriptors `[base|bounds|perms]` as the only reference type.
@@ -634,43 +655,24 @@ enforcement + isolation; everything else is a Zown module.
 
 ## Open decisions
 
-Decisions that shape the ABI or the SPEC and are **not yet made**. Each has a
+Decisions that shape the ABI or the SPEC and are **not yet made**. Each gets a
 recommended default so work can proceed; the maintainer confirms or overrides.
-Resolve one by writing it into `SPEC.md` and deleting it here.
+Resolve one by writing it into `SPEC.md` and moving it to the log below.
 
-- **D1 — Default integer semantics: bigint or checked i64?** SPEC §1 says `int`
-  is arbitrary precision and the oracle honors it (`10 400 pw` prints 401 digits);
-  the Rust VM and the WASM backend use `i64` and pass every conformance case only
-  because the corpus never exceeds 63 bits. This is the largest unfrozen
-  ABI-shaping decision. *Options:* (a) keep bigint as the default — native uses a
-  small-int fast path that spills to a heap bigint on overflow (Python/Lisp model;
-  costs a tag check on every arithmetic op and a heap allocator in the runtime);
-  (b) make the default a checked `i64` that traps with `OVERFLOW` (never silent —
-  consistent with the "overflow is always explicit" rule of §11) and make `big`
-  the explicit arbitrary-precision type. *Recommended:* **(b)** — it matches what
-  both native backends already do, keeps the fast path branch-free, and the
-  existing `wr/st/ck` policy words already express every other intent. Requires a
-  SPEC §1/§11 edit, a bigint-boundary conformance case, and `big` in M11.
-- **D2 — Should `zown run` gate on `zown check`?** Today `run` executes without
-  checking; the conformance runners call `VM.run_src` directly. *Options:* (a)
-  keep them separate in the oracle (the VM is the *runtime* oracle; static
-  rejection is the compiler's job); (b) `run` refuses to execute when `check`
-  finds anything; (c) opt-in `run --check`. *Recommended:* **(a) for the oracle
-  VM API, (c) for the `zown` CLI in M8c, and gating by default in `zownc` from
-  M8d** — the compiler is where "does not compile" belongs.
-- **D3 — Result consumption goes through `??`, not `?`.** `DESIGN.md` §2.2 says
-  "`?` must consume `[ok?|data]`", but `?` is select (arity 3). *Recommended:* a
-  `Res` value is only consumable by `??` with `[ok]`/`[err]` arms (M8c-i); update
-  `DESIGN.md` §2.2 wording when M8c-i lands.
-- **D4 — Ownership tokens.** `DESIGN.md` uses `!` (move) / `&` (borrow), which are
-  logical-not and over in v0.1. *Options:* new sigils chosen in the density audit;
-  or no annotations at all — in a stack language *pop is move* and `=`/`&` (dup/
-  over) *are* the copy/borrow points, so ownership may be inferable from stack
-  discipline once values are linear. *Recommended:* decide in M8c-iii together
-  with the `buf` type; do **not** repurpose `!`/`&`.
-- **D5 — `.zerr` version string.** Packets still say `"zerr": "0.1"` although
-  v0.2 fields (`cap`) and kind `check` exist. Bump to `"0.2"` in M8c-i (the
-  conformance runners compare codes, not the version, so it is safe).
+*(none open right now — the next batch will come out of M8d/M9: the native
+representation of `big`, the WASM tags for the new value kinds, and the `buf`
+memory type.)*
+
+### Decision log
+
+| # | Decision (date) | Where it lives |
+|---|-----------------|----------------|
+| D1 | `int` is a **checked 64-bit** integer; `big` is the explicit arbitrary-precision type, spelled `b` (2026-09-07) | SPEC §1, §11; M8c-i |
+| D2 | `zown run` **is gated** by `zown check`; rejection is exit **2**; `--unchecked` for debugging; the VM API stays ungated (2026-09-07) | SPEC §8; M8c-0 |
+| D3 | Results are consumed through **`??`** (`[ok]`/`[err]`), not `?` (2026-09-07) | SPEC §16.1; DESIGN §2.2; M8c-ii |
+| D4 | `!`/`&` stay not/over; **`'x` is move**, a bare name is borrow; `"` reserved for a mutable-reference sigil (2026-09-07) | SPEC §3, §17, §20; M8c-iv |
+| D5 | `.zerr` version **0.2** (2026-09-07) | `errors.py`; SPEC §8 |
+| — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
 
@@ -681,16 +683,16 @@ the milestone noted.
 
 | Debt | Where | Attach to |
 |------|-------|-----------|
-| Rust VM/WASM ints are `i64`; oracle is bigint | `zown-vm`, `zown-wasm` | D1 → M8d |
-| Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d |
-| `zownc` implements v0.1 only (no caps/widths/vecs/`??`/checker) | `zownc/` | **M8d** |
-| `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu) | `zown-wasm` | M9 (or any time) |
+| Rust VM/WASM integers **wrap silently**; SPEC §11 now requires a checked `int` + `big` — the Rust side is non-conformant to v0.2 until this lands | `zown-vm`, `zown-wasm` | **M8d-ii** |
+| Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
+| `zownc` implements v0.1 only (no caps/numerics/vecs/`??`/`at`/`'x`/checker/gate) | `zownc/` | **M8d** |
+| `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | M8d-iv / M9 |
 | No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | add a GitHub Actions workflow: Python 3.10+ matrix running the five oracle commands; a Rust job once M8d lands |
-| Oracle crashes with raw Python tracebacks on unbounded recursion and float overflow in `pw` (no `.zerr`) | `zown/vm.py`, `zown/builtins.py` | M8c-ii |
-| `vm.py` docstring mentions a `tm` (times) word that does not exist | `zown/vm.py` | fixed 2026-09 |
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
-| Parity runners assumed a POSIX binary name (`zownc` not `zownc.exe`) | `conformance/*_parity.py`, `ir_roundtrip.py` | fixed 2026-09 |
-| WASM float formatting only exercised by one fractional value (`2.5`) in the corpus | `conformance/cases` | add float cases with M8c-ii |
+| WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
+| The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `at`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | M9/M15 (telemetry budget) |
+| `Res` err payload is the code string only; the full packet (op/pos/cap/msg) is not reachable from inside the language yet — the self-healing loop (M15) will want it | `zown/vm.py` | M11 (`std`) |
+| `tele.errors` in the manifest could be auto-discovered from `at`/`rq`/`??` usage | `zown/manifest.py` | M11 |
 
 ---
 
@@ -701,9 +703,14 @@ the milestone noted.
   are *provisional* until audited.
 - **Oracle discipline:** never change observable semantics without first updating
   the conformance suite (and a note in `SPEC.md` on resolved ambiguities).
-- **Checker soundness:** a static diagnostic means "if executed, this definitely
-  faults." Every runnable program in the corpus must check clean; if a check
-  cannot be made sound, it is not added (a runtime `.zerr` still catches it).
+- **Checker soundness:** a static diagnostic is a definite *unhandled* fault or a
+  violation of a SPEC-mandated static rule — never a guess. Every runnable
+  program in the corpus must check clean; if a check cannot be made sound, it is
+  not added (a runtime `.zerr` still catches it). Because `run` is gated, a false
+  positive is a false rejection.
+- **Errors are values when asked:** any new runtime trap must be a `.zerr` (so
+  `at` can catch it) and must get a row in SPEC §19 with a golden — no new code
+  path may crash the oracle with a host exception.
 - **Design-only is honest:** anything the oracle cannot exhibit faithfully
   (crypto, I/O, rendering, memory) is written into the SPEC with its target
   milestone and *not* stubbed.
@@ -714,18 +721,19 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M8c-i — result values** (`Res`, `at`, `[ok]`/`[err]` arms, unwrap-on-match,
-   static exhaustiveness for literal `at … ??`). Follow "How a slice is done":
-   SPEC §16/§19 text first, then `vm.py`/`builtins.py`/`checker.py`, unit tests,
-   `cases_v2`/`errors_v2`/`check` goldens, PLAN. Resolve D3 and D5 in the same
-   slice. Confirm the token `at` (or pick another) in the density audit.
-2. **M8c-ii — the no-UB catalogue.** Start with the two known crashes
-   (recursion depth, `pw` float overflow), then fill SPEC §19 row by row, each
-   with a golden. Anything that changes v0.1 output needs a SPEC note and a
-   `--bless`.
-3. **M8d — Rust reaches v0.2.** Needs Rust installed on the dev machine
-   (`rustup`), then lexer → AST → VM → IR → `zown-check`, each with its parity
-   runner extended to the v2/check corpora. Decide D1 before touching the VM ints.
-4. **Maintainer decisions requested:** D1 (int semantics), D2 (check gating),
-   D4 (ownership tokens), and the M8c-iii/M9 re-sequencing proposal.
-5. **Carry-over (independent):** CI workflow; Ryu/Grisu `$fmt_f64`.
+1. **M8d-ii — checked-int VM + `big`.** The Rust frontend now lexes/parses v0.2
+   (`zownc ast` 45/45). The VM still does wrapping `i64` arithmetic and has no
+   `big`/`Res`/`WidthTag`/`Vec`. Implement SPEC §11 in `zown-vm` next, then
+   M8d-iii (words: `gr rq hv`, `at`, `??` unwrap, …). On this Windows machine
+   there is no MSVC `link.exe`; build with
+   `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu` (do **not** change
+   `rust-toolchain.toml` — macOS/Linux keep the default host).
+2. **Density audit of the v0.2 tokens** before M9 freezes the ABI: `at`, `b`,
+   `gr rq hv`, `wr st ck`, `vadd…`, `??`, `'`. Each is provisional per SPEC Part
+   II's header; confirm or rename them in one SPEC edit + `--bless` pass.
+3. **M9 groundwork that needs no Rust:** write the `buf` (byte buffer) type and
+   the fat-pointer rules into SPEC Part II as *design-only (M9)* so M9's memory
+   model has a spec to implement; decide the native representation of `big`
+   (bigint crate vs i128 fast path) and the WASM tags for the new value kinds.
+4. **Carry-over (independent):** CI workflow; Ryu/Grisu `$fmt_f64`; auto-discover
+   `tele.errors` in the manifest.

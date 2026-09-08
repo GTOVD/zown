@@ -8,3 +8,6 @@ description = "Zown AST node definitions + JSON rendering (parity with the Pytho
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+zown-lexer = { path = "../zown-lexer" }

@@ -77,6 +77,20 @@ zown examples/fizzbuzz.zn
 - `cond [then] [else] ? @` is if/else; `[cond] [body] ;` is a while loop
 - `.` prints; stdlib words like `tr` (trim), `ln` (length), `up` (upper) auto-run
 
+And the v0.2 safety surface, all live in the oracle:
+
+```
+`s [ `s rq $sending$ . ] gr          # capabilities: zero authority unless granted
+[ 1 0 / ] at [ [ok]  [ . ]           # errors are values: ok(v) / err(code) ...
+              [err] [ $failed: $ \ + . ] ] ??   # ...and only ?? can open them
+2 b 100 pw .                         # int is a checked 64-bit; `b` is exact big
+5 :x 'x .                            # 'x moves a binding out; a bare x borrows
+```
+
+- integer overflow, nan→int, negative sqrt, unbounded recursion — every one is a
+  structured `.zerr` (or a static rejection), never undefined behavior (SPEC §19)
+- `zown run` refuses a program the static checker faults (exit status 2)
+
 Full definition: [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Why it looks like this
@@ -145,10 +159,12 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
 1. **Design freeze (M7) ✅** — the type, capability/security, network, and graphics
    SPEC is frozen and validated in the oracle *before* the native compiler,
    because those decisions shape the ABI ([`docs/SPEC.md`](docs/SPEC.md) Part II).
-2. **Safety core (M8) 🔄** — the static checker (names ✅, match shape ✅,
-   capability flow ✅), then result values + a no-undefined-behavior catalogue,
-   then the Rust toolchain catching up to v0.2 (`zownc check`). Fat pointers and
-   ownership are specified here and enforced with the native memory model (M9).
+2. **Safety core (M8) 🔄** — the static checker (names, match shape, capability
+   flow, result exhaustiveness, use-after-move ✅), check-before-run ✅, the
+   checked-int/`big` numeric model ✅, result values ✅, the no-UB catalogue ✅,
+   linear bindings ✅; **next: the Rust toolchain catching up to v0.2**
+   (`zownc check`, M8d). Fat pointers are specified here and enforced with the
+   native memory model (M9).
 3. **Native backend + perf (M9–M10)** — Cranelift→LLVM, SIMD, zero-copy I/O,
    deterministic builds, dynamic fast lanes.
 4. **Batteries (M11)** — the zero-install stdlib: crypto, collections, full

@@ -50,6 +50,8 @@ def main() -> int:
 
     files = sorted(
         glob.glob(os.path.join(ROOT, "conformance", "cases", "*.zn"))
+        + glob.glob(os.path.join(ROOT, "conformance", "cases_v2", "*.zn"))
+        + glob.glob(os.path.join(ROOT, "conformance", "check", "*.zn"))
         + glob.glob(os.path.join(ROOT, "examples", "*.zn"))
     )
     ok = fail = 0

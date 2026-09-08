@@ -11,7 +11,7 @@ mod value;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use zown_ast::Node;
+use zown_ast::{Node, NodeKind, Pos};
 use zown_parser::{parse, ParseError};
 
 pub use error::*;
@@ -41,7 +41,7 @@ impl Diag {
                     None => "null".into(),
                 };
                 format!(
-                    "{{\n  \"zerr\": \"0.1\",\n  \"kind\": \"{kind}\",\n  \"code\": \"{code}\",\n  \"msg\": {msg},\n  \"op\": null,\n  \"pos\": {{\"line\": {l}, \"col\": {c}, \"offset\": {o}}},\n  \"stack\": [],\n  \"hint\": {hint},\n  \"file\": {file}\n}}",
+                    "{{\n  \"zerr\": \"0.2\",\n  \"kind\": \"{kind}\",\n  \"code\": \"{code}\",\n  \"msg\": {msg},\n  \"op\": null,\n  \"pos\": {{\"line\": {l}, \"col\": {c}, \"offset\": {o}}},\n  \"stack\": [],\n  \"hint\": {hint},\n  \"file\": {file}\n}}",
                     kind = e.kind,
                     code = e.code,
                     msg = value::json_str(&e.msg),
@@ -80,11 +80,12 @@ pub struct Vm {
     pub env: HashMap<String, Value>,
     pub out: String,
     pub file: Option<String>,
+    pos: Option<Pos>,
 }
 
 impl Vm {
     pub fn new(file: Option<String>) -> Self {
-        Vm { stack: Vec::new(), env: HashMap::new(), out: String::new(), file }
+        Vm { stack: Vec::new(), env: HashMap::new(), out: String::new(), file, pos: None }
     }
 
     /// Parse + run a source string.
@@ -106,6 +107,7 @@ impl Vm {
             hint,
             stack: self.stack.iter().map(|v| v.snapshot_json()).collect(),
             file: self.file.clone(),
+            pos: self.pos,
         }
     }
 
@@ -165,19 +167,37 @@ impl Vm {
     }
 
     fn exec_node(&mut self, node: &Node) -> Result<(), RunError> {
-        match node {
-            Node::Int(v) => self.push(Value::Int(*v)),
-            Node::Float(v) => self.push(Value::Float(*v)),
-            Node::Str(s) => self.push(Value::Str(s.clone())),
-            Node::Blk(inner) => self.push(Value::Block(Rc::new(inner.clone()))),
-            Node::Name(s) => self.exec_name(s)?,
-            Node::Bind(s) => {
+        self.pos = Some(node.pos);
+        match &node.kind {
+            NodeKind::Int(v) => self.push(Value::Int(*v)),
+            NodeKind::Float(v) => self.push(Value::Float(*v)),
+            NodeKind::Str(s) => self.push(Value::Str(s.clone())),
+            NodeKind::Blk(inner) => self.push(Value::Block(Rc::new(inner.clone()))),
+            NodeKind::Name(s) => self.exec_name(s)?,
+            NodeKind::Bind(s) => {
                 let v = self.pop(&format!(":{s}"))?;
                 self.env.insert(s.clone(), v);
             }
-            Node::Op(s) => self.exec_op(s)?,
+            NodeKind::Move(s) => self.exec_move(s)?,
+            NodeKind::Cap(s) => self.push(Value::Cap(s.clone())),
+            NodeKind::Op(s) => self.exec_op(s)?,
         }
         Ok(())
+    }
+
+    fn exec_move(&mut self, name: &str) -> Result<(), RunError> {
+        match self.env.remove(name) {
+            Some(v) => {
+                self.push(v);
+                Ok(())
+            }
+            None => Err(self.err(
+                NAME_UNRESOLVED,
+                format!("`'{name}`: {name} is not bound (builtins cannot be moved)"),
+                Some(format!("'{name}")),
+                "bind it first: value :name",
+            )),
+        }
     }
 
     fn exec_name(&mut self, name: &str) -> Result<(), RunError> {

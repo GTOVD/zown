@@ -8,12 +8,12 @@ behavioral **oracle**; everything here is differentially tested against it.
 
 | Piece | State |
 |-------|-------|
-| `zown-lexer` | ✅ ported from the Python reference, unit-tested |
-| `zown-ast` / `zown-parser` | ✅ AST parity with the oracle (`zownc ast`) |
-| `zown-vm` | ✅ tree-walking VM; `zownc run` matches the oracle (20/20) |
-| `zown-ir` | ✅ IR + lowering; lossless round-trip (`zownc ir` / `irast`) |
-| `zown-wasm` | ✅ M6: full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
-| v0.2 language (caps, widths, SIMD, `??`) + `zown-check` | ⬜ (M8d) — the oracle has them; `zownc` is still v0.1 |
+| `zown-lexer` | ✅ v0.2 tokens: Cap, Move (`'x`), `??`, int-literal `OVERFLOW` |
+| `zown-ast` / `zown-parser` | ✅ AST parity on v0.1+v0.2+check (`zownc ast`, 45/45); every node has a `Pos` |
+| `zown-vm` | ✅ v0.1 run parity (20/20); Cap/`'x` nodes execute; words/numerics still v0.1 (M8d-ii) |
+| `zown-ir` | ✅ + `ConstCap`/`Move`; lossless on the 45-program corpus |
+| `zown-wasm` | ✅ M6: full v0.1; v0.2 cap/move instrs are a structured `UNSUPPORTED` |
+| remaining v0.2 (checked int, `big`, `at`/`??` unwrap, words, `zown-check`) | 🔄 M8d-ii…v |
 | native backend | ⬜ (M9, after M8d) |
 
 ## Build & run
@@ -56,10 +56,9 @@ crates/
 Next crates, in order: `zown-check` (M8d — port of `zown/checker.py`, validated
 against `conformance/check/`), then `zown-codegen` (M9, Cranelift → LLVM).
 
-> The parity runners currently scan the v0.1 corpus only (`conformance/cases`,
-> `errors`). The v0.2 corpus (`cases_v2`, `errors_v2`) and the checker corpus
-> (`check/`) become targets in M8d. Milestone numbers follow `docs/PLAN.md`'s
-> Status Board (older commit messages may use the pre-expansion numbering).
+> `ast_parity.py` and `ir_roundtrip.py` now scan v0.1 + v0.2 + `check/` (45
+> programs). `vm_parity.py` / `wasm_parity.py` still scan v0.1 only until
+> M8d-ii/iv. Milestone numbers follow `docs/PLAN.md`.
 
 ## The endgame
 

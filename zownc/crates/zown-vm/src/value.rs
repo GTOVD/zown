@@ -11,6 +11,8 @@ pub enum Value {
     Float(f64),
     Str(String),
     Block(Rc<Vec<Node>>),
+    /// Capability token (SPEC §12). Holding it is not a grant.
+    Cap(String),
 }
 
 impl Value {
@@ -21,6 +23,7 @@ impl Value {
             Value::Float(v) => *v != 0.0,
             Value::Str(s) => !s.is_empty(),
             Value::Block(b) => !b.is_empty(),
+            Value::Cap(_) => true, // a token is always "present"
         }
     }
 
@@ -30,6 +33,7 @@ impl Value {
             Value::Float(_) => "float",
             Value::Str(_) => "str",
             Value::Block(_) => "block",
+            Value::Cap(_) => "cap",
         }
     }
 
@@ -48,6 +52,7 @@ impl Value {
             }
             Value::Str(s) => s.clone(),
             Value::Block(b) => format!("[blk:{}]", b.len()),
+            Value::Cap(n) => format!("`{n}"),
         }
     }
 
@@ -59,6 +64,7 @@ impl Value {
             Value::Float(v) => v.to_string(),
             Value::Str(s) => json_str(s),
             Value::Block(b) => format!("\"[blk:{}]\"", b.len()),
+            Value::Cap(n) => json_str(&format!("`{n}")),
         }
     }
 
@@ -76,6 +82,7 @@ impl Value {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Block(a), Value::Block(b)) => Rc::ptr_eq(a, b),
+            (Value::Cap(a), Value::Cap(b)) => a == b,
             _ => match (self.as_f64(), other.as_f64()) {
                 (Some(a), Some(b)) => a == b,
                 _ => false,

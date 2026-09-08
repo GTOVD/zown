@@ -2,18 +2,34 @@
 //!
 //! Mirrors the node forms of the Python reference (`zown/parser.py`). The JSON
 //! rendering is intentionally shape-compatible with `zown ast` so the two
-//! frontends can be differentially tested (see `docs/PLAN.md` M3).
+//! frontends can be differentially tested (see `docs/PLAN.md` M3 / M8d-i).
+//! Positions are carried for diagnostics but omitted from JSON (the oracle's
+//! `zown ast` does the same). `PartialEq` is structural — positions do not
+//! participate — so IR `unlower` can drop them and still round-trip.
 
-/// A program node. Blocks nest a sub-program.
+pub use zown_lexer::Pos;
+
+/// A program node plus its source position.
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub kind: NodeKind,
+    pub pos: Pos,
+}
+
+/// The tag + payload of a node (Python tuple form without the trailing `Pos`).
 #[derive(Debug, Clone, PartialEq)]
-pub enum Node {
+pub enum NodeKind {
     Int(i64),
     Float(f64),
     Str(String),
-    /// Push the value bound to this name (or run a builtin word).
+    /// Push the value bound to this name (or run a builtin word). A *borrow*.
     Name(String),
     /// `:name` — pop the top of stack and bind it to this name.
     Bind(String),
+    /// `'name` — push the binding's value and unbind it. A *move* (SPEC §20).
+    Move(String),
+    /// `` `name `` — push a capability token (SPEC §12).
+    Cap(String),
     /// An operator symbol.
     Op(String),
     /// `[ ... ]` — a first-class block (quotation).
@@ -21,18 +37,32 @@ pub enum Node {
 }
 
 impl Node {
+    pub fn new(kind: NodeKind, pos: Pos) -> Self {
+        Node { kind, pos }
+    }
+
     fn tag(&self) -> &'static str {
-        match self {
-            Node::Int(_) => "int",
-            Node::Float(_) => "float",
-            Node::Str(_) => "str",
-            Node::Name(_) => "name",
-            Node::Bind(_) => "bind",
-            Node::Op(_) => "op",
-            Node::Blk(_) => "blk",
+        match &self.kind {
+            NodeKind::Int(_) => "int",
+            NodeKind::Float(_) => "float",
+            NodeKind::Str(_) => "str",
+            NodeKind::Name(_) => "name",
+            NodeKind::Bind(_) => "bind",
+            NodeKind::Move(_) => "move",
+            NodeKind::Cap(_) => "cap",
+            NodeKind::Op(_) => "op",
+            NodeKind::Blk(_) => "blk",
         }
     }
 }
+
+impl PartialEq for Node {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
+impl Eq for Node {}
 
 /// Render a program to JSON matching the Python `zown ast` shape: an array whose
 /// elements are single-key objects, e.g. `{"op": "+"}` or `{"blk": [ ... ]}`.
@@ -68,11 +98,16 @@ fn render_node(n: &Node, indent: usize, out: &mut String) {
     out.push('"');
     out.push_str(n.tag());
     out.push_str("\": ");
-    match n {
-        Node::Int(v) => out.push_str(&v.to_string()),
-        Node::Float(v) => out.push_str(&fmt_float(*v)),
-        Node::Str(s) | Node::Name(s) | Node::Bind(s) | Node::Op(s) => out.push_str(&json_str(s)),
-        Node::Blk(inner) => render_array(inner, indent + 1, out),
+    match &n.kind {
+        NodeKind::Int(v) => out.push_str(&v.to_string()),
+        NodeKind::Float(v) => out.push_str(&fmt_float(*v)),
+        NodeKind::Str(s)
+        | NodeKind::Name(s)
+        | NodeKind::Bind(s)
+        | NodeKind::Move(s)
+        | NodeKind::Cap(s)
+        | NodeKind::Op(s) => out.push_str(&json_str(s)),
+        NodeKind::Blk(inner) => render_array(inner, indent + 1, out),
     }
     out.push('\n');
     out.push_str(&"  ".repeat(indent));

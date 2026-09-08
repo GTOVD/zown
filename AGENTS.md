@@ -14,13 +14,17 @@ Read this first; it is the operational summary. The long-form documents are:
 ## What Zown is, in one paragraph
 
 A stack-based, token-dense language meant to be written by machines. Literals
-push, operators pop; `[ ... ]` is a first-class block; `:x` binds, `x` pushes (or
-runs a builtin word), `@` invokes. Meaning lives in a sidecar *shadow manifest*
-(`file.zn.json`), not in identifiers. Errors are structured `.zerr` packets with a
-recovery `code`. v0.2 adds capability tokens (`` `s ``, zero authority by default,
-`gr`/`rq`/`hv`), fixed-width ints (`u8 wr`), SIMD vectors (`[1 2 3 4] i4`), and
-pattern matching (`x [ [int] [..] [_] [..] ] ??`). A static checker (`zown check`)
-runs before execution.
+push, operators pop; `[ ... ]` is a first-class block; `:x` binds, `x` pushes a
+copy (a *borrow*; or runs a builtin word), `'x` *moves* the value out and unbinds,
+`@` invokes. Meaning lives in a sidecar *shadow manifest* (`file.zn.json`), not in
+identifiers. Errors are structured `.zerr` packets with a recovery `code`, and
+`[ body ] at` turns one into a value (`ok(v)`/`err(code)`) that only `??` with
+`[ok]`/`[err]` arms can open. `int` is a checked 64-bit integer (overflow is an
+`OVERFLOW`, never silent); `b` makes an exact `big`. v0.2 also has capability
+tokens (`` `s ``, zero authority by default, `gr`/`rq`/`hv`), fixed-width ints
+(`u8 wr`), SIMD vectors (`[1 2 3 4] i4`), and pattern matching
+(`x [ [int] [..] [_] [..] ] ??`). **`zown run` refuses any program the static
+checker faults** (exit 2); there is no undefined behavior (SPEC §19).
 
 ## The three implementations and the one rule
 
@@ -61,9 +65,13 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py
 ```
 
-All five oracle commands must end in `0 failed`. `--bless` on a runner rewrites
-its goldens from the oracle — only after an *intentional* semantics change, and
-commit the `.zn` with its `.out`/`.code`/`.diag`.
+All five oracle commands must end in `0 failed` (as of M8c: 98 unit tests, 20 +
+39 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+only after an *intentional* semantics change, and commit the `.zn` with its
+`.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
+`--unchecked` to observe the *runtime* packet of a program the checker rejects,
+and never leave a probe program running (a `;` loop whose condition always pushes
+`1` never ends).
 
 ## How to do a slice (the only workflow)
 
@@ -84,10 +92,20 @@ checklist is in `PLAN.md` → "How a slice is done"; the short form:
 
 ## Hard constraints
 
-- **Checker soundness.** A `zown check` diagnostic means *"if this node executes,
-  it definitely faults."* Never add a check that can fire on a program that would
-  have run fine. `test_check_corpus_has_no_false_positives` enforces this over the
+- **Checker soundness.** A `zown check` diagnostic is either a definite
+  *unhandled* fault ("if this node executes, it raises a `.zerr` nothing catches"
+  — inside `at` the fault is the handled path) or a violation of a static rule
+  the SPEC mandates (unbound name, malformed `??` arms, non-exhaustive result
+  handling, use after move). Never add a check that can fire on a program that
+  would have run fine — since `run` is gated, a false positive is a false
+  rejection. `test_check_corpus_has_no_false_positives` enforces this over the
   whole runnable corpus; keep it green. When unsure, stay silent.
+- **No undefined behavior.** Every new runtime failure must be a `.zerr` (so `at`
+  can catch it) with a row in SPEC §19 and a golden. The oracle must never die
+  with a Python traceback on any input.
+- **Overflow is never silent.** New int-producing words go through
+  `vm.int_result`; float→int through `vm.int_from_float`; use `_numeric` for
+  binary arithmetic so `big`/float promotion is uniform.
 - **Density.** Prefer a symbol to a word, a 1–2 char word to a long one. A Zown
   identifier is `[A-Za-z][A-Za-z0-9]*` — it cannot contain operator characters
   (that is why vector ops are `vadd`, not `v+`).
@@ -109,14 +127,17 @@ zownc/crates/     Rust: lexer ast parser ir vm wasm cli     docs/  see table abo
 ```
 
 AST nodes are tuples `(tag, value, pos)` with tags `int float str blk name bind
-cap op`; a `blk` value is a list of nodes. The VM's environment is a single
+move cap op`; a `blk` value is a list of nodes. The VM's environment is a single
 global dict (bindings are global, which is what makes static name resolution
-sound).
+sound). Runtime value kinds: `int float str Block Big Res Cap WidthTag Vec`
+(`vm.type_name` is the type-pattern vocabulary).
 
 ## Current position (keep in sync with PLAN.md)
 
 M0–M7 done. **M8 (safety core) in progress:** M8a name resolution + match shape
-✅, M8b static capability flow ✅. **Next: M8c-i result values** (`Res`, `at`,
-`[ok]`/`[err]` arms), then M8c-ii the no-UB catalogue, then M8d Rust reaches
-v0.2. Open decisions needing the maintainer are listed in `PLAN.md` → "Open
-decisions" (D1 integer semantics is the big one).
+✅, M8b static capability flow ✅, **M8c ✅** (check-before-run gate, checked
+`int` + `big`, result values `at`, no-UB catalogue §19, `'x` moves). **M8d-i ✅** (Rust frontend: Cap/`'x`/`??`/checked int literals, AST spans,
+`zownc ast` 45/45). **Next: M8d-ii** — checked-int VM + `big` in `zown-vm`.
+On Windows without Visual C++, `cargo` needs
+`RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
+open; the decision log is in `PLAN.md`.
