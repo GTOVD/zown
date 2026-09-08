@@ -7,13 +7,22 @@ follow in M8c).
 
 Soundness contract
 ------------------
-Every diagnostic means: **if this node executes, it definitely faults**. The
-checker never guesses about *whether* a node runs (dead branches are still
-checked, exactly like a type error in an unreachable arm), and it never reports
-anything that could succeed on some execution. Zero false positives is the
-invariant; the conformance corpus (every runnable program must check clean)
-guards it. Where the checker cannot prove a fault it stays silent — a runtime
-`.zerr` still catches the rest.
+A diagnostic means one of two things, and nothing weaker:
+
+* **A definite unhandled fault** — *if this node executes, it raises a `.zerr`
+  that nothing catches.* The checker never guesses about *whether* a node runs
+  (dead branches are still checked, exactly like a type error in an unreachable
+  arm), and it never reports anything that could succeed on some execution.
+  Inside an `at` body (SPEC §16.1) a fault is the intended `err` path, so
+  fault predictions (capability flow) are suppressed there.
+* **A violation of a mandatory static rule** the SPEC declares — today: a name
+  bound nowhere (well-formedness), malformed `??` arms (well-formedness), and a
+  `??` over a result that does not handle both `ok` and `err` (exhaustiveness,
+  §16.1). These are reported even inside `at`: no execution can make them right.
+
+Zero false positives is the invariant; the conformance corpus (every runnable
+program must check clean) guards it. Where the checker cannot prove either kind
+of finding it stays silent — a runtime `.zerr` still catches the rest.
 
 Checks
 ------
@@ -45,14 +54,22 @@ Checks
   Anything else — a block bound to a name, left on the stack, selected by `?`
   without an immediate `@`, or granted a capability that arrived through a
   name — makes the authority *unknown*; inside it only rule 2 applies. This
-  is what keeps `[ `s rq ] :send   `s [ send @ ] gr` clean.
+  is what keeps `[ `s rq ] :send   `s [ send @ ] gr` clean. Because an escaped
+  block may be run under `at` (which catches the fault), rule 2 is disabled
+  altogether in programs that use `at`.
+
+* **Result exhaustiveness (M8c-ii).** For the literal shape `[ … ] at [ arms ]
+  ??` the subject is known to be a result, so the arms must cover both `ok`
+  and `err` — via `[ok]`+`[err]`, `[res]`, or a default `[_]` — else a static
+  `NO_MATCH`. A `??` whose subject is not syntactically known to be a result is
+  not judged.
 """
 
 from __future__ import annotations
 
 from .builtins import BUILTINS
-from .errors import BAD_PATTERN, CAP_DENIED, NAME_UNRESOLVED, ZownError
-from .vm import _PATTERN_TYPES  # one vocabulary for static and runtime `??` patterns
+from .errors import BAD_PATTERN, CAP_DENIED, NAME_UNRESOLVED, NO_MATCH, ZownError
+from .vm import _PATTERN_TYPES, _RES_PATTERNS  # one vocabulary, static and runtime
 
 # Builtin words that invoke a block literal *inline*, in the caller's context.
 _VEC_CTORS = {"f4", "d2", "i4", "b16"}
@@ -70,13 +87,25 @@ class Checker:
         # Capability names that could ever be granted (rule 2). Filled by
         # _collect_grantable; a name absent here is never grantable.
         self.grantable: set[str] = set()
+        # Does the program use `at`? Then an escaped block may run under it (its
+        # faults caught), so the "never granted" rule cannot be applied to them.
+        self.uses_at = False
 
     # --- entry -------------------------------------------------------------------
     def check(self, nodes: list) -> list[ZownError]:
         self._collect_binds(nodes)
         self._collect_grantable(nodes)
-        self._walk(nodes, frozenset())  # top level: exactly zero authority
+        self.uses_at = self._uses_word(nodes, "at")
+        self._walk(nodes, frozenset(), in_at=False)  # top level: exactly zero authority
         return self.diags
+
+    def _uses_word(self, nodes: list, word: str) -> bool:
+        for n in nodes:
+            if self._is_word(n, word):
+                return True
+            if n[0] == "blk" and self._uses_word(n[1], word):
+                return True
+        return False
 
     def _diag(self, code: str, msg: str, pos, op: str | None = None, hint: str = "",
               cap: str | None = None) -> None:
@@ -123,7 +152,9 @@ class Checker:
                 self._scan_free_caps(n[1])
 
     # --- main walk ---------------------------------------------------------------
-    def _walk(self, nodes: list, known) -> None:
+    def _walk(self, nodes: list, known, in_at: bool) -> None:
+        """`known`: exact granted set or UNKNOWN. `in_at`: are we (dynamically)
+        inside an `at` body, where faults are caught and become `err`?"""
         for i, n in enumerate(nodes):
             tag = n[0]
             if tag == "name":
@@ -135,20 +166,23 @@ class Checker:
                                hint=f"bind it with :{name}, or check the stdlib word list")
             elif tag == "cap":
                 nxt = self._at(nodes, i + 1)
-                if self._is_word(nxt, "rq"):
+                if self._is_word(nxt, "rq") and not in_at:
                     self._check_require(n[1], nxt[2], known)
             elif tag == "blk":
-                self._walk_block(nodes, i, known)
+                self._walk_block(nodes, i, known, in_at)
 
-    def _walk_block(self, nodes: list, i: int, known) -> None:
+    def _walk_block(self, nodes: list, i: int, known, in_at: bool) -> None:
         """Decide how the block literal at `nodes[i]` is consumed, then walk its
         body with the authority it will *definitely* run under."""
         blk = nodes[i]
-        prev, nxt, nxt2, nxt3 = (self._at(nodes, i - 1), self._at(nodes, i + 1),
-                                 self._at(nodes, i + 2), self._at(nodes, i + 3))
+        prev, prev2 = self._at(nodes, i - 1), self._at(nodes, i - 2)
+        nxt, nxt2, nxt3 = self._at(nodes, i + 1), self._at(nodes, i + 2), self._at(nodes, i + 3)
 
         if self._is_op(nxt, "??"):
-            self._check_match_arms(blk, known)  # validates patterns + walks bodies
+            # `[ body ] at [ arms ] ??` — the subject is syntactically a result.
+            subject_is_res = (self._is_word(prev, "at") and prev2 is not None
+                              and prev2[0] == "blk")
+            self._check_match_arms(blk, known, in_at, subject_is_res)
             return
 
         if self._is_op(nxt, "@"):                                   # [b] @
@@ -167,12 +201,14 @@ class Checker:
                 inner = known | {prev[1]}
             else:
                 inner = UNKNOWN  # the granted capability came through a name
+        elif self._is_word(nxt, "at"):                              # [b] at
+            inner, in_at = known, True  # runs inline, but its faults are caught
         elif nxt is not None and nxt[0] == "name" and nxt[1] in _VEC_CTORS \
                 and nxt[1] not in self.bound:                       # [lanes] i4
             inner = known
         else:
             inner = UNKNOWN  # escapes: bound, left on the stack, or unknown consumer
-        self._walk(blk[1], inner)
+        self._walk(blk[1], inner, in_at)
 
     # --- capability flow (M8b) ---------------------------------------------------
     def _check_require(self, cap: str, pos, known) -> None:
@@ -183,47 +219,59 @@ class Checker:
                        f"{held}; this `rq` can never succeed",
                        pos, op="rq", cap=cap,
                        hint=f"run it inside a grant: `{cap} [ ... ] gr")
-        elif cap not in self.grantable:
+        elif cap not in self.grantable and not self.uses_at:
             self._diag(CAP_DENIED,
                        f"`{cap} is required but never granted anywhere in the program",
                        pos, op="rq", cap=cap,
                        hint=f"add a grant scope `{cap} [ ... ] gr around the caller")
 
-    # --- match arms (M8a) --------------------------------------------------------
-    def _check_match_arms(self, blk, known) -> None:
+    # --- match arms (M8a) + result exhaustiveness (M8c-ii) -----------------------
+    def _check_match_arms(self, blk, known, in_at: bool, subject_is_res: bool) -> None:
         children, pos = blk[1], blk[2]
         if len(children) % 2 != 0:
             self._diag(BAD_PATTERN,
                        f"match arms are [pattern][body] pairs; got {len(children)} blocks",
                        pos, op="??")
             return
+        seen: set[str] = set()
         for j in range(0, len(children), 2):
             pat, body = children[j], children[j + 1]
             if pat[0] != "blk" or body[0] != "blk":
                 self._diag(BAD_PATTERN, "each match arm is [pattern] [body], both blocks",
                            pos, op="??")
                 continue
-            self._check_pattern(pat)
-            self._walk(body[1], known)  # bodies run inline; patterns are not code
+            label = self._check_pattern(pat)
+            if label is not None:
+                seen.add(label)
+            self._walk(body[1], known, in_at)  # bodies run inline; patterns are not code
+        if subject_is_res and not ("_" in seen or "res" in seen or {"ok", "err"} <= seen):
+            missing = " and ".join(sorted({"ok", "err"} - seen))
+            self._diag(NO_MATCH,
+                       f"a result must be handled exhaustively: no arm for {missing}",
+                       pos, op="??",
+                       hint="add [err] [ ... ] (and/or [ok] [ ... ]), or a default arm [_] [ ... ]")
 
-    def _check_pattern(self, pat) -> None:
+    def _check_pattern(self, pat) -> str | None:
+        """Validate one pattern block; return its label (`_`, a type name, `ok`,
+        `err`, or `lit` for a literal) or None if malformed."""
         nodes, pos = pat[1], pat[2]
         if len(nodes) != 1:
             self._diag(BAD_PATTERN,
                        f"a pattern holds exactly one token, got {len(nodes)}",
-                       pos, op="??", hint="use [int], [42], [$txt$], or [_]")
-            return
+                       pos, op="??", hint="use [int], [42], [$txt$], [ok], or [_]")
+            return None
         n = nodes[0]
         tag = n[0]
         if tag == "op" and n[1] == "_":
-            return
+            return "_"
         if tag in ("int", "float", "str"):
-            return
-        if tag == "name" and n[1] in _PATTERN_TYPES:
-            return
+            return "lit"
+        if tag == "name" and (n[1] in _PATTERN_TYPES or n[1] in _RES_PATTERNS):
+            return n[1]
         label = n[1] if len(n) > 1 else tag
         self._diag(BAD_PATTERN, f"unrecognized pattern `{label}`", pos, op="??",
-                   hint="a pattern is a type name, a literal, or _ (default)")
+                   hint="a pattern is a type name, a literal, ok/err, or _ (default)")
+        return None
 
 
 def check_src(src: str, file: str | None = None) -> list[ZownError]:

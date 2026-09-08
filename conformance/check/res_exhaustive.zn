@@ -1,0 +1,4 @@
+# M8c-ii — a `??` whose subject is syntactically a result (`[ ... ] at [ arms ] ??`)
+# must handle both ok and err. Two violations here, in source order.
+[ 1 0 / ] at [ [ok] [ . ] ] ??
+[ 1 ] at [ [err] [ . ] ] ??

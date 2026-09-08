@@ -73,6 +73,25 @@ class Big:
 
 
 @dataclass
+class Res:
+    """A result value (v0.2; SPEC Part II §16.1, decision D3): `ok(payload)` or
+    `err(code)`.
+
+    `[ body ] at` produces one: the body's single value wrapped as ok, or the
+    `.zerr` code of the failure it raised wrapped as err. The payload is
+    reachable **only** through `??` with an `[ok]` / `[err]` arm — every other
+    operator sees an opaque value — so the error path can never be skipped by
+    accident. This is the in-language half of "errors are instructions".
+    """
+
+    ok: bool
+    val: Any  # the value (ok) or the recovery code string (err)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"{'ok' if self.ok else 'err'}({self.val!r})"
+
+
+@dataclass
 class Cap:
     """A capability token (v0.2; SPEC Part II §12).
 
@@ -161,6 +180,8 @@ def truthy(v: Any) -> bool:
         return len(v.lanes) > 0
     if isinstance(v, Big):
         return v.v != 0
+    if isinstance(v, Res):
+        return v.ok  # a result is truthy iff it is ok (its payload stays wrapped)
     return bool(v)
 
 
@@ -321,6 +342,8 @@ def type_name(v: Any) -> str:
         return "vec"
     if isinstance(v, Big):
         return "big"
+    if isinstance(v, Res):
+        return "res"
     if isinstance(v, int):
         return "int"
     if isinstance(v, float):
@@ -525,9 +548,11 @@ def op_while(vm: VM, pos: Pos) -> None:
 
 
 # Pattern kinds a `??` arm may use (SPEC Part II §16). Patterns are *introspected*
-# (read from the AST), not executed: a type name, a literal, or `_` (default).
-# The checker imports this set so static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec", "big"}
+# (read from the AST), not executed: a type name, a literal, `_` (default), or a
+# result destructurer (`ok` / `err`, §16.1). The checker imports these sets so
+# static and runtime pattern vocabularies agree.
+_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec", "big", "res"}
+_RES_PATTERNS = {"ok", "err"}
 
 
 def _pat_desc(n: Node) -> str:
@@ -537,28 +562,35 @@ def _pat_desc(n: Node) -> str:
     return tag
 
 
-def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> bool:
+def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> tuple[bool, Any]:
+    """Does the pattern match the subject? Returns (matched, value_for_body): the
+    body receives the subject itself, or the *unwrapped* payload for `ok`/`err`."""
     from .errors import BAD_PATTERN
     if len(pat_nodes) != 1:
         raise vm.err(BAD_PATTERN,
                      f"a pattern holds exactly one token, got {len(pat_nodes)}",
-                     op="??", pos=pos, hint="use [int], [42], [$txt$], or [_] (default)")
+                     op="??", pos=pos, hint="use [int], [42], [$txt$], [ok], or [_] (default)")
     n = pat_nodes[0]
     tag = n[0]
     if tag == "op" and n[1] == "_":
-        return True  # wildcard / default arm
+        return True, subject  # wildcard / default arm
     if tag in ("int", "float", "str"):
-        return ival(subject) == n[1]  # literal patterns compare by value (big too)
+        return ival(subject) == n[1], subject  # literal patterns compare by value (big too)
+    if tag == "name" and n[1] in _RES_PATTERNS:
+        if isinstance(subject, Res) and subject.ok == (n[1] == "ok"):
+            return True, subject.val  # the only way to reach a result's payload
+        return False, subject
     if tag == "name" and n[1] in _PATTERN_TYPES:
-        return type_name(subject) == n[1]
+        return type_name(subject) == n[1], subject
     raise vm.err(BAD_PATTERN, f"unrecognized pattern `{_pat_desc(n)}`",
                  op="??", pos=pos,
-                 hint="a pattern is a type name, a literal, or _ (default)")
+                 hint="a pattern is a type name, a literal, ok/err, or _ (default)")
 
 
 def op_match(vm: VM, pos: Pos) -> None:
     # subject [ [pat][body] [pat][body] ... ] ??
-    # First arm whose pattern matches runs; its body gets the subject on the stack.
+    # First arm whose pattern matches runs; its body gets the subject on the stack
+    # (or the unwrapped payload, for an ok/err arm over a result).
     from .errors import BAD_PATTERN, NO_MATCH
     arms = vm.pop_block("??", pos)
     subject = vm.pop("??", pos)
@@ -572,12 +604,16 @@ def op_match(vm: VM, pos: Pos) -> None:
         if pat[0] != "blk" or body[0] != "blk":
             raise vm.err(BAD_PATTERN, "each arm is [pattern] [body], both blocks",
                          op="??", pos=pos)
-        if _pattern_matches(vm, subject, pat[1], pos):
-            vm.push(subject)  # the matched value is available to the body
+        matched, value = _pattern_matches(vm, subject, pat[1], pos)
+        if matched:
+            vm.push(value)  # the matched value is available to the body
             vm.invoke(Block(body[1]))
             return
-    raise vm.err(NO_MATCH, f"no arm matched the {type_name(subject)} subject",
-                 op="??", pos=pos, hint="add a default arm: [_] [ ... ]")
+    what = ("err result" if isinstance(subject, Res) and not subject.ok
+            else "ok result" if isinstance(subject, Res) else f"{type_name(subject)} subject")
+    raise vm.err(NO_MATCH, f"no arm matched the {what}", op="??", pos=pos,
+                 hint="handle it: [err] [ ... ], or add a default arm [_] [ ... ]"
+                 if isinstance(subject, Res) else "add a default arm: [_] [ ... ]")
 
 
 _OPS: dict[str, Callable[[VM, Pos], None]] = {
@@ -601,6 +637,8 @@ def _as_str(v: Any) -> str:
         return str(v)
     if isinstance(v, Big):
         return str(v.v)
+    if isinstance(v, Res):
+        return f"{'ok' if v.ok else 'err'}({_as_str(v.val)})"
     if isinstance(v, Block):
         return f"[blk:{len(v.nodes)}]"
     if isinstance(v, Cap):

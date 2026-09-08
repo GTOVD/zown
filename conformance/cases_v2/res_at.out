@@ -1,0 +1,10 @@
+ok(2.5)
+err(DIV_ZERO)
+5
+DIV_ZERO
+a result
+1
+bad
+CAP_DENIED
+ok(err(DIV_ZERO))
+7

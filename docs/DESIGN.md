@@ -106,9 +106,11 @@ instance can touch** — capabilities are visible, scoped, and revocable.
 
 Every memory-corruption CVE in history traces to undefined behavior. Zown's
 fat-pointer model (`[base | bounds | perms]`, the only reference kind) plus
-compile-time null elimination (`?` must consume a `[ok? | data]` tuple before the
-data is reachable) means: **if an operation could be undefined, it is either a
-compile-time `.zerr` or a structured runtime trap.** There is no third option.
+compile-time null elimination — a fallible operation yields a **result**
+(`ok(value)` / `err(code)`, `SPEC.md` §16.1) whose payload is reachable only by
+matching it with `??`, and the checker rejects a match that ignores the `err`
+arm — means: **if an operation could be undefined, it is either a compile-time
+`.zerr` or a structured runtime trap.** There is no third option.
 Buffer overflows, use-after-free, integer-overflow-by-accident, and null deref
 cease to be reachable states. (See `ROADMAP` Phase "Safety core".)
 

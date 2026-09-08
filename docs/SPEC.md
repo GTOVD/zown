@@ -594,6 +594,48 @@ Malformed arms (odd count, a non-block arm, or an unrecognized pattern token)
 raise `BAD_PATTERN`. **Destructuring** (`[a b]` over a tuple) stays design-only
 until compound value types land — there is no tuple type in v0.2 yet.
 
+### 16.1 Result values — **implemented (M8c-ii, oracle + checker)**
+
+A **result** is the in-language form of a `.zerr`: `ok(value)` or `err(code)`.
+It is how "errors are instructions" reaches the program itself, and it is the
+concrete form of `DESIGN.md` §2.2's "fallible operations yield `[ok? | data]` and
+the data is unreachable until the failure case is consumed" (decision D3: the
+consumer is `??`, since `?` is select).
+
+```
+[ body ] at            # run body; ok(its single value) or err(the .zerr code it raised)
+```
+
+- `at` runs the body on an **isolated stack** (like the SIMD constructors) so its
+  stack effect is always `( blk -- res )` on both paths — the ok and err shapes
+  are identical, which keeps stack programs predictable. Pass inputs through
+  bindings (`5 :x [ x 2 / ] at`). The body must leave exactly one value, else
+  `BOUNDS`. Output, bindings, and grants the body performed are not undone.
+- Any `.zerr` raised inside — including security packets (`CAP_DENIED`) and
+  runtime traps (`OVERFLOW`, `UB_TRAP`, `STACK_OVERFLOW`) — becomes `err(code)`.
+- **The payload is reachable only through `??`.** `[ok]` matches an ok result and
+  runs its body with the *unwrapped value* on the stack; `[err]` matches an err
+  result with the *code string*; `[res]` is the ordinary type pattern (no
+  unwrap). To every other operator a result is opaque (`TYPE_MISMATCH`); it
+  prints as `ok(5)` / `err(DIV_ZERO)`; its truthiness is its ok-ness, so
+  `[ … ] at [then] [else] ? @` branches without exposing the payload.
+- **Exhaustiveness is a static rule.** For the literal shape `[ … ] at [ arms ]
+  ??` the checker requires the arms to cover both `ok` and `err` — via
+  `[ok]`+`[err]`, `[res]`, or a default `[_]` — else a static `NO_MATCH` and the
+  program is rejected before it runs (§8). At run time an unhandled err is
+  `NO_MATCH` as well.
+
+```
+5 :x 0 :y
+[ x y / ] at [ [ok]  [ 2 * . ]
+               [err] [ $div failed: $ \ + . ] ] ??    # div failed: DIV_ZERO
+[ `s rq 1 ] at ! [ $no net$ . ] [ ] ? @              # probe a capability without faulting
+```
+
+Inside an `at` body a fault is the *intended* err path, so the checker does not
+report capability-flow denials there; well-formedness findings (unresolved names,
+malformed arms, exhaustiveness) are still reported — no execution makes them right.
+
 ## 17. Reserved-symbol allocation (updated)
 
 Part I §5 reservations stand. Part II claims:

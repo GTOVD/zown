@@ -282,6 +282,36 @@ def b_have(vm, pos: Pos) -> None:
     vm.push(1 if cap.name in vm.caps else 0)
 
 
+# --- result values (v0.2; SPEC Part II §16.1) ----------------------------------
+def b_attempt(vm, pos: Pos) -> None:
+    # [ body ] at  -> ok(value) if body ran and left exactly one value on an
+    #                 isolated stack; err(code) if it raised any .zerr.
+    # The body runs on an isolated stack (like the SIMD constructors) so `at` has
+    # the fixed stack effect ( blk -- res ) on both paths; pass inputs through
+    # bindings (5 :x [ x 2 / ] at). Output, bindings, and grants made by the body
+    # are not undone — only the stack is isolated.
+    from .errors import BOUNDS
+    from .vm import Res
+    blk = vm.pop_block("at", pos)
+    saved = vm.stack
+    vm.stack = []
+    try:
+        try:
+            vm.invoke(blk)
+        except ZownError as e:
+            vm.stack = saved
+            vm.push(Res(False, e.code))
+            return
+        left = vm.stack
+    finally:
+        vm.stack = saved
+    if len(left) != 1:
+        raise vm.err(BOUNDS, f"`at` body must leave exactly one value, left {len(left)}",
+                     op="at", pos=pos,
+                     hint="bind inputs first (5 :x) and leave the single result on the stack")
+    vm.push(Res(True, left[0]))
+
+
 # --- fixed-width integers (v0.2; SPEC Part II §11) -----------------------------
 # The default Zown int is arbitrary precision. A width tag (i8..u128) plus a
 # policy word makes overflow explicit: `wr` wraps (two's complement), `st`
@@ -489,6 +519,7 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "dp": (b_depth, "depth", "push the current stack depth"),
     "rt": (b_rot, "rot", "rotate the top three values (a b c -> b c a)"),
     "clr": (b_clear, "clear", "clear the entire stack"),
+    "at": (b_attempt, "attempt", "[body] at -> ok(value) or err(code); unwrap with ?? [ok]/[err] arms"),
     "gr": (b_grant, "grant", "`cap [body] gr -> run body with `cap granted, then restore"),
     "rq": (b_require, "require", "`cap rq -> assert capability is granted (CAP_DENIED if not)"),
     "hv": (b_have, "have", "`cap hv -> push 1 if capability is granted, else 0"),

@@ -18,7 +18,7 @@ from zown.errors import (
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
-from zown.vm import VM, Big, Block, Cap, WidthTag, Vec
+from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
 
 
 def run(src):
@@ -468,6 +468,68 @@ def test_match_op_is_two_char():
     from zown.lexer import lex, T_OP
     toks = [t for t in lex("a ?? b ?") if t.kind == T_OP]
     assert [t.value for t in toks] == ["??", "?"]
+
+
+# --- result values (M8c-ii, D3) ------------------------------------------------
+def test_at_wraps_the_single_value_or_the_error_code():
+    _, vm = run("5 :x 2 :y [ x y / ] at")
+    assert vm.stack == [Res(True, 2.5)]
+    _, vm = run("1 :x 0 :y [ x y / ] at")
+    assert vm.stack == [Res(False, "DIV_ZERO")]
+    _, vm = run("[ `s rq 1 ] at")                    # a security fault is a value too
+    assert vm.stack == [Res(False, "CAP_DENIED")]
+    _, vm = run("7 [ 1 ] at")                        # isolated stack: outer values untouched
+    assert vm.stack == [7, Res(True, 1)]
+
+
+def test_at_body_must_leave_exactly_one_value():
+    _fails("[ 1 2 ] at", BOUNDS, "at")
+    _fails("[ ] at", BOUNDS, "at")
+    _, vm = run("5 [ 2 / ] at")                      # the body cannot see the outer 5
+    assert vm.stack == [5, Res(False, "STACK_UNDERFLOW")]
+
+
+def test_result_payload_is_reachable_only_through_match():
+    out, _ = run("[ 6 ] at [ [ok] [ 2 * . ] [err] [ . ] ] ??")
+    assert out == "12\n"                             # the ok arm receives the unwrapped 6
+    out, _ = run("[ 1 0 / ] at [ [ok] [ . ] [err] [ . ] ] ??")
+    assert out == "DIV_ZERO\n"                       # the err arm receives the code
+    _, vm = run("[ 1 ] at [ [res] [ ] ] ??")
+    assert vm.stack == [Res(True, 1)]                # [res] is the type pattern: no unwrap
+    _fails("[ 1 ] at 1 +", TYPE_MISMATCH, "+")       # opaque to every other operator
+    _fails("[ 1 0 / ] at [ [ok] [ . ] ] ??", NO_MATCH, "??")
+
+
+def test_result_truthiness_is_its_ok_flag():
+    _, vm = run("[ 1 ] at ! [ 1 0 / ] at !")
+    assert vm.stack == [0, 1]
+    out, _ = run("[ 1 0 / ] at [ $good$ ] [ $bad$ ] ? @ .")
+    assert out == "bad\n"
+
+
+def test_result_display_and_snapshot():
+    out, _ = run("[ 5 ] at . [ 1 0 / ] at .")
+    assert out == "ok(5)\nerr(DIV_ZERO)\n"
+    e = _fails("[ 5 ] at $x$ -", TYPE_MISMATCH)
+    assert e.packet()["stack"] == ["ok:5"]           # after popping the offending $x$
+
+
+def test_check_result_match_must_be_exhaustive():
+    assert [d.code for d in _check("[ 1 0 / ] at [ [ok] [ . ] ] ??")] == [NO_MATCH]
+    assert [d.code for d in _check("[ 1 ] at [ [err] [ . ] ] ??")] == [NO_MATCH]
+    assert _check("[ 1 ] at [ [ok] [ . ] [err] [ . ] ] ??") == []
+    assert _check("[ 1 ] at [ [ok] [ . ] [_] [ , ] ] ??") == []
+    assert _check("[ 1 ] at [ [res] [ , ] ] ??") == []
+    assert _check("5 [ [ok] [ . ] ] ??") == []        # subject not known to be a result: silent
+
+
+def test_check_faults_inside_at_are_the_handled_path():
+    # a capability denial inside `at` is caught -> no static CAP_DENIED
+    assert _check("[ `s rq 1 ] at [ [err] [ . ] [ok] [ , ] ] ??") == []
+    # ...and an escaped block that might run under `at` is not judged either
+    assert _check("[ `s rq ] :f  f at [ [err] [ . ] [ok] [ , ] ] ??") == []
+    # but well-formedness still holds inside `at`: a typo is a typo
+    assert [d.code for d in _check("[ zz ] at [ [_] [ , ] ] ??")] == [NAME_UNRESOLVED]
 
 
 # --- static checker (M8a) ------------------------------------------------------

@@ -1,0 +1,10 @@
+# M8c-ii — the three ways to handle a result exhaustively, plus the two cases the
+# checker must stay silent on: a fault inside an `at` body is the handled path
+# (no static CAP_DENIED), and a `??` whose subject is not known to be a result is
+# not judged. Must check clean.
+[ 1 ] at [ [ok] [ . ] [err] [ . ] ] ??
+[ 1 ] at [ [ok] [ . ] [_] [ , ] ] ??
+[ 1 ] at [ [res] [ , ] ] ??
+[ `s rq 1 ] at [ [err] [ . ] [ok] [ , ] ] ??
+[ `s rq ] :f  f at [ [err] [ . ] [ok] [ , ] ] ??
+5 [ [ok] [ . ] [_] [ , ] ] ??
