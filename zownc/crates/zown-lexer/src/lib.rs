@@ -59,7 +59,8 @@ pub const REPAIR_SYNTAX: &str = "REPAIR_SYNTAX";
 pub const OVERFLOW: &str = "OVERFLOW";
 
 const TWO_CHAR_OPS: [&str; 7] = ["==", "!=", "<=", ">=", "&&", "||", "??"];
-const ONE_CHAR_OPS: &str = "@.,=\\&+-*/%<>!?;_";
+// `|` is the lane pipe. `||` is matched first, so a lone pipe is not `or`.
+const ONE_CHAR_OPS: &str = "@.,=\\&+-*/%<>!?;_|^";
 
 fn is_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic()
@@ -77,7 +78,12 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(src: &str) -> Self {
-        Lexer { src: src.chars().collect(), i: 0, line: 1, col: 1 }
+        Lexer {
+            src: src.chars().collect(),
+            i: 0,
+            line: 1,
+            col: 1,
+        }
     }
 
     fn peek(&self, k: usize) -> Option<char> {
@@ -97,7 +103,11 @@ impl Lexer {
     }
 
     fn pos(&self) -> Pos {
-        Pos { line: self.line, col: self.col, offset: self.i }
+        Pos {
+            line: self.line,
+            col: self.col,
+            offset: self.i,
+        }
     }
 
     fn err(&self, msg: impl Into<String>, hint: &'static str) -> LexError {
@@ -105,7 +115,12 @@ impl Lexer {
     }
 
     fn err_code(&self, code: &'static str, msg: impl Into<String>, hint: &'static str) -> LexError {
-        LexError { code, msg: msg.into(), pos: self.pos(), hint }
+        LexError {
+            code,
+            msg: msg.into(),
+            pos: self.pos(),
+            hint,
+        }
     }
 
     pub fn tokens(&mut self) -> Result<Vec<Token>, LexError> {
@@ -129,13 +144,21 @@ impl Lexer {
             if c == '[' {
                 let (p, start) = (self.pos(), self.i);
                 self.advance();
-                out.push(Token { kind: TokenKind::LBrack, pos: p, span: (start, 1) });
+                out.push(Token {
+                    kind: TokenKind::LBrack,
+                    pos: p,
+                    span: (start, 1),
+                });
                 continue;
             }
             if c == ']' {
                 let (p, start) = (self.pos(), self.i);
                 self.advance();
-                out.push(Token { kind: TokenKind::RBrack, pos: p, span: (start, 1) });
+                out.push(Token {
+                    kind: TokenKind::RBrack,
+                    pos: p,
+                    span: (start, 1),
+                });
                 continue;
             }
             if c == ':' {
@@ -158,6 +181,10 @@ impl Lexer {
                 out.push(self.read_ident());
                 continue;
             }
+            if c == '~' {
+                out.push(self.read_lane()?);
+                continue;
+            }
             match self.read_op()? {
                 Some(t) => out.push(t),
                 None => {
@@ -168,7 +195,11 @@ impl Lexer {
                 }
             }
         }
-        out.push(Token { kind: TokenKind::Eof, pos: self.pos(), span: (self.i, 0) });
+        out.push(Token {
+            kind: TokenKind::Eof,
+            pos: self.pos(),
+            span: (self.i, 0),
+        });
         Ok(out)
     }
 
@@ -185,7 +216,11 @@ impl Lexer {
             }
             let c = self.advance();
             if c == '\\' {
-                let nxt = if self.i < self.src.len() { self.advance() } else { '\0' };
+                let nxt = if self.i < self.src.len() {
+                    self.advance()
+                } else {
+                    '\0'
+                };
                 buf.push(match nxt {
                     'n' => '\n',
                     't' => '\t',
@@ -203,7 +238,11 @@ impl Lexer {
             buf.push(c);
         }
         let len = self.i - start;
-        Ok(Token { kind: TokenKind::Str(buf), pos: p, span: (start, len) })
+        Ok(Token {
+            kind: TokenKind::Str(buf),
+            pos: p,
+            span: (start, len),
+        })
     }
 
     fn read_bind(&mut self) -> Result<Token, LexError> {
@@ -226,7 +265,11 @@ impl Lexer {
                 break;
             }
         }
-        Ok(Token { kind: TokenKind::Bind(name), pos: p, span: (start, self.i - start) })
+        Ok(Token {
+            kind: TokenKind::Bind(name),
+            pos: p,
+            span: (start, self.i - start),
+        })
     }
 
     fn read_named(&mut self, kind_tag: &str) -> Result<(String, Pos, (usize, usize)), LexError> {
@@ -234,16 +277,16 @@ impl Lexer {
         self.advance(); // the sigil
         match self.peek(0) {
             Some(c) if is_ident_start(c) => {}
-            _ => {
-                return Err(self.err(
-                    format!("expected an identifier after `{kind_tag}`"),
-                    match kind_tag {
-                        "'" => "move form is 'name: push x's value and unbind it (a bare name is a borrow)",
-                        "`" => "capability form is `name, e.g. `s (net-send); see SPEC Part II §12",
-                        _ => "expected an identifier after the sigil",
-                    },
-                ))
-            }
+            _ => return Err(self.err(
+                format!("expected an identifier after `{kind_tag}`"),
+                match kind_tag {
+                    "'" => {
+                        "move form is 'name: push x's value and unbind it (a bare name is a borrow)"
+                    }
+                    "`" => "capability form is `name, e.g. `s (net-send); see SPEC Part II §12",
+                    _ => "expected an identifier after the sigil",
+                },
+            )),
         }
         let mut name = String::new();
         while let Some(c) = self.peek(0) {
@@ -258,12 +301,20 @@ impl Lexer {
 
     fn read_move(&mut self) -> Result<Token, LexError> {
         let (name, pos, span) = self.read_named("'")?;
-        Ok(Token { kind: TokenKind::Move(name), pos, span })
+        Ok(Token {
+            kind: TokenKind::Move(name),
+            pos,
+            span,
+        })
     }
 
     fn read_cap(&mut self) -> Result<Token, LexError> {
         let (name, pos, span) = self.read_named("`")?;
-        Ok(Token { kind: TokenKind::Cap(name), pos, span })
+        Ok(Token {
+            kind: TokenKind::Cap(name),
+            pos,
+            span,
+        })
     }
 
     fn read_number(&mut self) -> Result<Token, LexError> {
@@ -285,7 +336,11 @@ impl Lexer {
         if is_float {
             // IEEE-754: may round, or be inf — never a lex error (SPEC §11).
             let v: f64 = text.parse().unwrap();
-            return Ok(Token { kind: TokenKind::Float(v), pos: p, span });
+            return Ok(Token {
+                kind: TokenKind::Float(v),
+                pos: p,
+                span,
+            });
         }
         match text.parse::<i64>() {
             Ok(n) => Ok(Token { kind: TokenKind::Int(n), pos: p, span }),
@@ -307,7 +362,39 @@ impl Lexer {
             }
         }
         let text: String = self.src[start..self.i].iter().collect();
-        Token { kind: TokenKind::Ident(text), pos: p, span: (start, self.i - start) }
+        Token {
+            kind: TokenKind::Ident(text),
+            pos: p,
+            span: (start, self.i - start),
+        }
+    }
+
+    /// `~name` is one operator. `~m` and `~n` are lanes; other names stay open.
+    fn read_lane(&mut self) -> Result<Token, LexError> {
+        let (p, start) = (self.pos(), self.i);
+        self.advance(); // '~'
+        match self.peek(0) {
+            Some(c) if is_ident_start(c) => {}
+            _ => {
+                return Err(self.err(
+                    "expected a lane name after `~`",
+                    "`~m` registers the input lane and `~n` the net lane",
+                ))
+            }
+        }
+        while let Some(c) = self.peek(0) {
+            if is_ident_cont(c) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        let text: String = self.src[start..self.i].iter().collect();
+        Ok(Token {
+            kind: TokenKind::Op(text),
+            pos: p,
+            span: (start, self.i - start),
+        })
     }
 
     fn read_op(&mut self) -> Result<Option<Token>, LexError> {
@@ -317,16 +404,14 @@ impl Lexer {
             if TWO_CHAR_OPS.contains(&two.as_str()) {
                 self.advance();
                 self.advance();
-                return Ok(Some(Token { kind: TokenKind::Op(two), pos: p, span: (start, 2) }));
+                return Ok(Some(Token {
+                    kind: TokenKind::Op(two),
+                    pos: p,
+                    span: (start, 2),
+                }));
             }
         }
         let c = self.src[self.i];
-        if c == '|' {
-            return Err(self.err(
-                "lone `|` is reserved",
-                "use `||` for logical or; `|` is reserved for the future atomic-pipe operator",
-            ));
-        }
         if ONE_CHAR_OPS.contains(c) {
             self.advance();
             return Ok(Some(Token {
@@ -359,7 +444,10 @@ mod tests {
 
     #[test]
     fn dollar_string() {
-        assert_eq!(kinds("$Hello, World!$"), vec![TokenKind::Str("Hello, World!".into())]);
+        assert_eq!(
+            kinds("$Hello, World!$"),
+            vec![TokenKind::Str("Hello, World!".into())]
+        );
     }
 
     #[test]
@@ -388,25 +476,50 @@ mod tests {
 
     #[test]
     fn bind() {
-        assert_eq!(kinds("5:x"), vec![TokenKind::Int(5), TokenKind::Bind("x".into())]);
+        assert_eq!(
+            kinds("5:x"),
+            vec![TokenKind::Int(5), TokenKind::Bind("x".into())]
+        );
     }
 
     #[test]
-    fn lone_pipe_reserved() {
-        let e = lex("|").unwrap_err();
-        assert_eq!(e.code, REPAIR_SYNTAX);
+    fn lane_ops() {
+        assert_eq!(
+            kinds("~m ~n | ^ ||"),
+            vec![
+                TokenKind::Op("~m".into()),
+                TokenKind::Op("~n".into()),
+                TokenKind::Op("|".into()),
+                TokenKind::Op("^".into()),
+                TokenKind::Op("||".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tilde_needs_a_name() {
+        assert_eq!(lex("~").unwrap_err().code, REPAIR_SYNTAX);
+        assert_eq!(lex("~1").unwrap_err().code, REPAIR_SYNTAX);
     }
 
     #[test]
     fn capability_and_move() {
-        assert_eq!(kinds("`s 'x"), vec![TokenKind::Cap("s".into()), TokenKind::Move("x".into())]);
+        assert_eq!(
+            kinds("`s 'x"),
+            vec![TokenKind::Cap("s".into()), TokenKind::Move("x".into())]
+        );
     }
 
     #[test]
     fn match_op_is_two_char() {
         assert_eq!(
             kinds("a ?? b ?"),
-            vec![TokenKind::Ident("a".into()), TokenKind::Op("??".into()), TokenKind::Ident("b".into()), TokenKind::Op("?".into())]
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::Op("??".into()),
+                TokenKind::Ident("b".into()),
+                TokenKind::Op("?".into())
+            ]
         );
     }
 

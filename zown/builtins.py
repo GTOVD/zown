@@ -15,6 +15,7 @@ import math
 from typing import Any, Callable
 
 from .errors import DIV_ZERO, OVERFLOW, Pos, TYPE_MISMATCH, ZownError
+from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 
 
 def _need_str(vm, op: str, pos: Pos) -> str:
@@ -548,6 +549,13 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "cl": (b_clear, "clear", "clear the entire stack"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
+    "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),
+    "lc": (b_lc, "lanes", "n lc -> pin min(n, max(cpus-1, 1)) real-time slots and push the grant"),
+    "rn": (b_rn, "run_ticks", "k rn -> run k scheduler ticks (lanes, then at most one job)"),
+    "pm": (b_pm, "pull_in", "pull one value from the input lane pipe (empty is BOUNDS)"),
+    "pn": (b_pn, "pull_net", "pull one value from the net lane pipe (empty is BOUNDS)"),
+    "ws": (b_ws, "steals", "push how many times a compute worker stole a job"),
+    "sg": (b_sg, "trace", "push the lane trace (m, n, and c for a compute slice)"),
     "ty": (b_attempt, "attempt", "[body] ty -> ok(value) or err(code); unwrap with ?? [ok]/[err] arms"),
     "at": (b_at, "at", "vec idx at -> the lane at idx (BOUNDS if out of range)"),
     "gr": (b_grant, "grant", "`cap [body] gr -> run body with `cap granted, then restore"),

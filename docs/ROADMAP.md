@@ -94,18 +94,21 @@ Hard problems: stack→SSA lowering; calling convention for blocks/quotations.
 
 ---
 
-## Phase 4 — Concurrency & dynamic fast lanes
+## Phase 4 — Concurrency & dynamic fast lanes (DONE ✅)
 
-Make the `~ ^ |` reserved family real, and split data plane from control plane.
+`~`, `^`, and `|` are real. The data plane (lanes) runs before the control
+plane (one compute job per tick). SPEC §22 is the contract.
 
-- Runtime queries hardware topology; **application-defined** real-time lane counts
-  (audio/input/network), pinned off the compute pool; degrade to cooperative
-  fibers / `^` async when cores are scarce.
-- `^` fork to a work-stealing pool; `|` lock-free atomic pipe.
-- `zown tune <app>` to rebalance live.
+- [x] Runtime queries hardware topology (`hw`, `ZOWN_CPUS`); **application-defined**
+      real-time lane counts (`lc`). Slots come off the compute pool. Lanes that
+      do not fit still run every tick, as fibers, so they are not skipped.
+- [x] `^` queues a block on a work-stealing pool; `|` sends on the lane pipe
+      (`pm` / `pn` pull). The observable schedule is the trace, not a wall clock.
+- [x] `zown tune` and `zown tune N` print the grant and rebalance the same way
+      `lc` does.
 
-Hard problems: portable topology detection; priority scheduling without
-OS-specific code.
+OS `SCHED_FIFO` is not part of the trace. A later host may pin threads, and it
+must produce the same letters.
 
 ---
 

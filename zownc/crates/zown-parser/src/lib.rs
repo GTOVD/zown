@@ -21,7 +21,13 @@ pub struct ParseError {
 
 impl From<LexError> for ParseError {
     fn from(e: LexError) -> Self {
-        ParseError { code: e.code, msg: e.msg, kind: "lex", pos: e.pos, hint: e.hint }
+        ParseError {
+            code: e.code,
+            msg: e.msg,
+            kind: "lex",
+            pos: e.pos,
+            hint: e.hint,
+        }
     }
 }
 
@@ -167,9 +173,15 @@ mod tests {
     }
 
     #[test]
-    fn reserved_pipe_is_lex_error() {
-        let e = parse("|").unwrap_err();
+    fn pipe_is_an_operator() {
+        assert_eq!(kinds("|"), vec![NodeKind::Op("|".into())]);
+    }
+
+    #[test]
+    fn lone_paren_is_lex_error() {
+        let e = parse("(").unwrap_err();
         assert_eq!(e.kind, "lex");
+        assert_eq!(e.code, REPAIR_SYNTAX);
     }
 
     #[test]

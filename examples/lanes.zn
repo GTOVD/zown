@@ -1,0 +1,12 @@
+# Real-time lanes and one compute job per tick (SPEC §22).
+# `1 lc` asks for one pinned slot. Input `~m` sends 7, net `~n` sends 9.
+# `^` queues a compute job. Each tick runs m, then n, then at most one job,
+# so a queued job cannot skip a lane. `sg` is the trace.
+1 lc
+[ 7 | ] ~m
+[ 9 | ] ~n
+[ ] ^
+3 rn
+sg .
+pm .
+pn .

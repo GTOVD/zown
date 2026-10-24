@@ -16,16 +16,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
-    STACK_OVERFLOW,
+    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
 from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
 
 
-def run(src):
-    """Run source, returning (printed_output, vm)."""
+def run(src, cpus=None):
+    """Run source, returning (printed_output, vm). `cpus` pins the lane topology."""
     buf = io.StringIO()
     vm = VM(file="<test>", out=buf)
+    if cpus is not None:
+        vm.lanes.cpus_override = cpus
     vm.run_src(src)
     return buf.getvalue(), vm
 
@@ -58,10 +60,24 @@ def test_lex_bind():
     assert toks[1].kind == T_BIND and toks[1].value == "x"
 
 
-def test_lex_lone_pipe_reserved():
+def test_lex_lane_ops():
+    vals = [t.value for t in lex("~m ~n | ^ ||") if t.kind == T_OP]
+    assert vals == ["~m", "~n", "|", "^", "||"]
+
+
+def test_lex_tilde_needs_a_name():
+    for src in ("~", "~1"):
+        try:
+            lex(src)
+            assert False, src
+        except ZownError as e:
+            assert e.code == REPAIR_SYNTAX
+
+
+def test_lex_lone_paren_is_still_an_error():
     try:
-        lex("|")
-        assert False, "expected reserved-pipe error"
+        lex("(")
+        assert False, "expected a lex error"
     except ZownError as e:
         assert e.code == REPAIR_SYNTAX
 
@@ -922,6 +938,101 @@ def test_unclosed_block_is_parse_error():
         assert False
     except ZownError as e:
         assert e.kind == "parse" and e.code == REPAIR_SYNTAX
+
+
+# --- fast lanes (M10, SPEC §22) ------------------------------------------------
+_LANES = """
+1 lc
+[ 7 | ] ~m
+[ 9 | ] ~n
+[ ] ^
+3 rn
+sg .
+pm .
+pn .
+"""
+
+
+def test_lanes_demo_trace():
+    # One pinned slot. Tick 1 is m, n, then the only job. Ticks 2 and 3 have no job.
+    out, vm = run(_LANES, cpus=8)
+    assert out == "mncmnmn\n7\n9\n"
+    assert vm.stack == [1]  # lc leaves the grant; the pipes were pulled
+
+
+def test_lanes_not_starved_under_load():
+    src = """
+1 lc ,
+[ 1 | ] ~m
+[ 2 | ] ~n
+[ ] ^ [ ] ^ [ ] ^ [ ] ^ [ ] ^
+3 rn
+sg .
+pm .
+pn .
+"""
+    out, _ = run(src, cpus=2)
+    assert out == "mncmncmnc\n1\n2\n"
+
+
+def test_lanes_work_stealing():
+    src = "0 lc , [ 1 ] ^ [ 2 ] ^ 2 rn ws ."
+    out, vm = run(src, cpus=4)
+    assert out == "1\n"
+    assert vm.stack == [1, 2]
+    out, vm = run(src, cpus=1)
+    assert out == "0\n"
+    assert vm.stack == [1, 2]
+
+
+def test_lanes_grant_and_cpus():
+    out, _ = run("4 lc .", cpus=2)  # room is 1, so the grant clamps
+    assert out == "1\n"
+    out, _ = run("hw .", cpus=5)
+    assert out == "5\n"
+    os.environ["ZOWN_CPUS"] = "3"
+    try:
+        out, _ = run("hw .")
+        assert out == "3\n"
+    finally:
+        del os.environ["ZOWN_CPUS"]
+
+
+def test_lanes_faults():
+    _fails("pm", BOUNDS)
+    _fails("1 |", TYPE_MISMATCH)
+    _fails("[ ] ~z", UNSUPPORTED)
+    _fails("1 ^", NOT_CALLABLE)
+    _fails("1 _ lc", BOUNDS)
+    _fails("1 _ rn", BOUNDS)
+    _fails("1.5 lc", TYPE_MISMATCH)
+    _fails("1 lc [ 1 rn ] ~m 1 rn", TYPE_MISMATCH)
+    out, _ = run("1 lc , [ 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | ] ~m 1 rn pm .")
+    assert out == "1\n"
+    _fails("1 lc [ 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | ] ~m 1 rn", BOUNDS)
+
+
+def test_cli_tune():
+    import contextlib
+    from zown.cli import main
+    os.environ["ZOWN_CPUS"] = "4"
+    try:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(["tune", "1"])
+        assert code == 0 and err.getvalue() == ""
+        assert out.getvalue() == "cpus 4\ngranted 1\nworkers 3\npinned\n"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(["tune", "0"])
+        assert code == 0
+        assert out.getvalue() == "cpus 4\ngranted 0\nworkers 4\nfibers\n"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(["tune", "-1"])
+        assert code == 1 and ">= 0" in err.getvalue()
+    finally:
+        del os.environ["ZOWN_CPUS"]
 
 
 # --- runner --------------------------------------------------------------------

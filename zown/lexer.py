@@ -34,8 +34,8 @@ T_EOF = "EOF"
 
 # Two-character operators (checked before single-char).
 TWO_CHAR_OPS = {"==", "!=", "<=", ">=", "&&", "||", "??"}
-# Single-character operators.
-ONE_CHAR_OPS = set("@.,=\\&+-*/%<>!?;_")
+# Single-character operators. `||` is checked first, so `|` is the lane pipe.
+ONE_CHAR_OPS = set("@.,=\\&+-*/%<>!?;_|^")
 
 _IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 _IDENT_CONT = _IDENT_START | set("0123456789")
@@ -125,6 +125,9 @@ class Lexer:
                 continue
             if c in _IDENT_START:
                 out.append(self._read_ident())
+                continue
+            if c == "~":
+                out.append(self._read_lane())
                 continue
             tok = self._read_op()
             if tok is not None:
@@ -240,6 +243,21 @@ class Lexer:
             self._advance()
         return Token(T_IDENT, self.src[start:self.i], p, (start, self.i - start))
 
+    def _read_lane(self) -> Token:
+        """`~name` is one operator. `~m` and `~n` are lanes; other names stay open."""
+        p, start = self._pos(), self.i
+        self._advance()  # '~'
+        if self._peek() not in _IDENT_START:
+            raise self._err(
+                REPAIR_SYNTAX,
+                "expected a lane name after `~`",
+                hint="`~m` registers the input lane and `~n` the net lane",
+            )
+        while self._peek() in _IDENT_CONT:
+            self._advance()
+        text = self.src[start:self.i]
+        return Token(T_OP, text, p, (start, self.i - start))
+
     def _read_op(self) -> Token | None:
         p, start = self._pos(), self.i
         two = self.src[self.i:self.i + 2]
@@ -248,12 +266,6 @@ class Lexer:
             self._advance()
             return Token(T_OP, two, p, (start, 2))
         c = self._peek()
-        if c == "|":  # lone '|' is reserved (atomic pipe, future); '||' handled above
-            raise self._err(
-                REPAIR_SYNTAX,
-                "lone `|` is reserved",
-                hint="use `||` for logical or; `|` is reserved for the future atomic-pipe operator",
-            )
         if c in ONE_CHAR_OPS:
             self._advance()
             return Token(T_OP, c, p, (start, 1))

@@ -7,6 +7,7 @@
 
 mod bigint;
 mod error;
+mod lanes;
 mod native;
 mod value;
 
@@ -21,6 +22,7 @@ use bigint::BigInt;
 use value::{f64_fits_int, num_partial_cmp, Lane, VecVal, WidthTag};
 
 pub use error::*;
+pub use lanes::Slice;
 pub use native::NatOp;
 pub use value::Value;
 
@@ -95,6 +97,7 @@ pub struct Vm {
     pub out: String,
     pub file: Option<String>,
     pos: Option<Pos>,
+    lanes: lanes::LaneState,
 }
 
 enum Bin {
@@ -162,6 +165,7 @@ impl Vm {
             out: String::new(),
             file,
             pos: None,
+            lanes: lanes::LaneState::new(),
         }
     }
 
@@ -437,6 +441,9 @@ impl Vm {
             "?" => self.op_select(),
             ";" => self.op_while(),
             "??" => self.op_match(),
+            "|" => self.op_pipe(),
+            "^" => self.op_spawn(),
+            other if other.starts_with('~') && other.len() > 1 => self.op_lane(&other[1..]),
             other => Err(self.err(
                 UNSUPPORTED,
                 format!("operator `{other}` is not implemented"),
@@ -867,6 +874,13 @@ impl Vm {
             "at" => self.b_vat(),
             "ct" => self.b_cat(),
             "rp" => self.b_repeat(),
+            "hw" => self.b_hw(),
+            "lc" => self.b_lc(),
+            "rn" => self.b_rn(),
+            "pm" => self.b_pm(),
+            "pn" => self.b_pn(),
+            "ws" => self.b_ws(),
+            "sg" => self.b_sg(),
             _ => return None,
         })
     }
@@ -1639,6 +1653,13 @@ pub fn is_builtin(name: &str) -> bool {
             | "at"
             | "ct"
             | "rp"
+            | "hw"
+            | "lc"
+            | "rn"
+            | "pm"
+            | "pn"
+            | "ws"
+            | "sg"
     )
 }
 

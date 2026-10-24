@@ -171,6 +171,15 @@ def cmd_repl(args) -> int:
         sys.stderr.write(f"   [{snap}]\n")
 
 
+def cmd_tune(args) -> int:
+    from .lanes import tune_report
+    if args.n is not None and args.n < 0:
+        sys.stderr.write("tune: requested real-time slots must be >= 0\n")
+        return 1
+    sys.stdout.write(tune_report(args.n))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zown", description="Zown language toolchain (reference build)")
     p.add_argument("--zerr", action="store_true", help="emit errors as JSON .zerr packets")
@@ -199,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     prp = sub.add_parser("repl", help="interactive session")
     prp.set_defaults(func=cmd_repl)
 
+    pt = sub.add_parser("tune", help="show how many real-time lanes this machine pins")
+    pt.add_argument("n", nargs="?", type=int, default=None,
+                    help="requested real-time slots (default: min(2, cpus-1))")
+    pt.set_defaults(func=cmd_tune)
+
     return p
 
 
@@ -207,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

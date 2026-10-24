@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M9 closed: buf spec, deterministic exes, SIMD, LLVM `-O2`).
+Last updated: 2026-10-24 (M10 closed: cooperative fast lanes).
 
 ---
 
@@ -41,7 +41,7 @@ it (full architecture: [`DESIGN.md`](./DESIGN.md)):
    proof the language can "build anything without external languages."
 
 **Sequencing rule:** the security/type/network/graphics SPEC is frozen and
-validated in the Python oracle **before** the native compiler (M7 ✅, M8 🔄),
+validated in the Python oracle **before** the native compiler (M7 ✅, M8 ✅),
 because those decisions shape the ABI and codegen. See `DESIGN.md` §1.
 
 ---
@@ -62,7 +62,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
 | M8 | Safety core (type & memory model) | ✅ | M8a–M8d ✅. `zownc check` gates `zownc run` (exit 2). WASM runs v0.1 with checked `int`. v0.2 tag numbers are D8; executing them in WASM is still `UNSUPPORTED` |
 | M9 | Native backend + perf (Cranelift→LLVM) | ✅ | M9a–M9f ✅. Int ops inlined, SIMD `va`/`vs`/`vm` (except `vu` multiply), deterministic exes, `zownc native -O` and `zownc llvm` (`clang -O2`). `buf` is design-only (§21). `native_parity` 59/59 |
-| M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
+| M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ✅ | cooperative ticks; `1 lc` trace is stable; `native_parity` 67/67. OS `SCHED_FIFO` is not observable behavior (§22) |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
 | M12 | ZownNet — decentralized mesh | ⬜ | IPv6 crypto-identity, ZownTransport, DHT+gossip, content addressing, offline mesh |
 | M13 | Native UI + ZownGPU + audio + input | ⬜ | typed layout tree (no HTML/CSS), wgpu→native, a11y, i18n |
@@ -534,12 +534,15 @@ same source are byte-identical; a fuzzer finds no OOB/use-after-free.
 **Goal:** make `~ ^ |` real and separate the data plane from the control plane.
 
 **Tasks**
-- [ ] Hardware topology query; application-defined real-time lane counts.
-- [ ] `~n` net / `~m` input lanes pinned off the compute pool; degrade to fibers.
-- [ ] `^` work-stealing pool; `|` lock-free pipe; `zown tune` live rebalance.
+- [x] **M10a.** `hw` reads the CPU count (`ZOWN_CPUS` overrides it). `n lc` grants `min(n, max(cpus-1, 1))` real-time slots and pushes that number. The default request, used when `lc` has not run, is `min(2, room)`. Workers are `max(cpus - granted, 1)`. `zown tune` and `zown tune N` print cpus, the grant, the worker count, and `pinned` or `fibers`.
+- [x] **M10b.** `~m` and `~n` register a block as the input and net lanes. Any other `~name` is `UNSUPPORTED` (those stay the §14 network words). Each tick runs the pinned lanes, then the lanes that did not fit (fibers), then at most one compute job. Both classes run every tick, so a fiber is not a skipped lane. The trace (`sg`) is the timing model: `cases_v2/lanes` prints `mncmnmn` on every machine because `1 lc` grants one slot.
+- [x] **M10c.** `^` queues a block on worker 0. A worker pops from the left of its own deque; an idle worker steals from the right of another and `ws` counts that. `|` sends into the running lane's pipe (capacity 8). `pm` and `pn` pull. Outside a lane, `|` is `TYPE_MISMATCH`. Re-entering `rn` is `TYPE_MISMATCH`. The native runtime runs compiled lane bodies through the same helpers, so `native_parity` covers the demo and the traps.
 
 **Acceptance:** a multi-lane demo holds real-time timing under load; control-plane
-work never starves a real-time lane.
+work never starves a real-time lane. Met by the trace, not by a wall-clock
+sleep: five queued jobs and three ticks still print `mncmncmnc` (unit test).
+The oracle cannot show OS `SCHED_FIFO`; SPEC §22 says a later pinned-thread
+host must not change this trace.
 
 ---
 
@@ -681,6 +684,7 @@ memory type.)*
 | D6 | **One token, one meaning. A prebuilt word is 1, then 2, then at most 3 characters** (2026-10-24). `+`/`*` are numeric (`ct` concatenates, `rp` repeats). `_` negates (`any` is the default pattern; there is no `bool` type). `ty` attempts; `at` indexes. Vectors are `vf vd vi vu` with `va vs vm vh`. Widths are `i8…i64 ix` and `u8…u64 ux`. `cl` clears. Standard net-send is `` `t ``, because `s` is `to_str`. Retired spellings are unbound, not aliases | SPEC §4, §7, §11, §12, §16 |
 | D7 | Native `big` is a sign plus little-endian base-2^32 limbs, no leading zero, zero non-negative (2026-10-24) | SPEC §11; `zown-vm` `BigInt` |
 | D8 | WASM tags 4–8 are big, cap, width, vec, res (2026-10-24). Not emitted yet | `WASM.md` |
+| D9 | Fast lanes are a **cooperative tick trace**, not OS threads (2026-10-24). `room = max(cpus-1, 1)`, grant `min(request, room)`, default request `min(2, room)`. Each tick runs every registered lane, then at most one job. `\|` sends; `pm`/`pn` pull. Pipe capacity 8. `~m`/`~n` only; other `~name` is `UNSUPPORTED` | SPEC §22; M10 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -733,12 +737,11 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M10 — fast lanes.** `~`, `^`, and `|` are still reserved. The first slice is
-   the lane model in the SPEC (design-only where the oracle cannot show real
-   threads), then a runtime that can run one pinned lane without starving the
-   others.
+1. **M11 — batteries.** Crypto, collections, and the first Zown-written stdlib
+   words. `~o` / `~s` / `~r` and the rest of §14 stay design-only until the mesh.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
-   `$fmt_f64`; emit WASM tags 4–8; auto-discover `tele.errors`.
+   `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
+   auto-discover `tele.errors`.
 3. **Windows link.** No MSVC `link.exe` on the 2026-09 machine. Build with
    `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. Do not change
    `rust-toolchain.toml`.

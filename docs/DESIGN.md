@@ -430,9 +430,10 @@ module's manifest as a known remediation.
 - **Profile-guided hot-swap**: the runtime profiles continuously; the AI triggers
   recompiles with better inlining/vectorization for hot paths and size-optimization
   for cold ones, live.
-- **Fast lanes** (the `~ ^ |` reserved family): application-defined real-time
-  lanes (audio, input, network) pinned off the compute pool, with `^` fork to a
-  work-stealing pool and `|` lock-free pipes.
+- **Fast lanes** (`~ ^ |`, SPEC §22): application-defined real-time lanes
+  (input `~m`, net `~n`) taken off the compute pool, with `^` to a work-stealing
+  pool and `|` as the lane pipe. The running oracle schedules them as
+  cooperative ticks; a pinned-thread host has to match that trace.
 
 ---
 

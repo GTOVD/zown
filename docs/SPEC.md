@@ -151,23 +151,27 @@ A user binding therefore shadows a stdlib word of the same name.
 |-----|-------------------------------------------|
 | `.` | pop and print the value, plus a newline   |
 
+### Lanes (SPEC §22)
+| Op | Meaning |
+|----|---------|
+| `~m` | register the block underneath as the input lane |
+| `~n` | register the block underneath as the net lane |
+| `^` | queue the block underneath on the compute pool |
+| `\|` | send the top value into the running lane's pipe |
+
+`||` is still logical or. The lexer takes the two-character operator first, so `|` is the pipe and `||` is or. Any `~name` other than `~m` and `~n` is one token and `UNSUPPORTED` at run time (§14).
+
 ---
 
-## 5. Reserved symbols
+## 5. Symbols kept open
 
-These are intentionally **not** used in v0.1 core so they remain free for the
-roadmap features they were sketched for:
+`|`, `~`, and `^` are the lane operators (§22). The characters below are still unused. Writing one is a lex error, so it stays free:
 
-| Symbol | Reserved for                                  |
-|--------|-----------------------------------------------|
-| `|`    | atomic pipe (lock-free inter-thread transfer) |
-| `~`    | hardware/stream lanes (`~n` net, `~m` input)  |
-| `^`    | fork / async spawn to the compute pool        |
-| `( )`  | tuples / grouping                             |
-| `{ }`  | inline control-flow bodies                    |
-| `# ` (inside code mode is a comment)          |               |
-
-A lone `|` is a lex error today (use `||` for or) precisely to keep it open.
+| Symbol | Reserved for |
+|--------|----------------|
+| `( )` | tuples / grouping |
+| `{ }` | inline control-flow bodies |
+| `#` | a comment to the end of the line |
 
 ---
 
@@ -233,6 +237,13 @@ also feeds the manifest generator.
 | `cl`  | clear     | clear the whole stack                        |
 | `ct`  | concat    | concatenate two strings (`a b ct`). Both must already be strings |
 | `rp`  | repeat    | `str count rp` repeats the string; a count `<= 0` yields `""` |
+| `hw`  | cpus      | push the CPU count (`ZOWN_CPUS` overrides the host) |
+| `lc`  | lanes     | `n lc` sets the real-time slot request and pushes the grant (§22) |
+| `rn`  | run_ticks | `k rn` runs k scheduler ticks |
+| `pm`  | pull_in   | pull one value from the input lane pipe |
+| `pn`  | pull_net  | pull one value from the net lane pipe |
+| `ws`  | steals    | push how many times a worker stole a job |
+| `sg`  | trace     | push the lane trace |
 
 A prebuilt word is the shortest free spelling that still has one meaning: one
 character, then two, then three. `cl` is two because `c` is the standard
@@ -304,7 +315,8 @@ str      = "$" { char | escape } "$" ;
 op       = "+" | "-" | "*" | "/" | "%" | "_"
          | "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "!"
          | "=" | "," | "\" | "&"
-         | "." | "@" | "?" | ";" ;
+         | "." | "@" | "?" | ";" | "??"
+         | "|" | "^" | "~" ident ;
 ident    = letter { letter | digit } ;
 ```
 
@@ -540,9 +552,11 @@ Defaults are fixed and hard to misuse: BLAKE3 (hash), ChaCha20-Poly1305
 
 ## 14. Network primitives (`~` family) & protocol-as-type — *design-only (M11/M14)*
 
-> The `~` family is reserved (Part I §5) but unimplemented: real streams, the
-> mesh, and protocol-as-type checking need I/O and the type system, not the
-> oracle. The token allocation and semantics are frozen here.
+> `~m` and `~n` are the real-time lanes and are implemented (§22). The rest of
+> this family is not: real streams, the mesh, and protocol-as-type checking
+> need I/O and the type system, not the oracle. A `~name` that is not a lane
+> is a single operator token and traps `UNSUPPORTED`. The allocation below is
+> frozen.
 
 The reserved `~` family (Part I §5) becomes the network/lane surface. A connection
 targets an **interface**, not an IP; the runtime resolves which peer provides it
@@ -556,7 +570,7 @@ targets an **interface**, not an IP; the runtime resolves which peer provides it
 | `~c` | connect to an interface (resolved via the mesh) |
 | `~l` | local same-machine fast path (shared memory) |
 | `~w` | world: tunnel/relay for legacy reach |
-| `~n` `~m` | network / input real-time lanes (Part I reserved) |
+| `~n` `~m` | network / input real-time lanes — **implemented** (§22). Not a stream send |
 
 **Protocols are types.** Two programs connect iff their protocol types are
 structurally compatible (checked at compile time, else at capability-grant time):
@@ -669,14 +683,14 @@ malformed arms, exhaustiveness) are still reported — no execution makes them r
 
 ## 17. Reserved-symbol allocation (updated)
 
-Part I §5 reservations stand. Part II claims:
+Part I §5 keeps `( )`, `{ }`, and `#` open. Part II claims:
 
 | Symbol | Now reserved for |
 |--------|------------------|
 | `` ` `` | capability sigil (§12) |
 | `'` | move sigil (§20) — **implemented** |
 | `"` | reserved for a future *mutable reference* sigil once heap values exist (§20) |
-| `~x` words | network/lane primitives (§14) |
+| `~x` words | `~m` and `~n` are lanes (§22). Every other `~name` is still a network word (§14) and traps `UNSUPPORTED` |
 | `» « →` | embedded graph DB query pipeline (`DESIGN.md` §6) |
 | `??` | pattern-match dispatch (§16). `?` stays select; `??` is not a second meaning of `?` |
 
@@ -739,7 +753,13 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | capability used without a grant | **static** `CAP_DENIED` when provable; runtime trap `CAP_DENIED` otherwise | `check/flow_*`, `errors_v2/caps_denied*` |
 | result not handled exhaustively | **static** `NO_MATCH`; runtime trap `NO_MATCH` | `check/res_exhaustive`, `errors_v2/res_unhandled` |
 | null / uninitialized value | **impossible** — no null exists; a name is bound or `NAME_UNRESOLVED` | — |
-| use-after-free, out-of-bounds memory, data race | **impossible today** — no raw memory. §21 is the fat-pointer contract that keeps it so once `buf` exists (`BOUNDS`, never a dangling address) | §21 |
+| use-after-free, out-of-bounds memory, data race | **impossible in this model** — no raw memory (§21). Lanes share one stack and move values only through the pipe (§22), so a tick cannot race itself | §21, §22 |
+| lane pipe holds 8 values, or a pull from an empty pipe | trap `BOUNDS` | `errors_v2/pipe_full`, `pipe_empty` |
+| `\|` outside a running lane | trap `TYPE_MISMATCH` | `errors_v2/pipe_outside` |
+| `rn` while a tick is already running | trap `TYPE_MISMATCH` | `errors_v2/tick_reenter` |
+| `lc` or `rn` given a negative int | trap `BOUNDS` | `errors_v2/lane_negative` (`rn` is the same rule) |
+| `~` name other than `~m` or `~n` | trap `UNSUPPORTED` | `errors_v2/lane_unknown` |
+| a queued compute job skips a real-time lane | **impossible** — each tick runs every registered lane, then at most one job | `cases_v2/lanes` |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
@@ -827,3 +847,88 @@ index), `st` (saturate), or `b` (big).
 `"` stays reserved for a future mutable reference that is not exclusive
 ownership (§17, §20). Until §21 is implemented, a program cannot construct a
 `buf`; `bf` is not a word.
+
+## 22. Concurrency — fast lanes — **implemented (M10, oracle + Rust VM)**
+
+`~`, `^`, and `|` schedule work. The oracle does not start an OS real-time
+thread. It runs a cooperative tick scheduler, and the Rust VM, including a
+program compiled with `zownc native`, follows the same steps. A later host that
+pins OS threads must not change the trace this section defines.
+
+Lanes and jobs share the one operand stack. A body in the conformance programs
+is stack-neutral aside from the pipe. The scheduler does not preempt: a slice
+runs until its block returns, and `rn` from inside a slice is `TYPE_MISMATCH`.
+
+### Topology
+
+`hw` pushes the CPU count. `ZOWN_CPUS`, when it is an integer ≥ 1, replaces the
+host count so a test can pin the topology. An empty or non-numeric value is
+ignored.
+
+`room = max(cpus - 1, 1)`. One CPU stays a worker when the machine has more than
+one; a single CPU still offers one real-time slot.
+
+`n lc` sets the requested slot count and pushes the grant `min(n, room)`. `n`
+is a plain `int`. A non-int is `TYPE_MISMATCH`. A negative int is `BOUNDS`.
+Calling `lc` again rebalances before the next compute slice. Until the first
+`lc`, the request is the default `min(2, room)`.
+
+Workers = `max(cpus - granted, 1)`. Granted slots are not also workers.
+
+`zown tune` prints `cpus`, `granted`, `workers`, and `pinned` when the grant is
+at least one, otherwise `fibers`. `zown tune N` uses N as the request. It calls
+the same function the VM uses.
+
+### Registering work
+
+| Token | Effect |
+|-------|--------|
+| `~m` | pop a block and register it as the input lane. A non-block is `NOT_CALLABLE` |
+| `~n` | the same, for the net lane |
+| `^` | pop a block onto worker 0's deque. A non-block is `NOT_CALLABLE` |
+| `\|` | pop a value into the running lane's pipe. Outside a lane this is `TYPE_MISMATCH` |
+| `pm` | pull one value from the input pipe (FIFO) |
+| `pn` | pull one value from the net pipe |
+
+`|` is send only. `pm` and `pn` are the pulls, so the pipe operator does not
+also mean receive. The pipe holds 8 values. A send into a full pipe, or a pull
+from an empty one, is `BOUNDS`.
+
+`~` must be followed by a name or the lexer raises `REPAIR_SYNTAX`. `~m` and
+`~n` are the only implemented names. Any other `~name` (the network words in
+§14) is `UNSUPPORTED`. The checker treats a block consumed by `~m`, `~n`, or
+`^` as escaped: those operators are not inline invocations like `gr` or `ty`.
+
+### Ticks
+
+`k rn` runs k ticks. `k` is a plain `int` ≥ 0, with the same type and bounds
+rules as `lc`. The trace (`sg` pushes it) accumulates across `rn` calls. `ws`
+pushes the steal count. Neither is reset by a later `rn`.
+
+Each tick, in order:
+
+1. The registered lanes, input then net. The first `granted` of those are the
+   pinned class; the rest run as fibers. Both classes run once, pinned first.
+   A lane with no body is skipped and does not take a slot.
+2. At most one compute job. The worker is `rr` modulo the worker count. `rr`
+   starts at 0 and increases by one each tick, including a tick with no job.
+   That worker pops from the left of its deque. If the deque is empty, the
+   scheduler scans the following workers and pops from the right of the first
+   non-empty deque, and that pop counts as one steal. No job means no `c`.
+
+The trace is one letter per slice that actually ran: `m`, `n`, then `c` when a
+job ran. A job queued by a lane is visible to the compute slice of that same
+tick. An `lc` in a lane updates the worker count before that slice; the lane
+list for the tick was chosen at the start of the tick.
+
+A queued job cannot skip a lane. Every tick spends its compute budget on one
+job after every registered lane has run. That is the real-time property this
+runtime can show. Wall-clock priority and `SCHED_FIFO` are not part of the
+observable behavior.
+
+### What a backend must match
+
+WASM does not emit `|`, `^`, or `~name`. It refuses them at compile time. A
+native backend that runs the program must reproduce the trace and the traps in
+§19. Two hosts may report different `hw` values; a conformance program that
+needs a stable trace calls `1 lc`, which grants one slot on every machine.

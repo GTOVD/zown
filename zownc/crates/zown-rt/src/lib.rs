@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::process::abort;
 
 pub use zown_vm::NatOp;
-use zown_vm::{RunError, Value, Vm, STACK_OVERFLOW};
+use zown_vm::{RunError, Slice, Value, Vm, STACK_OVERFLOW};
 
 const MAX_DEPTH: u32 = 128;
 
@@ -105,7 +105,11 @@ fn str_at(ptr: *const u8, len: usize) -> String {
 
 #[no_mangle]
 pub unsafe extern "C" fn rt_failed(rt: *mut Rt) -> i32 {
-    if rt.is_null() || (*rt).err.is_some() { 1 } else { 0 }
+    if rt.is_null() || (*rt).err.is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 /// Pop the top two values when both are `int`. Writes the deeper one to `a_out`
@@ -213,7 +217,10 @@ pub unsafe extern "C" fn rt_push_float(rt: *mut Rt, bits: i64) -> i32 {
     if rt_failed(rt) != 0 {
         return 1;
     }
-    (*rt).vm.stack.push(Value::Float(f64::from_bits(bits as u64)));
+    (*rt)
+        .vm
+        .stack
+        .push(Value::Float(f64::from_bits(bits as u64)));
     0
 }
 
@@ -268,6 +275,7 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
     if !(*rt).vm.is_bound(&name) {
         match name.as_str() {
             "gr" => return grant(rt),
+            "rn" => return exec_rn(rt),
             "vf" => return vec_ctor(rt, "vf", 4, true, true, 32),
             "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
@@ -345,6 +353,53 @@ pub unsafe extern "C" fn rt_pop_truthy(rt: *mut Rt) -> i32 {
             fail(&mut *rt, e);
             2
         }
+    }
+}
+
+/// `k rn` on the native path. The tree-walker has the same steps in `Vm::b_rn`.
+/// Lane bodies here are compiled functions, so the calls stay in this runtime
+/// where no `&mut Vm` is held across `call_block`.
+unsafe fn exec_rn(rt: *mut Rt) -> i32 {
+    let k = match (*rt).vm.begin_rn() {
+        Ok(k) => k,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    for _ in 0..k {
+        let names = (*rt).vm.lane_schedule();
+        for name in names {
+            let Some(body) = (*rt).vm.copy_body(&name) else {
+                continue;
+            };
+            (*rt).vm.enter_lane(&name);
+            let op = format!("~{name}");
+            let code = dispatch_slice(rt, body, &op);
+            (*rt).vm.leave_lane();
+            if code != 0 {
+                (*rt).vm.end_rn();
+                return 1;
+            }
+            (*rt).vm.mark_trace(&name);
+        }
+        if let Some(job) = (*rt).vm.take_job() {
+            let code = dispatch_slice(rt, job, "^");
+            if code != 0 {
+                (*rt).vm.end_rn();
+                return 1;
+            }
+            (*rt).vm.mark_trace("c");
+        }
+    }
+    (*rt).vm.end_rn();
+    0
+}
+
+unsafe fn dispatch_slice(rt: *mut Rt, body: Slice, op: &str) -> i32 {
+    match body {
+        Slice::Native(id) => call_block(rt, id, op),
+        Slice::Ast(b) => match (*rt).vm.call_ast(b, op) {
+            Ok(()) => 0,
+            Err(e) => fail(&mut *rt, e),
+        },
     }
 }
 
@@ -508,7 +563,10 @@ unsafe fn vec_ctor(
     if code != 0 {
         return 1;
     }
-    match (*rt).vm.build_vec(name, count, is_float, signed, bits, produced) {
+    match (*rt)
+        .vm
+        .build_vec(name, count, is_float, signed, bits, produced)
+    {
         Ok(()) => 0,
         Err(e) => fail(&mut *rt, e),
     }

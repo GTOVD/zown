@@ -46,6 +46,9 @@ python3 bin/zown manifest examples/fib.zn   # writes examples/fib.zn.json
 
 # interactive stack session
 python3 bin/zown repl
+
+# how many real-time lanes this machine will pin (optional N is the request)
+python3 bin/zown tune
 ```
 
 Install the `zown` command for real:
@@ -71,7 +74,7 @@ zown examples/fizzbuzz.zn
 ] ;
 ```
 
-- `*` `+` `-` `/` `%` arithmetic (`+` also concatenates strings)
+- `*` `+` `-` `/` `%` arithmetic (`ct` joins strings, `rp` repeats one)
 - `== != < > <= >= && || !` comparison & logic (push `1`/`0`)
 - `=` dup · `,` drop · `\` swap · `&` over
 - `cond [then] [else] ? @` is if/else; `[cond] [body] ;` is a while loop

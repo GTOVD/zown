@@ -542,6 +542,12 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
             push_val(body, "(local.get $bt)", "(local.get $bp)");
             push_val(body, "(local.get $at)", "(local.get $ap)");
         }
+        "|" | "^" => {
+            return Err(format!("wasm: operator `{op}` is not implemented"));
+        }
+        other if other.starts_with('~') => {
+            return Err(format!("wasm: operator `{other}` is not implemented"));
+        }
         other => return Err(format!("wasm: operator `{other}` is not implemented")),
     }
     Ok(())

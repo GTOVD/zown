@@ -32,7 +32,7 @@ checker faults** (exit 2); there is no undefined behavior (SPEC §19).
    observable behavior *is* the semantics.
 2. **`zownc/` — the Rust toolchain** (lexer, parser, IR, VM, checker, WASM,
    Cranelift). Differentially tested against the oracle. The VM and checker
-   implement v0.2. Cranelift runs v0.2. WASM still refuses `??`, `ty`, `gr`, and vectors.
+   implement v0.2, including fast lanes (SPEC §22). Cranelift runs v0.2. WASM still refuses `??`, `ty`, `gr`, vectors, and the lane operators.
 3. **The conformance corpus (`conformance/`)** — language-agnostic goldens that
    both must satisfy.
 
@@ -67,8 +67,8 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (101 unit tests, 20 +
-39 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+All five oracle commands must end in `0 failed` (109 unit tests, 20 +
+47 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
 `--unchecked` to observe the *runtime* packet of a program the checker rejects,
@@ -145,8 +145,10 @@ M0–M8 done. M8a name resolution + match shape
 WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13).
 **M9 ✅** — Cranelift int fast path, SIMD `va`/`vs`/`vm`, byte-identical
 `native -o` exes, `native -O`, and `zownc llvm` (`clang -O2`). `buf` is
-SPEC §21 and is not implemented. `native_parity` is 59/59. WASM tags 4–8 are
-assigned and not emitted. Next milestone is M10 (fast lanes).
+SPEC §21 and is not implemented. **M10 ✅** — cooperative fast lanes
+(`~m` `~n` `^` `|`, `zown tune`). The trace is the timing model (SPEC §22);
+`native_parity` is 67/67. WASM tags 4–8 are assigned and not emitted, and WASM
+refuses the lane operators. Next milestone is M11 (batteries stdlib).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

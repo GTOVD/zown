@@ -42,6 +42,7 @@ from .errors import (
     Pos,
     ZownError,
 )
+from .lanes import Lanes, op_pipe, op_spawn, op_tilde
 from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
 
@@ -218,6 +219,7 @@ class VM:
         # until a `gr` block brings a capability into scope (SPEC Part II §12).
         self.caps: set[str] = set()
         self.depth = 0  # current block-invocation depth (see MAX_INVOKE_DEPTH)
+        self.lanes = Lanes()  # cooperative fast lanes (SPEC §22)
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
@@ -355,6 +357,9 @@ class VM:
 
     # --- operators -------------------------------------------------------------
     def _exec_op(self, op: str, pos: Pos) -> None:
+        if len(op) > 1 and op[0] == "~":
+            op_tilde(self, op, pos)
+            return
         handler = _OPS.get(op)
         if handler is None:  # pragma: no cover - lexer should prevent this
             raise self.err("UNSUPPORTED", f"operator `{op}` is not implemented",
@@ -653,6 +658,7 @@ _OPS: dict[str, Callable[[VM, Pos], None]] = {
     "=": op_dup, ",": op_drop, "\\": op_swap, "&": op_over,
     ".": op_print, "@": op_invoke, "?": op_select, ";": op_while,
     "??": op_match,
+    "|": op_pipe, "^": op_spawn,
 }
 
 

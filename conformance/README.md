@@ -9,7 +9,7 @@ against these same `.zn` files as it is built (see `docs/PLAN.md`).
 ```
 cases/<name>.zn     + cases/<name>.out      # v0.1 program -> expected stdout
 errors/<name>.zn    + errors/<name>.code    # v0.1 program -> expected "<CODE>" or "<CODE> <op>"
-cases_v2/, errors_v2/                       # v0.2 (Part II) corpus, same shapes — oracle-only today
+cases_v2/, errors_v2/                       # v0.2 corpus, same shapes. v2.py is the oracle; vm_parity and native_parity run them too
 check/<name>.zn     + check/<name>.diag     # static checker: "<CODE> <op> [<cap>]" per line, or "ok"
 
 run.py            oracle runner for cases/ + errors/      (golden check / --bless)

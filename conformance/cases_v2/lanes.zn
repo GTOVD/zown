@@ -1,0 +1,10 @@
+# Each tick runs the input lane, the net lane, then at most one compute job.
+# Tick 1 is m n c. Ticks 2 and 3 have no job left, so the trace is mncmnmn.
+1 lc
+[ 7 | ] ~m
+[ 9 | ] ~n
+[ ] ^
+3 rn
+sg .
+pm .
+pn .
