@@ -1101,6 +1101,58 @@ def test_cli_test_and_fmt(tmp_path=None):
     assert out.getvalue() == text
 
 
+# --- mesh (M12) ----------------------------------------------------------------
+def test_blake3_official_vectors():
+    from zown.blake3 import blake3
+    def pattern(n):
+        return bytes(i % 251 for i in range(n))
+    vectors = {
+        0: "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+        1: "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+        1024: "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7",
+        1025: "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+    }
+    for n, want in vectors.items():
+        assert blake3(pattern(n)).hex() == want
+    assert blake3(b"hello").hex() == "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f"
+
+
+def test_bundle_publish_and_fetch():
+    out, _ = run("$hello$ ~p = . ~f .")
+    assert out == (
+        "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f\n"
+        "hello\n"
+    )
+    _fails("$zz$ ~f", TYPE_MISMATCH, "~f")
+    _fails("1 ~p", TYPE_MISMATCH, "~p")
+
+
+def test_node_id_follows_zown_node():
+    os.environ["ZOWN_NODE"] = "hello"
+    try:
+        out, vm = run("ni . ua .")
+    finally:
+        del os.environ["ZOWN_NODE"]
+    nid, addr = out.splitlines()
+    assert nid == "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f"
+    assert addr.startswith("fd") and addr.count(":") == 7
+    assert vm.node_id.hex() == nid
+
+
+def test_two_peers_exchange_a_bundle():
+    import socket
+    from zown.mesh import exchange
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    sock.bind(("::1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    digest, text, addrs = exchange("hello bundle", port)
+    assert text == "hello bundle"
+    assert digest == __import__("zown.blake3", fromlist=["blake3"]).blake3(b"hello bundle").hex()
+    left, right = addrs.split()
+    assert left.startswith("fd") and right.startswith("fd") and left != right
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

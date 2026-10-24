@@ -180,14 +180,23 @@ def op_spawn(vm, pos: Pos) -> None:
 
 
 def op_tilde(vm, op: str, pos: Pos) -> None:
-    """`~m` / `~n` register a lane body. Any other `~name` stays unimplemented."""
+    """`~m` / `~n` register a lane. `~p` / `~f` publish and fetch a bundle."""
     name = op[1:]
-    if name not in LANE_ORDER:
-        raise vm.err("UNSUPPORTED", f"operator `{op}` is not implemented",
-                     op=op, pos=pos,
-                     hint="~m registers the input lane and ~n the net lane")
-    blk = vm.pop_block(op, pos)
-    vm.lanes.bodies[name] = blk
+    if name in LANE_ORDER:
+        blk = vm.pop_block(op, pos)
+        vm.lanes.bodies[name] = blk
+        return
+    if name == "p":
+        from .mesh import publish
+        publish(vm, pos)
+        return
+    if name == "f":
+        from .mesh import fetch
+        fetch(vm, pos)
+        return
+    raise vm.err("UNSUPPORTED", f"operator `{op}` is not implemented",
+                 op=op, pos=pos,
+                 hint="~m and ~n are lanes; ~p publishes a bundle and ~f fetches it")
 
 
 def b_hw(vm, pos: Pos) -> None:

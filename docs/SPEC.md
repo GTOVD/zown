@@ -565,13 +565,12 @@ First-class types the type system understands (not raw byte arrays):
 Defaults are fixed and hard to misuse: BLAKE3 (hash), ChaCha20-Poly1305
 (symmetric), Ed25519 (sign), X25519 (exchange). One algorithm per purpose.
 
-## 14. Network primitives (`~` family) & protocol-as-type — *design-only (M11/M14)*
+## 14. Network primitives (`~` family) & protocol-as-type
 
-> `~m` and `~n` are the real-time lanes and are implemented (§22). The rest of
-> this family is not: real streams, the mesh, and protocol-as-type checking
-> need I/O and the type system, not the oracle. A `~name` that is not a lane
-> is a single operator token and traps `UNSUPPORTED`. The allocation below is
-> frozen.
+> `~m` and `~n` are the real-time lanes (§22). `~p` and `~f` publish and fetch
+> a BLAKE3-addressed bundle (§24). The rest of this family is not implemented:
+> streams, QUIC, and protocol-as-type checking stay design-only. A `~name`
+> outside that set is one token and traps `UNSUPPORTED`.
 
 The reserved `~` family (Part I §5) becomes the network/lane surface. A connection
 targets an **interface**, not an IP; the runtime resolves which peer provides it
@@ -579,13 +578,15 @@ targets an **interface**, not an IP; the runtime resolves which peer provides it
 
 | Token | Meaning |
 |-------|---------|
-| `~o` | open a stream to a peer |
-| `~s` | send on a stream (needs `` `t ``). The `~` makes this a different token from the word `s` |
-| `~r` | recv from a stream (needs `` `r ``) |
-| `~c` | connect to an interface (resolved via the mesh) |
-| `~l` | local same-machine fast path (shared memory) |
-| `~w` | world: tunnel/relay for legacy reach |
+| `~o` | open a stream to a peer — *not implemented* |
+| `~s` | send on a stream (needs `` `t ``). The `~` makes this a different token from the word `s` — *not implemented* |
+| `~r` | recv from a stream (needs `` `r ``) — *not implemented* |
+| `~c` | connect to an interface (resolved via the mesh) — *not implemented* |
+| `~l` | local same-machine fast path (shared memory) — *not implemented* |
+| `~w` | world: tunnel/relay for legacy reach — *not implemented* |
 | `~n` `~m` | network / input real-time lanes — **implemented** (§22). Not a stream send |
+| `~p` | publish a string bundle; push its BLAKE3 hex — **implemented** (§24) |
+| `~f` | fetch a bundle by that hex — **implemented** (§24) |
 
 **Protocols are types.** Two programs connect iff their protocol types are
 structurally compatible (checked at compile time, else at capability-grant time):
@@ -959,7 +960,7 @@ that hashed with a stand-in or pretended to read a file would be a lie.
 
 | Area | Frozen choice | Word, when it exists |
 |------|----------------|----------------------|
-| Hash | BLAKE3 | `h3` |
+| Hash | BLAKE3 | `h3` — **implemented** (§24). The digest is 64 hex digits, not a separate value type yet |
 | Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens |
 | Signature | Ed25519 | `es` signs, `ev` verifies |
 | Key agreement | X25519 | `xk` |
@@ -977,3 +978,26 @@ breaks kept, blank lines removed, a trailing newline. It is idempotent.
 the stdout golden, a sibling `.code` is the recovery code, and a file with
 neither passes when it runs without a trap. The runner is ungated, like the
 conformance oracle.
+
+## 24. ZownNet — the slice that runs — **implemented (M12, oracle + Rust VM)**
+
+A bundle is a string. Its address is `h3`: BLAKE3 of the UTF-8 bytes, written
+as 64 lowercase hex digits. `~p` stores the string under that address and
+pushes the address. `~f` pops an address and pushes the string. A non-string,
+or a hash that is not 64 hex digits, is `TYPE_MISMATCH`. An address with no
+bundle is `BOUNDS`. The store is local to the VM. A golden can publish and
+fetch without a socket (`cases_v2/bundle`).
+
+`ni` pushes this VM's node id, 64 hex digits. `ZOWN_NODE`, when set and
+non-empty, is hashed with BLAKE3 to make that id; otherwise the id is 32
+random bytes. `ua` pushes the IPv6 unique-local form: the first byte is
+`0xfd` and the next 15 bytes are the start of the node id, printed as eight
+groups of four hex digits. This id is **not** an Ed25519 key. Signing,
+X25519, and ChaCha20-Poly1305 are still the unimplemented words in §23.
+
+`zown mesh [port]` runs two peers. Each is an IPv6 UDP socket. They rendezvous
+at `[::1]:port` (default 59770): one binds it, the other announces, then fetches
+the bundle `hello bundle` by its BLAKE3 address and checks the hash. The same
+announce is offered to `ff02::5a77` on that port. A host that cannot deliver
+the group still completes the exchange on `[::1]`, which does not leave the
+machine. QUIC, the DHT, relays, and `~o`/`~s`/`~r` are not this command.

@@ -204,7 +204,7 @@ impl Vm {
                 UNSUPPORTED,
                 format!("operator `{op}` is not implemented"),
                 Some(op),
-                "~m registers the input lane and ~n the net lane",
+                "~m and ~n are lanes; ~p publishes a bundle and ~f fetches it",
             ));
         }
         let body = self.pop_slice(&op)?;

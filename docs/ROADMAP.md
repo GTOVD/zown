@@ -133,17 +133,20 @@ and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
 ## Phase 6 — ZownNet: the decentralized mesh
 
 Replace the location-addressed internet with an identity/content-addressed peer
-mesh (see `DESIGN.md` §3).
+mesh (see `DESIGN.md` §3). The running slice is SPEC §24.
 
-- Crypto identity → **IPv6** address (`BLAKE3(pubkey)`); **IPv6-only**.
-- **ZownTransport** (QUIC-equivalent over UDP; FFI first, native later):
-  encrypted-by-default, multiplexed, 0-RTT, mutual auth.
-- Peer discovery: multicast-local + **Kademlia DHT** + gossip; no DNS.
-- **Content addressing** + distributed hosting (any peer re-hosts; apps replicate).
-- NAT traversal + volunteer relays; **offline mesh** (WiFi-Direct/BT/LAN).
-- Protocols are types; on-device (`~l`) and remote share one interface.
+- [x] Content is addressed by **BLAKE3** (`h3`). `~p` / `~f` store and read a
+      bundle. `zown mesh` moves one bundle between two IPv6 UDP peers on
+      `[::1]`, which does not use the internet.
+- [ ] Crypto identity is an Ed25519 key whose IPv6 address is
+      `BLAKE3(pubkey)`. Today `ua` is an IPv6 ULA from a BLAKE3 node id, not a key.
+- [ ] **ZownTransport** (QUIC-equivalent): encrypted-by-default, multiplexed,
+      0-RTT, mutual auth.
+- [ ] Multicast `ff02::5a77` is the announce address. This host does not deliver
+      it. Kademlia and gossip are not started.
+- [ ] NAT traversal, relays, and `~l` as a shared-memory fast path.
 
-Hard problems: congestion control, DHT churn, relay incentives.
+Hard problems still open: congestion control, DHT churn, relay incentives.
 
 ---
 

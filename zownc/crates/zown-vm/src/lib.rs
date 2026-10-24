@@ -6,8 +6,10 @@
 //! M8d-iii. Observable behavior matches the Python oracle.
 
 mod bigint;
+mod blake3;
 mod error;
 mod lanes;
+mod mesh;
 mod native;
 mod stdwords;
 mod value;
@@ -100,6 +102,9 @@ pub struct Vm {
     lanes: lanes::LaneState,
     /// Auto-running words from `std/core.zn`. A user binding shadows one.
     words: HashMap<String, Rc<Vec<Node>>>,
+    /// BLAKE3 hex -> bundle text. `~p` writes it, `~f` reads it.
+    bundles: HashMap<String, String>,
+    node_id: [u8; 32],
 }
 
 enum Bin {
@@ -169,6 +174,8 @@ impl Vm {
             pos: None,
             lanes: lanes::LaneState::new(),
             words: HashMap::new(),
+            bundles: HashMap::new(),
+            node_id: mesh::node_id(),
         };
         vm.load_std();
         vm
@@ -451,6 +458,8 @@ impl Vm {
             "??" => self.op_match(),
             "|" => self.op_pipe(),
             "^" => self.op_spawn(),
+            "~p" => self.op_publish(),
+            "~f" => self.op_fetch(),
             other if other.starts_with('~') && other.len() > 1 => self.op_lane(&other[1..]),
             other => Err(self.err(
                 UNSUPPORTED,
@@ -857,6 +866,9 @@ impl Vm {
             "wd" => self.b_wd(),
             "ts" => self.b_ts(),
             "pp" => self.b_pp(),
+            "h3" => self.b_h3(),
+            "ni" => self.b_ni(),
+            "ua" => self.b_ua(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1656,6 +1668,9 @@ pub fn is_builtin(name: &str) -> bool {
             | "wd"
             | "ts"
             | "pp"
+            | "h3"
+            | "ni"
+            | "ua"
     )
 }
 

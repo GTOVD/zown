@@ -10,6 +10,7 @@ Usage:
     zown tune [N]             how many real-time lanes this machine pins
     zown fmt [-w] <file.zn>   canonical whitespace; -w writes the file
     zown test [path]          run .zn programs (default tests/zn)
+    zown mesh [port]          two IPv6 peers exchange a content-addressed bundle
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -204,6 +205,16 @@ def cmd_fmt(args) -> int:
     return EXIT_ERROR if failed else EXIT_OK
 
 
+def cmd_mesh(args) -> int:
+    from .mesh import demo
+    try:
+        sys.stdout.write(demo(args.port))
+    except RuntimeError as exc:
+        sys.stderr.write(f"mesh: {exc}\n")
+        return EXIT_ERROR
+    return EXIT_OK
+
+
 def cmd_test(args) -> int:
     from .tester import run_tests
     return run_tests(args.path)
@@ -252,6 +263,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="a .zn file or a directory of them (default tests/zn)")
     pte.set_defaults(func=cmd_test)
 
+    pmsh = sub.add_parser("mesh", help="exchange one bundle between two IPv6 peers on this host")
+    pmsh.add_argument("port", nargs="?", type=int, default=59770,
+                      help="rendezvous UDP port on ::1 (default 59770)")
+    pmsh.set_defaults(func=cmd_mesh)
+
     return p
 
 
@@ -260,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

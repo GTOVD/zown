@@ -53,6 +53,9 @@ python3 bin/zown tune
 # canonical whitespace, and the Zown test runner (tests/zn by default)
 python3 bin/zown fmt examples/hello.zn
 python3 bin/zown test
+
+# two local IPv6 peers exchange one BLAKE3-addressed bundle
+python3 bin/zown mesh
 ```
 
 Install the `zown` command for real:

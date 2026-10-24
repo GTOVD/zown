@@ -17,7 +17,9 @@ from typing import Any, Callable
 from .errors import (
     BOUNDS, DIV_ZERO, OVERFLOW, Pos, TEST_FAIL, TYPE_MISMATCH, UNSUPPORTED, ZownError,
 )
+from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
+from .mesh import ula
 
 
 def _need_str(vm, op: str, pos: Pos) -> str:
@@ -558,6 +560,23 @@ def _make_vbinop(op: str, fn):
     return handler
 
 
+def b_h3(vm, pos: Pos) -> None:
+    text = vm.pop("h3", pos)
+    if not isinstance(text, str):
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`h3` expected a string, got {type_name(text)}",
+                     op="h3", pos=pos, hint="BLAKE3 hashes the string's UTF-8 bytes")
+    vm.push(blake3_hex(text.encode("utf-8")))
+
+
+def b_ni(vm, pos: Pos) -> None:
+    vm.push(vm.node_id.hex())
+
+
+def b_ua(vm, pos: Pos) -> None:
+    vm.push(ula(vm.node_id))
+
+
 def b_vsum(vm, pos: Pos) -> None:
     # vec vh  -> horizontal sum to a scalar (exact; lane width is not re-applied).
     v = _pop_vec(vm, "vh", pos)
@@ -602,6 +621,9 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "wd": (b_wd, "word", "[body] $name$ wd -> register body as an auto-running word"),
     "ts": (b_ts, "test", "[body] ts -> the body must leave exactly one truthy value"),
     "pp": (b_pp, "prop", "k [body] pp -> run body k times; each run leaves one truthy value"),
+    "h3": (b_h3, "blake3", "str h3 -> 64 hex digits of BLAKE3(UTF-8)"),
+    "ni": (b_ni, "node_id", "push this VM's 32-byte node id as 64 hex digits"),
+    "ua": (b_ua, "node_addr", "push this VM's IPv6 ULA (fd00::/8 from the node id)"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

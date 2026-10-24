@@ -222,6 +222,12 @@ class VM:
         self.lanes = Lanes()  # cooperative fast lanes (SPEC §22)
         # Auto-running words loaded from std/core.zn. A user binding shadows one.
         self.words: dict[str, Block] = {}
+        # Content-addressed bundles (`~p` / `~f`) and this VM's node id.
+        from .mesh import node_id_from_material
+        import os
+        self.bundles: dict[str, str] = {}
+        material = os.environ.get("ZOWN_NODE") or None
+        self.node_id: bytes = node_id_from_material(material)
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
