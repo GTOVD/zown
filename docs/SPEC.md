@@ -222,8 +222,8 @@ also feeds the manifest generator.
 | `rv`  | reverse   | reverse a string                             |
 | `pr`  | print_raw | print with no trailing newline               |
 | `ab`  | abs       | absolute value                               |
-| `mx`  | max       | max of top two numbers                       |
-| `mn`  | min       | min of top two numbers                       |
+| `mx`  | max       | max of the top two numbers. Defined in `std/core.zn` |
+| `mn`  | min       | min of the top two numbers. Defined in `std/core.zn` |
 | `sq`  | sqrt      | square root                                  |
 | `pw`  | pow       | `base exp pw` -> base**exp                   |
 | `fl`  | floor     | floor                                        |
@@ -234,7 +234,7 @@ also feeds the manifest generator.
 | `b`   | big       | convert an int / whole float / digit string to a `big` (§11). Not a vector prefix |
 | `dp`  | depth     | push the current stack depth                 |
 | `rt`  | rot       | rotate top three (`a b c -> b c a`)          |
-| `cl`  | clear     | clear the whole stack                        |
+| `cl`  | clear     | clear the whole stack. Defined in `std/core.zn` |
 | `ct`  | concat    | concatenate two strings (`a b ct`). Both must already be strings |
 | `rp`  | repeat    | `str count rp` repeats the string; a count `<= 0` yields `""` |
 | `hw`  | cpus      | push the CPU count (`ZOWN_CPUS` overrides the host) |
@@ -244,11 +244,26 @@ also feeds the manifest generator.
 | `pn`  | pull_net  | pull one value from the net lane pipe |
 | `ws`  | steals    | push how many times a worker stole a job |
 | `sg`  | trace     | push the lane trace |
+| `wd`  | word      | `[body] $name$ wd` registers an auto-running word |
+| `ts`  | test      | `[body] ts` — the body leaves one truthy value |
+| `pp`  | prop      | `k [body] pp` repeats that check `k` times |
 
 A prebuilt word is the shortest free spelling that still has one meaning: one
 character, then two, then three. `cl` is two because `c` is the standard
 clock capability. There is no second stack word for any row above. The manifest
 carries the long alias; the source does not.
+
+`mx`, `mn`, and `cl` are Zown, in [`zown/std/core.zn`](../zown/std/core.zn).
+The VM loads that file at startup and `wd` registers each block as an
+auto-running word. A user `:mx` still shadows it. A trap inside the block is
+reported with the word as `op` (`TYPE_MISMATCH mx`, not `TYPE_MISMATCH >`).
+`ab` stays a host word: `<` cannot tell `-0.0` from `0.0`, and `ab` must.
+
+`[body] $name$ wd` registers a word. `$name$` is a letter followed by letters
+or digits. `[body] ts` runs a test: the body must leave exactly one truthy
+value, or the trap is `TEST_FAIL` (`ts`) or `BOUNDS` when the depth is wrong.
+`k [body] pp` does that `k` times (`k` is an `int` ≥ 0). `0` repetitions do
+not run the body.
 
 ---
 
@@ -261,7 +276,7 @@ emit JSON instead of the human form.
 
 Recovery codes: `REPAIR_SYNTAX`, `STACK_UNDERFLOW`, `TYPE_MISMATCH`,
 `NAME_UNRESOLVED`, `DIV_ZERO`, `BOUNDS`, `NOT_CALLABLE`, `UNSUPPORTED`
-(v0.1), plus `OVERFLOW`, `NO_MATCH`, `BAD_PATTERN` and the security codes of
+(v0.1), plus `OVERFLOW`, `NO_MATCH`, `BAD_PATTERN`, `TEST_FAIL`, and the security codes of
 §18 (v0.2). `kind` is `lex`, `parse`, `run`, `sec` (security), or `check`
 (a static finding from the checker, §12/§16 — emitted *before* execution).
 
@@ -760,6 +775,8 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `lc` or `rn` given a negative int | trap `BOUNDS` | `errors_v2/lane_negative` (`rn` is the same rule) |
 | `~` name other than `~m` or `~n` | trap `UNSUPPORTED` | `errors_v2/lane_unknown` |
 | a queued compute job skips a real-time lane | **impossible** — each tick runs every registered lane, then at most one job | `cases_v2/lanes` |
+| `ts` / `pp` body leaves a false value | trap `TEST_FAIL` | `errors_v2/test_fail` |
+| `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
@@ -932,3 +949,31 @@ WASM does not emit `|`, `^`, or `~name`. It refuses them at compile time. A
 native backend that runs the program must reproduce the trace and the traps in
 §19. Two hosts may report different `hw` values; a conformance program that
 needs a stable trace calls `1 lc`, which grants one slot on every machine.
+
+## 23. Batteries — *design-only, except the slice M11 shipped*
+
+M11 ships three things: the std words in §7 (`mx`, `mn`, `cl`), `zown test`,
+and `zown fmt`. The rest of the zero-install stdlib is named here so it is not
+invented later under a second spelling, and it is **not implemented**. A stub
+that hashed with a stand-in or pretended to read a file would be a lie.
+
+| Area | Frozen choice | Word, when it exists |
+|------|----------------|----------------------|
+| Hash | BLAKE3 | `h3` |
+| Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens |
+| Signature | Ed25519 | `es` signs, `ev` verifies |
+| Key agreement | X25519 | `xk` |
+| Files | capability-scoped paths | not a word yet; needs `` `f `` |
+| Clock | wall and monotonic | already the capability `` `c ``; no word reads it |
+| Env | the process environment | not a word; `ZOWN_CPUS` is the one override that exists (§22) |
+
+Collections (`List`, `Map`, …) are not a second kind of block. A block is code.
+A value collection waits on the fat pointer (§21). LSP, a doc generator, and a
+mesh REPL are the same toolchain story and are not commands yet.
+
+`zown fmt` rewrites whitespace only: one space between tokens, source line
+breaks kept, blank lines removed, a trailing newline. It is idempotent.
+`zown test [path]` runs `*.zn` files (default `tests/zn`). A sibling `.out` is
+the stdout golden, a sibling `.code` is the recovery code, and a file with
+neither passes when it runs without a trap. The runner is ungated, like the
+conformance oracle.

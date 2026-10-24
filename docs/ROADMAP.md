@@ -115,12 +115,18 @@ must produce the same letters.
 ## Phase 5 — Batteries: the zero-install stdlib
 
 One correct implementation of everything an app needs (see `DESIGN.md` §10).
+The first slice is in: `mx`, `mn`, and `cl` are Zown (`zown/std/core.zn`),
+and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
 
-- Crypto suite (BLAKE3, ChaCha20-Poly1305, Ed25519, X25519), collections, complete
-  numerics, UTF-8 strings, time/clocks, filesystem, env/secrets.
-- Developer toolchain: built-in **testing** (+ property-based), **deterministic
-  builds**, **LSP**, canonical **formatter**, **doc generator**, mesh-aware REPL.
-- Begin the self-host migration: reimplement pure-Zown stdlib words in `std/`.
+- [ ] Crypto suite (BLAKE3, ChaCha20-Poly1305, Ed25519, X25519), collections, complete
+      numerics, UTF-8 strings, time/clocks, filesystem, env/secrets. Names are
+      frozen in SPEC §23; none of those words exist yet.
+- [x] Developer toolchain, the part that can be honest today: `zown test`
+      (goldens, plus `ts` / `pp`) and `zown fmt` (canonical whitespace).
+      LSP, the doc generator, and a mesh REPL are still §23.
+- [x] Begin the self-host migration: `std/core.zn` is loaded by both VMs.
+      Host intrinsics remain for words the language cannot express (`ab`,
+      strings, `sq`, `pw`, …).
 
 ---
 

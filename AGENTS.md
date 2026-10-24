@@ -67,8 +67,8 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (109 unit tests, 20 +
-47 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+All five oracle commands must end in `0 failed` (115 unit tests, 20 +
+49 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
 `--unchecked` to observe the *runtime* packet of a program the checker rejects,
@@ -146,9 +146,12 @@ WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13
 **M9 ✅** — Cranelift int fast path, SIMD `va`/`vs`/`vm`, byte-identical
 `native -o` exes, `native -O`, and `zownc llvm` (`clang -O2`). `buf` is
 SPEC §21 and is not implemented. **M10 ✅** — cooperative fast lanes
-(`~m` `~n` `^` `|`, `zown tune`). The trace is the timing model (SPEC §22);
-`native_parity` is 67/67. WASM tags 4–8 are assigned and not emitted, and WASM
-refuses the lane operators. Next milestone is M11 (batteries stdlib).
+(`~m` `~n` `^` `|`, `zown tune`). The trace is the timing model (SPEC §22).
+WASM tags 4–8 are assigned and not emitted, and WASM
+refuses the lane operators. **M11 ✅** — `mx`, `mn`, and `cl` are Zown in
+`zown/std/core.zn`; `zown test` and `zown fmt` ship. Crypto, files, and LSP
+are SPEC §23 and are not implemented. `native_parity` is 69/69. Next milestone
+is M12 (ZownNet).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

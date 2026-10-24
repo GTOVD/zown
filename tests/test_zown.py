@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
-    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED,
+    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED, TEST_FAIL,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
 from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
@@ -1033,6 +1033,72 @@ def test_cli_tune():
         assert code == 1 and ">= 0" in err.getvalue()
     finally:
         del os.environ["ZOWN_CPUS"]
+
+
+# --- std words, tests, formatter (M11) -----------------------------------------
+def test_std_words_match_the_old_numbers():
+    _, vm = run("7 b 4 mx")
+    assert isinstance(vm.stack[-1], Big) and vm.stack[-1].v == 7
+    _, vm = run("7.0 7 mx")
+    assert vm.stack == [7.0]
+    out, _ = run("1 2 3 cl dp .")
+    assert out == "0\n"
+    assert "mx" in VM().words and "mn" in VM().words and "cl" in VM().words
+
+
+def test_std_word_can_be_shadowed():
+    _, vm = run("5 :mx mx")
+    assert vm.stack == [5]
+
+
+def test_test_words():
+    run("[ 1 1 + 2 == ] ts")
+    run("0 [ 0 ] pp")  # zero repetitions do not run the body
+    _fails("[ 0 ] ts", TEST_FAIL, "ts")
+    _fails("[ ] ts", BOUNDS, "ts")
+    _fails("1 [ 0 ] pp", TEST_FAIL, "pp")
+    _fails("1 _ [ 1 ] pp", BOUNDS, "pp")
+
+
+def test_define_word():
+    out, vm = run("[ = ] $dd$ wd 3 dd .")
+    assert out == "3\n" and vm.stack == [3]
+    _fails("1 $dd$ wd", NOT_CALLABLE, "wd")
+
+
+def test_formatter_is_idempotent_and_keeps_comments():
+    from zown.fmt import format_source
+    src = "# keep\n1:x\n\n[x x+]\n"
+    once = format_source(src)
+    assert once == format_source(once)
+    assert once.splitlines() == ["# keep", "1 :x", "[ x x + ]"]
+    hello = open(os.path.join(os.path.dirname(__file__), "..", "examples", "hello.zn"), encoding="utf-8").read()
+    assert format_source(format_source(hello)) == format_source(hello)
+
+
+def test_cli_test_and_fmt(tmp_path=None):
+    import contextlib
+    from zown.cli import main
+    from zown.tester import run_tests
+    root = os.path.join(os.path.dirname(__file__), "zn")
+    buf = io.StringIO()
+    assert run_tests(root, write=buf) == 0
+    assert "failed" in buf.getvalue() and "0 failed" in buf.getvalue()
+    # fmt -w round trip
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "p.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("1:x x.\n")
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = main(["fmt", "-w", path])
+    assert code == 0 and err.getvalue() == ""
+    text = open(path, encoding="utf-8").read()
+    assert text == "1 :x x .\n"
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert main(["fmt", path]) == 0
+    assert out.getvalue() == text
 
 
 # --- runner --------------------------------------------------------------------

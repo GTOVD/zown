@@ -30,6 +30,7 @@ T_CAP = "CAP"          # `name  -> a capability token (v0.2; SPEC Part II §12)
 T_LBRACK = "LBRACK"    # [
 T_RBRACK = "RBRACK"    # ]
 T_OP = "OP"            # any operator symbol
+T_COMMENT = "COMMENT"  # a `#` line comment, only when the lexer is asked to keep them
 T_EOF = "EOF"
 
 # Two-character operators (checked before single-char).
@@ -58,9 +59,10 @@ class Token:
 
 
 class Lexer:
-    def __init__(self, src: str, file: str | None = None):
+    def __init__(self, src: str, file: str | None = None, keep_comments: bool = False):
         self.src = src
         self.file = file
+        self.keep_comments = keep_comments
         self.i = 0
         self.line = 1
         self.col = 1
@@ -95,8 +97,11 @@ class Lexer:
                 self._advance()
                 continue
             if c == "#":  # line comment to end of line
-                while self.i < len(self.src) and self._peek() != "\n":
-                    self._advance()
+                if self.keep_comments:
+                    out.append(self._read_comment())
+                else:
+                    while self.i < len(self.src) and self._peek() != "\n":
+                        self._advance()
                 continue
             if c == "$":
                 out.append(self._read_string())
@@ -236,6 +241,12 @@ class Lexer:
                      "it as a string and convert: $digits$ b",
             )
         return Token(T_INT, n, p, span)
+
+    def _read_comment(self) -> Token:
+        p, start = self._pos(), self.i
+        while self.i < len(self.src) and self._peek() != "\n":
+            self._advance()
+        return Token(T_COMMENT, self.src[start:self.i], p, (start, self.i - start))
 
     def _read_ident(self) -> Token:
         p, start = self._pos(), self.i

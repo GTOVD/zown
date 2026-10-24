@@ -1,0 +1,11 @@
+# Words the host does not need to special-case. Each body is stack-neutral
+# aside from its result. `ab` stays a host word: `<` cannot see the sign of -0.0.
+
+# max. Equal values keep the deeper one, so 7.0 and 7 stay whichever was under.
+[ & & \ > [ \ , ] [ , ] ? @ ] $mx$ wd
+
+# min. The same tie rule as max.
+[ & & \ < [ \ , ] [ , ] ? @ ] $mn$ wd
+
+# clear. The condition reads the depth and drops one value until none remain.
+[ [ dp 0 > ] [ , ] ; ] $cl$ wd

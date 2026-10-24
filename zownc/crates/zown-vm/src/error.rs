@@ -21,6 +21,7 @@ pub const NO_MATCH: &str = "NO_MATCH";
 pub const BAD_PATTERN: &str = "BAD_PATTERN";
 pub const STACK_OVERFLOW: &str = "STACK_OVERFLOW";
 pub const CAP_DENIED: &str = "CAP_DENIED";
+pub const TEST_FAIL: &str = "TEST_FAIL";
 
 #[derive(Debug, Clone)]
 pub struct RunError {

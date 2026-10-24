@@ -18,5 +18,8 @@ zown = "zown.cli:main"
 [tool.setuptools]
 packages = ["zown"]
 
+[tool.setuptools.package-data]
+zown = ["std/*.zn"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

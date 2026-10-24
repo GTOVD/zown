@@ -220,12 +220,17 @@ class VM:
         self.caps: set[str] = set()
         self.depth = 0  # current block-invocation depth (see MAX_INVOKE_DEPTH)
         self.lanes = Lanes()  # cooperative fast lanes (SPEC §22)
+        # Auto-running words loaded from std/core.zn. A user binding shadows one.
+        self.words: dict[str, Block] = {}
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
         from .builtins import BUILTINS
 
         self.builtins: dict[str, Callable[["VM", Pos], None]] = BUILTINS
+        from .stdload import load_std
+
+        load_std(self)
 
     # --- stack helpers ---------------------------------------------------------
     def push(self, v: Any) -> None:
@@ -320,9 +325,21 @@ class VM:
         else:  # pragma: no cover
             raise self.err("UNSUPPORTED", f"unknown node {tag}")
 
+    def run_word(self, name: str, blk: Block, pos: Pos) -> None:
+        """Run a std word. A trap inside the body is reported as this word."""
+        try:
+            self.invoke(blk, name, pos)
+        except ZownError as e:
+            e.op = name
+            raise
+
     def _exec_name(self, name: str, pos: Pos) -> None:
         if name in self.env:
             self.push(self.env[name])
+            return
+        word = self.words.get(name)
+        if word is not None:
+            self.run_word(name, word, pos)
             return
         fn = self.builtins.get(name)
         if fn is not None:

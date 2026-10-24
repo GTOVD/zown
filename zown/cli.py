@@ -7,6 +7,9 @@ Usage:
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
     zown repl                 interactive stack session
+    zown tune [N]             how many real-time lanes this machine pins
+    zown fmt [-w] <file.zn>   canonical whitespace; -w writes the file
+    zown test [path]          run .zn programs (default tests/zn)
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -180,6 +183,32 @@ def cmd_tune(args) -> int:
     return 0
 
 
+def cmd_fmt(args) -> int:
+    from .fmt import format_source
+    failed = False
+    for path in args.files:
+        src = _read(path)
+        try:
+            text = format_source(src)
+        except ZownError as e:
+            e.file = path
+            _emit_error(e, args.zerr, args.zerr_out)
+            failed = True
+            continue
+        if args.write:
+            if text != src:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+        else:
+            sys.stdout.write(text)
+    return EXIT_ERROR if failed else EXIT_OK
+
+
+def cmd_test(args) -> int:
+    from .tester import run_tests
+    return run_tests(args.path)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zown", description="Zown language toolchain (reference build)")
     p.add_argument("--zerr", action="store_true", help="emit errors as JSON .zerr packets")
@@ -213,6 +242,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="requested real-time slots (default: min(2, cpus-1))")
     pt.set_defaults(func=cmd_tune)
 
+    pf = sub.add_parser("fmt", help="print a program in canonical form")
+    pf.add_argument("-w", "--write", action="store_true", help="write the file in place")
+    pf.add_argument("files", nargs="+")
+    pf.set_defaults(func=cmd_fmt)
+
+    pte = sub.add_parser("test", help="run Zown programs in a directory (or one file)")
+    pte.add_argument("path", nargs="?", default="tests/zn",
+                     help="a .zn file or a directory of them (default tests/zn)")
+    pte.set_defaults(func=cmd_test)
+
     return p
 
 
@@ -221,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

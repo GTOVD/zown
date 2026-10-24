@@ -276,6 +276,8 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
         match name.as_str() {
             "gr" => return grant(rt),
             "rn" => return exec_rn(rt),
+            "ts" => return exec_ts(rt),
+            "pp" => return exec_pp(rt),
             "vf" => return vec_ctor(rt, "vf", 4, true, true, 32),
             "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
@@ -354,6 +356,44 @@ pub unsafe extern "C" fn rt_pop_truthy(rt: *mut Rt) -> i32 {
             2
         }
     }
+}
+
+/// `[body] ts` on the native path. The body is a compiled block.
+unsafe fn exec_ts(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("ts") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let depth = (*rt).vm.stack.len();
+    if call_block(rt, id, "ts") != 0 {
+        return 1;
+    }
+    match (*rt).vm.finish_test("ts", depth) {
+        Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
+    }
+}
+
+/// `k [body] pp` on the native path.
+unsafe fn exec_pp(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("pp") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let k = match (*rt).vm.pop_count("pp") {
+        Ok(k) => k,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    for _ in 0..k {
+        let depth = (*rt).vm.stack.len();
+        if call_block(rt, id, "pp") != 0 {
+            return 1;
+        }
+        if let Err(e) = (*rt).vm.finish_test("pp", depth) {
+            return fail(&mut *rt, e);
+        }
+    }
+    0
 }
 
 /// `k rn` on the native path. The tree-walker has the same steps in `Vm::b_rn`.

@@ -49,6 +49,10 @@ python3 bin/zown repl
 
 # how many real-time lanes this machine will pin (optional N is the request)
 python3 bin/zown tune
+
+# canonical whitespace, and the Zown test runner (tests/zn by default)
+python3 bin/zown fmt examples/hello.zn
+python3 bin/zown test
 ```
 
 Install the `zown` command for real:

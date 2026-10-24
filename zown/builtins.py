@@ -14,7 +14,9 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-from .errors import DIV_ZERO, OVERFLOW, Pos, TYPE_MISMATCH, ZownError
+from .errors import (
+    BOUNDS, DIV_ZERO, OVERFLOW, Pos, TEST_FAIL, TYPE_MISMATCH, UNSUPPORTED, ZownError,
+)
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 
 
@@ -78,18 +80,21 @@ def b_abs(vm, pos: Pos) -> None:
         vm.push(vm.int_result("ab", pos, abs(v)))  # abs(INT_MIN) does not fit
 
 
+def _std_word(vm, name: str, pos: Pos) -> None:
+    """Run the block `std/core.zn` registered. The host no longer has a second copy."""
+    blk = vm.words.get(name)
+    if blk is None:
+        raise vm.err(UNSUPPORTED, f"`{name}` is a std word and std/core.zn did not define it",
+                     op=name, pos=pos)
+    vm.run_word(name, blk, pos)
+
+
 def b_max(vm, pos: Pos) -> None:
-    from .vm import ival
-    b = _need_num(vm, "mx", pos)
-    a = _need_num(vm, "mx", pos)
-    vm.push(max(a, b, key=ival))  # compared by value; the original object is kept
+    _std_word(vm, "mx", pos)
 
 
 def b_min(vm, pos: Pos) -> None:
-    from .vm import ival
-    b = _need_num(vm, "mn", pos)
-    a = _need_num(vm, "mn", pos)
-    vm.push(min(a, b, key=ival))
+    _std_word(vm, "mn", pos)
 
 
 def _no_real(vm, op: str, pos: Pos, what: str):
@@ -269,7 +274,54 @@ def b_rot(vm, pos: Pos) -> None:
 
 
 def b_clear(vm, pos: Pos) -> None:
-    vm.stack.clear()
+    _std_word(vm, "cl", pos)
+
+
+def _word_name(s: str) -> bool:
+    return s.isascii() and len(s) >= 1 and s[0].isalpha() and s.isalnum()
+
+
+def b_wd(vm, pos: Pos) -> None:
+    # [body] $name$ wd  -> register an auto-running word.
+    name = vm.pop("wd", pos)
+    if not isinstance(name, str) or not _word_name(name):
+        raise vm.err(TYPE_MISMATCH, "`wd` expected a word name (a letter, then letters or digits)",
+                     op="wd", pos=pos, hint="write the name as a string: [ ... ] $mx$ wd")
+    blk = vm.pop_block("wd", pos)
+    vm.words[name] = blk
+
+
+def _finish_test(vm, op: str, pos: Pos, depth: int) -> None:
+    from .vm import truthy
+    left = len(vm.stack) - depth
+    if left != 1:
+        raise vm.err(BOUNDS, f"`{op}` body must leave exactly one value, left {left}",
+                     op=op, pos=pos, hint="the body pushes 1 to pass")
+    if not truthy(vm.pop(op, pos)):
+        raise vm.err(TEST_FAIL, f"`{op}` body left a false value", op=op, pos=pos,
+                     hint="a passing test leaves 1")
+
+
+def b_ts(vm, pos: Pos) -> None:
+    blk = vm.pop_block("ts", pos)
+    depth = len(vm.stack)
+    vm.invoke(blk, "ts", pos)
+    _finish_test(vm, "ts", pos, depth)
+
+
+def b_pp(vm, pos: Pos) -> None:
+    blk = vm.pop_block("pp", pos)
+    k = vm.pop("pp", pos)
+    if type(k) is not int:
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`pp` expected an int, got {type_name(k)}",
+                     op="pp", pos=pos, hint="the count is a plain int")
+    if k < 0:
+        raise vm.err(BOUNDS, "`pp` repeat count must be >= 0", op="pp", pos=pos)
+    for _ in range(k):
+        depth = len(vm.stack)
+        vm.invoke(blk, "pp", pos)
+        _finish_test(vm, "pp", pos, depth)
 
 
 # --- capability words (v0.2; SPEC Part II §12) ---------------------------------
@@ -534,8 +586,8 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "rv": (b_rev, "reverse", "reverse a string"),
     "pr": (b_print_raw, "print_raw", "print top value with no trailing newline"),
     "ab": (b_abs, "abs", "absolute value of a number"),
-    "mx": (b_max, "max", "max of the top two numbers"),
-    "mn": (b_min, "min", "min of the top two numbers"),
+    "mx": (b_max, "max", "max of the top two numbers (defined in std/core.zn)"),
+    "mn": (b_min, "min", "min of the top two numbers (defined in std/core.zn)"),
     "sq": (b_sqrt, "sqrt", "square root of a number"),
     "pw": (b_pow, "pow", "base exponent -> base**exponent"),
     "fl": (b_floor, "floor", "floor of a number"),
@@ -546,7 +598,10 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "b": (b_big, "big", "v b -> arbitrary-precision big from an int, whole float, or digit string"),
     "dp": (b_depth, "depth", "push the current stack depth"),
     "rt": (b_rot, "rot", "rotate the top three values (a b c -> b c a)"),
-    "cl": (b_clear, "clear", "clear the entire stack"),
+    "cl": (b_clear, "clear", "clear the entire stack (defined in std/core.zn)"),
+    "wd": (b_wd, "word", "[body] $name$ wd -> register body as an auto-running word"),
+    "ts": (b_ts, "test", "[body] ts -> the body must leave exactly one truthy value"),
+    "pp": (b_pp, "prop", "k [body] pp -> run body k times; each run leaves one truthy value"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

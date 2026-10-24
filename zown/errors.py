@@ -37,6 +37,7 @@ OVERFLOW = "OVERFLOW"                  # a value did not fit a checked fixed-wid
 NO_MATCH = "NO_MATCH"                  # no `??` arm matched the subject
 BAD_PATTERN = "BAD_PATTERN"            # a `??` arm or pattern is malformed
 STACK_OVERFLOW = "STACK_OVERFLOW"      # block invocations nested past the runtime's depth limit
+TEST_FAIL = "TEST_FAIL"                # a `ts` or `pp` body left a false value
 
 # v0.2 security recovery codes (SPEC.md Part II §18). Security failures ride the
 # same structured channel as every other diagnostic so the AI control plane and

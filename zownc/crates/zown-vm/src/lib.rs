@@ -9,9 +9,9 @@ mod bigint;
 mod error;
 mod lanes;
 mod native;
+mod stdwords;
 mod value;
 
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -98,6 +98,8 @@ pub struct Vm {
     pub file: Option<String>,
     pos: Option<Pos>,
     lanes: lanes::LaneState,
+    /// Auto-running words from `std/core.zn`. A user binding shadows one.
+    words: HashMap<String, Rc<Vec<Node>>>,
 }
 
 enum Bin {
@@ -157,7 +159,7 @@ fn write_simd(v: &Value, out: &mut [u8; 16]) {
 
 impl Vm {
     pub fn new(file: Option<String>) -> Self {
-        Vm {
+        let mut vm = Vm {
             stack: Vec::new(),
             env: HashMap::new(),
             caps: HashSet::new(),
@@ -166,7 +168,10 @@ impl Vm {
             file,
             pos: None,
             lanes: lanes::LaneState::new(),
-        }
+            words: HashMap::new(),
+        };
+        vm.load_std();
+        vm
     }
 
     /// Parse + run a source string. Ungated: the checker (M8d-v) sits above this.
@@ -408,6 +413,9 @@ impl Vm {
             let v = v.clone();
             self.push(v);
             return Ok(());
+        }
+        if let Some(body) = self.words.get(name).cloned() {
+            return self.run_word(name, body);
         }
         if let Some(res) = self.try_builtin(name) {
             return res;
@@ -833,8 +841,8 @@ impl Vm {
             "rv" => self.b_str_map("rv", |s| s.chars().rev().collect()),
             "pr" => self.b_print_raw(),
             "ab" => self.b_abs(),
-            "mx" => self.b_minmax(true),
-            "mn" => self.b_minmax(false),
+            "mx" => Err(self.missing_std("mx")),
+            "mn" => Err(self.missing_std("mn")),
             "sq" => self.b_sqrt(),
             "pw" => self.b_pow(),
             "fl" => self.b_roundish("fl"),
@@ -845,7 +853,10 @@ impl Vm {
             "b" => self.b_big(),
             "dp" => self.b_depth(),
             "rt" => self.b_rot(),
-            "cl" => self.b_clear(),
+            "cl" => Err(self.missing_std("cl")),
+            "wd" => self.b_wd(),
+            "ts" => self.b_ts(),
+            "pp" => self.b_pp(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -936,19 +947,6 @@ impl Vm {
             Value::Int(i) => self.push(self.fit_int("ab", BigInt::from_i64(i).abs())?),
             _ => unreachable!(),
         }
-        Ok(())
-    }
-
-    fn b_minmax(&mut self, want_max: bool) -> Result<(), RunError> {
-        let op = if want_max { "mx" } else { "mn" };
-        let b = self.pop_num(op)?;
-        let a = self.pop_num(op)?;
-        let b_wins = match num_partial_cmp(&b, &a) {
-            Some(Ordering::Greater) => want_max,
-            Some(Ordering::Less) => !want_max,
-            _ => false,
-        };
-        self.push(if b_wins { b } else { a });
         Ok(())
     }
 
@@ -1263,11 +1261,6 @@ impl Vm {
         let idx = self.stack.len() - 3;
         let v = self.stack.remove(idx);
         self.push(v);
-        Ok(())
-    }
-
-    fn b_clear(&mut self) -> Result<(), RunError> {
-        self.stack.clear();
         Ok(())
     }
 
@@ -1660,6 +1653,9 @@ pub fn is_builtin(name: &str) -> bool {
             | "pn"
             | "ws"
             | "sg"
+            | "wd"
+            | "ts"
+            | "pp"
     )
 }
 
