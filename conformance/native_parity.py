@@ -2,9 +2,10 @@
 """Differential native parity: `zownc native` vs the conformance goldens.
 
 The Cranelift backend compiles each IR block to a native function and runs it
-in-process. Values and words go through the reference VM, including `??`,
-`at`, `gr`, and the vector constructors. v0.1 and v0.2 must match. A program
-the backend refuses is a skip, and the runner fails if the matching set shrinks.
+in-process. Int `+ - * _` and comparisons are inlined; other values and words
+go through the reference VM, including `??`, `ty`, `gr`, and the vector
+constructors. v0.1 and v0.2 must match. A program the backend refuses is a
+skip, and the runner fails if the matching set shrinks.
 
 Usage:
     python3 conformance/native_parity.py   # requires: (cd zownc && cargo build)

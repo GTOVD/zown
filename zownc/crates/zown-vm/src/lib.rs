@@ -2,7 +2,7 @@
 //!
 //! Tree-walking interpreter. v0.1 arithmetic is checked (SPEC §11, M8d-ii):
 //! an `int` result outside `i64` is `OVERFLOW`, and `b` opts into exact `big`.
-//! v0.2 words (`gr`/`rq`/`hv`, widths, vectors, `??`, `at`, `'x`) landed in
+//! v0.2 words (`gr`/`rq`/`hv`, widths, vectors, `??`, `ty`, `'x`) landed in
 //! M8d-iii. Observable behavior matches the Python oracle.
 
 mod bigint;
@@ -124,6 +124,22 @@ impl Vm {
 
     fn push(&mut self, v: Value) {
         self.stack.push(v);
+    }
+
+    /// `OVERFLOW` after an inlined int operation already popped its operands.
+    /// The code and `op` match `fit_int`; the message does not repeat the
+    /// out-of-range magnitude, which no longer fits in an `i64`.
+    pub fn overflow_int(&mut self, op: &str) -> RunError {
+        self.err(
+            OVERFLOW,
+            format!(
+                "`{op}` result does not fit int [{}..{}]",
+                i64::MIN,
+                i64::MAX
+            ),
+            Some(op.to_string()),
+            "convert an operand with `b` for arbitrary-precision big math",
+        )
     }
 
     fn err(

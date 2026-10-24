@@ -1,10 +1,11 @@
 //! Cranelift backend for Zown.
 //!
-//! Each IR block becomes a native function. Values, operators, and words run
-//! through `zown-rt`, which drives the reference VM, so results match the
-//! tree-walker. Calls and loops are native.
+//! Each IR block becomes a native function. Calls and loops are native.
+//! `+ - * _` and the comparisons run in Cranelift when every operand is a
+//! plain `int` (overflow is `OVERFLOW`); every other value, and every other
+//! operator, still goes through `zown-rt` so the result matches the VM.
 //!
-//! `??`, `at`, `gr`, and the vector constructors call back into the native
+//! `??`, `ty`, `gr`, and the vector constructors call back into the native
 //! function table. Each block's instruction shape is registered so `??` can
 //! read patterns. `write_exe` emits an object and links it with the host
 //! `rustc`, whose `main` initializes the allocator and stdout.
@@ -16,7 +17,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Type, UserFuncName, Value as Clif, types};
+use cranelift_codegen::ir::{
+    AbiParam, InstBuilder, MemFlags, StackSlot, StackSlotData, StackSlotKind, Type, UserFuncName,
+    Value as Clif, types,
+};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -28,8 +32,8 @@ use zown_ir::{Instr, IrBlock, IrProgram, lower};
 use zown_parser::{ParseError, parse};
 use zown_rt::{
     NatOp, Rt, rt_attempt, rt_bind, rt_call, rt_failed, rt_load, rt_match, rt_move, rt_op,
-    rt_pop_func, rt_pop_truthy, rt_push_cap, rt_push_float, rt_push_func, rt_push_int, rt_push_str,
-    rt_select,
+    rt_overflow, rt_pop_func, rt_pop_truthy, rt_push_cap, rt_push_float, rt_push_func, rt_push_int,
+    rt_push_str, rt_select, rt_take_int, rt_take_ints,
 };
 
 pub struct ExecResult {
@@ -81,14 +85,21 @@ struct Imports {
     failed: FuncId,
     attempt: FuncId,
     mat: FuncId,
+    take_ints: FuncId,
+    take_int: FuncId,
+    overflow: FuncId,
 }
 
-fn host_isa() -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+fn host_isa(pic: bool) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
     let mut flag_builder = settings::builder();
     flag_builder
         .set("use_colocated_libcalls", "false")
         .map_err(|e| e.to_string())?;
-    flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
+    // The in-process JIT rejects PIC. A linked executable is a PIE, and a
+    // non-PIC object cannot call the runtime (`R_X86_64_64` against `rt_*`).
+    flag_builder
+        .set("is_pic", if pic { "true" } else { "false" })
+        .map_err(|e| e.to_string())?;
     flag_builder.set("opt_level", "none").map_err(|e| e.to_string())?;
     let isa_builder = cranelift_native::builder().map_err(|e| e.to_string())?;
     isa_builder
@@ -132,7 +143,7 @@ fn compile_program<M: Module>(
 }
 
 fn run_jit(ir: &IrProgram, file: &str) -> Result<ExecResult, String> {
-    let isa = host_isa()?;
+    let isa = host_isa(false)?;
     let mut jb = JITBuilder::with_isa(isa, default_libcall_names());
     for (name, sym) in host_symbols() {
         jb.symbol(name, sym);
@@ -177,6 +188,9 @@ fn host_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_failed", rt_failed as *const u8),
         ("rt_attempt", rt_attempt as *const u8),
         ("rt_match", rt_match as *const u8),
+        ("rt_take_ints", rt_take_ints as *const u8),
+        ("rt_take_int", rt_take_int as *const u8),
+        ("rt_overflow", rt_overflow as *const u8),
     ]
 }
 
@@ -252,6 +266,9 @@ fn declare_imports<M: Module>(module: &mut M, ptr: Type) -> Result<Imports, Stri
         failed: decl(module, "rt_failed", &[ptr], Some(i32t))?,
         attempt: decl(module, "rt_attempt", &[ptr], Some(i32t))?,
         mat: decl(module, "rt_match", &[ptr], Some(i32t))?,
+        take_ints: decl(module, "rt_take_ints", &[ptr, ptr, ptr], Some(i32t))?,
+        take_int: decl(module, "rt_take_int", &[ptr, ptr], Some(i32t))?,
+        overflow: decl(module, "rt_overflow", &[ptr, ptr, i64t], Some(i32t))?,
     })
 }
 
@@ -263,6 +280,8 @@ struct Cx<'a, M: Module> {
     lens: &'a [u32],
     rt: cranelift_frontend::Variable,
     fail: cranelift_codegen::ir::Block,
+    /// Two `i64` slots. Inlined int ops stage operands here.
+    pair: StackSlot,
 }
 
 fn compile_block<M: Module>(
@@ -286,7 +305,8 @@ fn compile_block<M: Module>(
     let rt = b.declare_var(types::I64);
     b.def_var(rt, rt_val);
     let fail = b.create_block();
-    let mut cx = Cx { module, b, imports, strings, lens, rt, fail };
+    let pair = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 3));
+    let mut cx = Cx { module, b, imports, strings, lens, rt, fail, pair };
     cx.prologue();
     for instr in &block.0 {
         cx.emit(instr);
@@ -377,10 +397,15 @@ impl<'a, M: Module> Cx<'a, M> {
                 let (p, n) = self.str_ptr(s);
                 self.call_status(self.imports.mov, &[p, n]);
             }
-            Instr::Op(s) => {
-                let (p, n) = self.str_ptr(s);
-                self.call_status(self.imports.op, &[p, n]);
-            }
+            Instr::Op(s) => match s.as_str() {
+                "+" | "-" | "*" => self.emit_int_binop(s),
+                "_" => self.emit_int_neg(),
+                "==" | "!=" | "<" | ">" | "<=" | ">=" => self.emit_int_cmp(s),
+                _ => {
+                    let (p, n) = self.str_ptr(s);
+                    self.call_status(self.imports.op, &[p, n]);
+                }
+            },
             Instr::Select => {
                 self.call_status(self.imports.select, &[]);
             }
@@ -393,6 +418,125 @@ impl<'a, M: Module> Cx<'a, M> {
                 self.call_status(self.imports.attempt, &[]);
             }
         }
+    }
+
+    /// `+ - *` on two ints. Anything else (float, big, a type error, underflow)
+    /// falls through to `rt_op`, which is the VM.
+    fn emit_int_binop(&mut self, op: &str) {
+        let a_addr = self.pair_addr(0);
+        let b_addr = self.pair_addr(8);
+        let status = self.call_ret(self.imports.take_ints, &[a_addr, b_addr]);
+        let zero = self.b.ins().iconst(types::I32, 0);
+        let is_int = self.b.ins().icmp(IntCC::Equal, status, zero);
+        let fast = self.b.create_block();
+        let slow = self.b.create_block();
+        let done = self.b.create_block();
+        self.b.ins().brif(is_int, fast, &[], slow, &[]);
+
+        self.b.switch_to_block(slow);
+        self.emit_vm_op(op);
+        self.b.ins().jump(done, &[]);
+
+        self.b.switch_to_block(fast);
+        let a_at = self.pair_addr(0);
+        let b_at = self.pair_addr(8);
+        let a = self.b.ins().load(types::I64, MemFlags::trusted(), a_at, 0);
+        let b = self.b.ins().load(types::I64, MemFlags::trusted(), b_at, 0);
+        let (result, of) = match op {
+            "+" => self.b.ins().sadd_overflow(a, b),
+            "-" => self.b.ins().ssub_overflow(a, b),
+            _ => self.b.ins().smul_overflow(a, b),
+        };
+        self.finish_int(op, result, of, done);
+    }
+
+    /// `_` on an int. `i64::MIN` negated does not fit.
+    fn emit_int_neg(&mut self) {
+        let addr = self.pair_addr(0);
+        let status = self.call_ret(self.imports.take_int, &[addr]);
+        let zero = self.b.ins().iconst(types::I32, 0);
+        let is_int = self.b.ins().icmp(IntCC::Equal, status, zero);
+        let fast = self.b.create_block();
+        let slow = self.b.create_block();
+        let done = self.b.create_block();
+        self.b.ins().brif(is_int, fast, &[], slow, &[]);
+
+        self.b.switch_to_block(slow);
+        self.emit_vm_op("_");
+        self.b.ins().jump(done, &[]);
+
+        self.b.switch_to_block(fast);
+        let a_at = self.pair_addr(0);
+        let a = self.b.ins().load(types::I64, MemFlags::trusted(), a_at, 0);
+        let z = self.b.ins().iconst(types::I64, 0);
+        let (result, of) = self.b.ins().ssub_overflow(z, a);
+        self.finish_int("_", result, of, done);
+    }
+
+    /// Comparisons of two ints push `1` or `0`. Other pairs use the VM, which
+    /// also compares strings, floats, and bigs.
+    fn emit_int_cmp(&mut self, op: &str) {
+        let a_addr = self.pair_addr(0);
+        let b_addr = self.pair_addr(8);
+        let status = self.call_ret(self.imports.take_ints, &[a_addr, b_addr]);
+        let zero = self.b.ins().iconst(types::I32, 0);
+        let is_int = self.b.ins().icmp(IntCC::Equal, status, zero);
+        let fast = self.b.create_block();
+        let slow = self.b.create_block();
+        let done = self.b.create_block();
+        self.b.ins().brif(is_int, fast, &[], slow, &[]);
+
+        self.b.switch_to_block(slow);
+        self.emit_vm_op(op);
+        self.b.ins().jump(done, &[]);
+
+        self.b.switch_to_block(fast);
+        let a_at = self.pair_addr(0);
+        let b_at = self.pair_addr(8);
+        let a = self.b.ins().load(types::I64, MemFlags::trusted(), a_at, 0);
+        let b = self.b.ins().load(types::I64, MemFlags::trusted(), b_at, 0);
+        let cc = match op {
+            "==" => IntCC::Equal,
+            "!=" => IntCC::NotEqual,
+            "<" => IntCC::SignedLessThan,
+            ">" => IntCC::SignedGreaterThan,
+            "<=" => IntCC::SignedLessThanOrEqual,
+            _ => IntCC::SignedGreaterThanOrEqual,
+        };
+        let bit = self.b.ins().icmp(cc, a, b);
+        let wide = self.b.ins().uextend(types::I64, bit);
+        self.call_status(self.imports.push_int, &[wide]);
+        self.b.ins().jump(done, &[]);
+        self.b.switch_to_block(done);
+    }
+
+    fn pair_addr(&mut self, offset: i32) -> Clif {
+        self.b.ins().stack_addr(types::I64, self.pair, offset)
+    }
+
+    fn emit_vm_op(&mut self, op: &str) {
+        let (p, n) = self.str_ptr(op);
+        self.call_status(self.imports.op, &[p, n]);
+    }
+
+    /// Push `result` when `of` is clear. Otherwise record `OVERFLOW` and stop.
+    fn finish_int(&mut self, op: &str, result: Clif, of: Clif, done: cranelift_codegen::ir::Block) {
+        let saved = self.b.declare_var(types::I64);
+        self.b.def_var(saved, result);
+        let ovf = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.ins().brif(of, ovf, &[], ok, &[]);
+
+        self.b.switch_to_block(ovf);
+        let (p, n) = self.str_ptr(op);
+        self.call_status(self.imports.overflow, &[p, n]);
+        self.b.ins().jump(self.fail, &[]);
+
+        self.b.switch_to_block(ok);
+        let result = self.b.use_var(saved);
+        self.call_status(self.imports.push_int, &[result]);
+        self.b.ins().jump(done, &[]);
+        self.b.switch_to_block(done);
     }
 
     fn emit_invoke(&mut self, which: i64) {
@@ -475,7 +619,7 @@ impl<'a, M: Module> Cx<'a, M> {
 }
 
 fn compile_object(ir: &IrProgram) -> Result<Vec<u8>, String> {
-    let isa = host_isa()?;
+    let isa = host_isa(true)?;
     let builder = ObjectBuilder::new(isa, "zown", default_libcall_names())
         .map_err(|e| e.to_string())?;
     let module = ObjectModule::new(builder);
@@ -743,6 +887,23 @@ mod tests {
         let r = run("1 0 /");
         assert_eq!(r.exit, 1);
         assert!(r.stderr.contains("DIV_ZERO"), "{}", r.stderr);
+    }
+
+    #[test]
+    fn inlined_int_overflow_is_a_trap() {
+        let r = run("9223372036854775807 1 +");
+        assert_eq!(r.exit, 1);
+        assert!(r.stderr.contains("OVERFLOW"), "{}", r.stderr);
+        let r = run("9223372036854775807 _ 1 - _");
+        assert_eq!(r.exit, 1, "{}", r.stderr);
+        assert!(r.stderr.contains("OVERFLOW"), "{}", r.stderr);
+    }
+
+    #[test]
+    fn inlined_int_compare() {
+        let r = run("5 3 < .  3 5 < .");
+        assert_eq!(r.exit, 0, "{}", r.stderr);
+        assert_eq!(r.stdout, "0\n1\n");
     }
 
     #[test]

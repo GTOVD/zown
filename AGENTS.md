@@ -143,11 +143,12 @@ M0–M8 done. M8a name resolution + match shape
 `zownc ast` 45/45). **M8d-ii/iii ✅** (checked `int`, `big`, widths, vectors,
 `??`, `ty`, caps; `vm_parity` 59/59). **M8d-iv/v ✅** (`Match`/`Attempt`, checked
 WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13).
-**M9a–M9b ✅** — Cranelift: `zownc native` (in-process) and `zownc native -o exe`.
-v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`, `ty`,
-`gr`, and the vector constructors. WASM still answers `UNSUPPORTED` for v0.2
-values. Still open in M9: inline arithmetic, deterministic exes, SIMD lowering,
-and the `buf` spec.
+**M9a–M9c ✅** — Cranelift: `zownc native` (in-process) and `zownc native -o exe`.
+Int `+ - * _` and comparisons are native instructions; other values still call
+the VM. v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`,
+`ty`, `gr`, and the vector constructors. WASM still answers `UNSUPPORTED` for
+v0.2 values. Still open in M9: deterministic exes, SIMD lowering, and the `buf`
+spec.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

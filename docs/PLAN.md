@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (D6: one meaning per token; library words are at most three characters).
+Last updated: 2026-10-24 (M9c: int arithmetic and comparisons are inlined in Cranelift).
 
 ---
 
@@ -61,7 +61,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
 | M8 | Safety core (type & memory model) | ✅ | M8a–M8d ✅. `zownc check` gates `zownc run` (exit 2). WASM runs v0.1 with checked `int`; v0.2 values there are a structured `UNSUPPORTED` until M9 |
-| M9 | Native backend + perf (Cranelift→LLVM) | 🔄 | M9a–M9b ✅. `zownc native` and `-o exe` match v0.1 and v0.2 (`native_parity` 59/59). Still open: inline arithmetic, deterministic exes, SIMD lowering, `buf` spec |
+| M9 | Native backend + perf (Cranelift→LLVM) | 🔄 | M9a–M9c ✅. Int `+ - * _` and comparisons are Cranelift ops; other values still call the VM. `native_parity` 59/59. Still open: deterministic exes, SIMD lowering, `buf` spec |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
 | M12 | ZownNet — decentralized mesh | ⬜ | IPv6 crypto-identity, ZownTransport, DHT+gossip, content addressing, offline mesh |
@@ -519,10 +519,11 @@ add **LLVM** (`inkwell`) later for `-O` and bare metal. One IR feeds both.
 **Tasks**
 - [x] **M9a.** Each IR block is a Cranelift function. Calls and `while` are native; values, operators, and words go through `zown-rt` (the reference VM), so results match the tree-walker. `zownc native` runs in-process. `zownc native -o prog.exe` emits an object and links it with the host `rustc` (the exe’s `main` is Rust, so the allocator and stdout are initialized). Verified on Windows x64 gnu: v0.1 conformance 20/20, plus the v0.2 programs that do not use `??`, `at`, `gr`, or `f4`/`d2`/`i4`/`b16` (`conformance/native_parity.py`). ELF/Mach-O use the same object path and are not separately exercised here.
 - [x] **M9b.** `??`, `ty`, `gr`, and `vf`/`vd`/`vi`/`vu` run as native calls (D6 renamed the earlier spellings `at` and `f4`/`d2`/`i4`/`b16`). The runtime keeps each block's instruction shape so `??` can read patterns, then calls the matching arm. `ty` and the vector constructors run the block on a fresh stack; `gr` grants the capability for the call and drops it after. A bound name still shadows the word. `native_parity` is 59/59, and a linked exe that uses `??` matches the JIT.
+- [x] **M9c.** When every operand is a plain `int`, `+ - * _` and `== != < > <= >=` are Cranelift instructions. Overflow is `OVERFLOW` (the same code the VM raises from `fit_int`). Floats, bigs, `/`, `%`, stack ops, and words still call `zown-rt`. The JIT object is non-PIC; the linked object is PIC so the host `rustc -pie` link succeeds. `native_parity` stays 59/59.
 - [ ] Memory model from M8c-iii: `buf` values, fat pointers, bounds traps. Write the rules into SPEC Part II as *design-only* before any code — do not stub a representation the oracle cannot exhibit.
 - [ ] SIMD lowering (SSE/AVX/NEON by target) once vectors compile; zero-copy I/O (`io_uring`/IOCP).
 - [ ] **Deterministic builds** (bit-identical output — content hashing depends on it). The linked exe is not reproducible today (rustc timestamps and the host linker).
-- [ ] Inline arithmetic in Cranelift instead of a VM call per operator. Conformance for the whole v0.2 corpus, then LLVM (`inkwell`) for `-O` and bare metal.
+- [ ] LLVM (`inkwell`) for `-O` and bare metal, after the int fast path (M9c).
 
 **Acceptance:** native binaries pass conformance on the developer's host
 (Windows x64 today; macOS/arm64 and Linux x64 before M11); two builds of the
@@ -691,16 +692,16 @@ the milestone noted.
 | Debt | Where | Attach to |
 |------|-------|-----------|
 | WASM has no tags for cap/width/vec/big/res; those programs are `UNSUPPORTED` (not a silent wrong answer). Checked `int` traps with `unreachable`, not a `.zerr` | `zown-wasm` | rest of **M9** |
-| Native codegen still calls the reference VM for every value and word (control flow is native). `-o exe` needs host `rustc` plus the rlibs beside `zownc`, and the linked exe is not bit-identical across builds. `buf` / fat pointers are still unspecced. WASM still has no tags for cap/width/vec/big/res | `zown-codegen`, `zown-rt`, `zown-wasm` | rest of **M9** |
+| Int `+ - * _` and comparisons are inlined (M9c). Floats, bigs, `/ %`, stack ops, and words still call the VM. `-o exe` needs host `rustc` plus the rlibs beside `zownc`, and the linked exe is not bit-identical across builds. `buf` / fat pointers are still unspecced. WASM still has no tags for cap/width/vec/big/res | `zown-codegen`, `zown-rt`, `zown-wasm` | rest of **M9** |
 | Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
 | `zownc check` gates `run`; IR has `Match`/`Attempt`. WASM still refuses v0.2 values | `zown-wasm` | **M9** |
 | `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | M8d-iv / M9 |
 | No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | add a GitHub Actions workflow: Python 3.10+ matrix running the five oracle commands; a Rust job once M8d lands |
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
 | WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
-| The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `at`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | M9/M15 (telemetry budget) |
+| The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `ty`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | M9/M15 (telemetry budget) |
 | `Res` err payload is the code string only; the full packet (op/pos/cap/msg) is not reachable from inside the language yet — the self-healing loop (M15) will want it | `zown/vm.py` | M11 (`std`) |
-| `tele.errors` in the manifest could be auto-discovered from `at`/`rq`/`??` usage | `zown/manifest.py` | M11 |
+| `tele.errors` in the manifest could be auto-discovered from `ty`/`rq`/`??` usage | `zown/manifest.py` | M11 |
 
 ---
 
@@ -729,13 +730,13 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **Rest of M9.** `zownc native` and `zownc native -o prog.exe` match the
-   v0.1 and v0.2 corpora (`native_parity.py`, 59/59). Next code: inline
-   arithmetic in Cranelift (today every operator is a VM call), then
-   deterministic exes and SIMD lowering. On this Windows machine there is no
-   MSVC `link.exe`; build with
+1. **Rest of M9.** Int arithmetic and comparisons are inlined (M9c);
+   `native_parity` is 59/59. Next: the `buf` / fat-pointer spec (design-only,
+   no runtime), then deterministic exes and SIMD lowering. On Windows there
+   is no MSVC `link.exe`; build with
    `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu` (do **not** change
-   `rust-toolchain.toml`). Linking an exe shells out to that `rustc`.
+   `rust-toolchain.toml`). Linking an exe shells out to that `rustc`. The
+   linked object is PIC; the JIT object is not.
 2. **`buf` / fat pointers** go into SPEC Part II as *design-only (M9)* before
    any runtime code. Do not stub a representation the oracle cannot exhibit.
    Same pass: decide the native representation of `big` (the VM already uses

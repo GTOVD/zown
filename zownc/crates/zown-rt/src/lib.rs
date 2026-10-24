@@ -94,6 +94,61 @@ pub unsafe extern "C" fn rt_failed(rt: *mut Rt) -> i32 {
     if rt.is_null() || (*rt).err.is_some() { 1 } else { 0 }
 }
 
+/// Pop the top two values when both are `int`. Writes the deeper one to `a_out`
+/// and the former top to `b_out`. Returns 0 after popping, or 1 when the pair
+/// is not two ints (the stack is left as it was, so the VM operator can run).
+#[no_mangle]
+pub unsafe extern "C" fn rt_take_ints(rt: *mut Rt, a_out: *mut i64, b_out: *mut i64) -> i32 {
+    if rt.is_null() || a_out.is_null() || b_out.is_null() || rt_failed(rt) != 0 {
+        return 1;
+    }
+    let stack = &(*rt).vm.stack;
+    if stack.len() < 2 {
+        return 1;
+    }
+    let n = stack.len();
+    match (&stack[n - 2], &stack[n - 1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            let (a, b) = (*a, *b);
+            (*rt).vm.stack.pop();
+            (*rt).vm.stack.pop();
+            *a_out = a;
+            *b_out = b;
+            0
+        }
+        _ => 1,
+    }
+}
+
+/// Pop the top value when it is an `int`. Returns 0 after writing it, or 1
+/// when the top is not an int (stack unchanged).
+#[no_mangle]
+pub unsafe extern "C" fn rt_take_int(rt: *mut Rt, a_out: *mut i64) -> i32 {
+    if rt.is_null() || a_out.is_null() || rt_failed(rt) != 0 {
+        return 1;
+    }
+    match (*rt).vm.stack.last() {
+        Some(Value::Int(n)) => {
+            let n = *n;
+            (*rt).vm.stack.pop();
+            *a_out = n;
+            0
+        }
+        _ => 1,
+    }
+}
+
+/// Record `OVERFLOW` for an inlined int operation. The operands are already gone.
+#[no_mangle]
+pub unsafe extern "C" fn rt_overflow(rt: *mut Rt, ptr: *const u8, len: usize) -> i32 {
+    if rt.is_null() {
+        return 1;
+    }
+    let op = str_at(ptr, len);
+    let err = (*rt).vm.overflow_int(&op);
+    fail(&mut *rt, err)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rt_push_int(rt: *mut Rt, n: i64) -> i32 {
     if rt_failed(rt) != 0 {
