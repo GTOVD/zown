@@ -98,6 +98,31 @@ pub enum Value {
     Width(WidthTag),
     Vec(VecVal),
     Res(Res),
+    /// `r g b co`. Channels are `0..255`.
+    Color(Rgb),
+    /// A layout node: `tx`, `bt`, `rw`, or `cm`.
+    Ui(UiNode),
+}
+
+/// An sRGB color. The layout contrast test uses these channels linearly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+/// One node of the retained layout tree. Child `x`/`y` are relative to the parent.
+#[derive(Clone, Debug)]
+pub struct UiNode {
+    pub kind: &'static str,
+    pub text: String,
+    pub color: Rgb,
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+    pub children: Vec<UiNode>,
 }
 
 impl Value {
@@ -133,7 +158,7 @@ impl Value {
             Value::Str(s) => !s.is_empty(),
             Value::Block(b) => !b.is_empty(),
             Value::Func { nodes, .. } => *nodes != 0,
-            Value::Cap(_) | Value::Width(_) => true,
+            Value::Cap(_) | Value::Width(_) | Value::Color(_) | Value::Ui(_) => true,
             Value::Vec(v) => !v.lanes.is_empty(),
             Value::Res(r) => r.ok,
         }
@@ -150,6 +175,8 @@ impl Value {
             Value::Width(_) => "width",
             Value::Vec(_) => "vec",
             Value::Res(_) => "res",
+            Value::Color(_) => "color",
+            Value::Ui(_) => "node",
         }
     }
 
@@ -172,6 +199,14 @@ impl Value {
             }
             Value::Res(r) => {
                 format!("{}({})", if r.ok { "ok" } else { "err" }, r.val.display())
+            }
+            Value::Color(c) => format!("co({} {} {})", c.r, c.g, c.b),
+            Value::Ui(n) => {
+                if n.kind == "tx" || n.kind == "bt" {
+                    format!("{}({})", n.kind, n.text)
+                } else {
+                    format!("{}({})", n.kind, n.children.len())
+                }
             }
         }
     }
@@ -204,6 +239,8 @@ impl Value {
                 if r.ok { "ok" } else { "err" },
                 snap_flat(&r.val)
             )),
+            Value::Color(c) => json_str(&format!("co:{} {} {}", c.r, c.g, c.b)),
+            Value::Ui(n) => json_str(&format!("{}:{}", n.kind, n.children.len())),
         }
     }
 
@@ -226,9 +263,23 @@ impl Value {
                     })
             }
             (Value::Res(a), Value::Res(b)) => a.ok == b.ok && a.val.zown_eq(&b.val),
+            (Value::Color(a), Value::Color(b)) => a == b,
+            (Value::Ui(a), Value::Ui(b)) => ui_eq(a, b),
             _ => matches!(num_partial_cmp(self, other), Some(Ordering::Equal)),
         }
     }
+}
+
+fn ui_eq(a: &UiNode, b: &UiNode) -> bool {
+    a.kind == b.kind
+        && a.text == b.text
+        && a.color == b.color
+        && a.x == b.x
+        && a.y == b.y
+        && a.w == b.w
+        && a.h == b.h
+        && a.children.len() == b.children.len()
+        && a.children.iter().zip(&b.children).all(|(x, y)| ui_eq(x, y))
 }
 
 /// Ordering of two numbers. `None` when either is `nan` or not a number.

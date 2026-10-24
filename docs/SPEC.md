@@ -600,7 +600,7 @@ proto Store [ get:[Hash]->[val?]  put:[Hash val]->[ok|err] ]
 Content addresses are written `$zown:<hash>$`; mutable refs are
 `$zown:<pubkey>$` (latest signed version). `~f` fetch / `~p` publish operate on them.
 
-## 15. Native UI & GPU types — *design-only (M12)*
+## 15. Native UI & GPU types — *design-only, except the layout slice in §25*
 
 > Frozen here, not in the oracle: a retained scene graph, typed style values, and
 > ZownGPU resources need a renderer. The type vocabulary is fixed so the manifest
@@ -1001,3 +1001,24 @@ the bundle `hello bundle` by its BLAKE3 address and checks the hash. The same
 announce is offered to `ff02::5a77` on that port. A host that cannot deliver
 the group still completes the exchange on `[::1]`, which does not leave the
 machine. QUIC, the DHT, relays, and `~o`/`~s`/`~r` are not this command.
+
+## 25. Layout — **implemented (M13, oracle + Rust VM)**
+
+UI is data. There is no markup. A program builds a tree and `ly` pushes its
+geometry. `zown draw` paints that tree as a PPM. This is a CPU picture of the
+rectangles, not a GPU, a font, or an audio graph. Those stay design-only (§15).
+
+| Word | Stack | Result |
+|------|--------|--------|
+| `co` | `r g b co` | a color. Each channel is a plain `int` in `0..255`, else `BOUNDS` |
+| `tx` | `$text$ size color tx` | a text node. `size` is an `int` ≥ 1. Width is the number of characters times `size`; height is `size`. A newline in the text is `TYPE_MISMATCH` |
+| `bt` | `$label$ size color bt` | a button. Width is the text width plus `size` on each side; height is `size * 2`. The accessible name is the label |
+| `rw` | `color gap pad [nodes] rw` | a row. The block runs on a fresh stack and must leave nodes |
+| `cm` | `color gap pad [nodes] cm` | a column, same rule |
+| `ly` | `node ly` | the dump below, one string |
+
+`pad` and `gap` are plain `int`s ≥ 0, else `BOUNDS`. A child that is not a node is `TYPE_MISMATCH`. Children are start-aligned: a column stacks them downward, a row lays them to the right, separated by `gap`, inset by `pad`. An empty box is `pad*2` by `pad*2`.
+
+`ly` walks preorder. A box line is `rw|cm x y w h`. A leaf line is `tx|bt x y w h ok|low text`. Indentation is two spaces per level. Coordinates are the top-left of the root. `ok` means the leaf's color against its parent box (or black, if it is the root) passes the contrast test; `low` means it does not. Luma is linear Rec. 709, `(2126*r + 7152*g + 722*b) // 1000`. It passes when `(hi+128)*10 >= (lo+128)*45`.
+
+`zown draw file.zn` runs the program and paints the one node it leaves. The root must have area. The file is a binary `P6` PPM: boxes fill their rectangle with their color, then children paint over them; a leaf fills its rectangle with its own color. Animation, input delivery, shaders, and audio are not in this picture.

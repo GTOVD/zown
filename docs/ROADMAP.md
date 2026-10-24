@@ -152,14 +152,13 @@ Hard problems still open: congestion control, DHT churn, relay incentives.
 
 ## Phase 7 — Native UI, ZownGPU, audio, input
 
-Everything a frontend needs, native (see `DESIGN.md` §4–§5).
+Everything a frontend needs, native (see `DESIGN.md` §4–§5). The running slice
+is SPEC §25: a typed tree and a PPM of its rectangles.
 
-- Typed declarative **layout tree** (no HTML/CSS), retained scene graph, fl/grid
-  layout, typed style, responsive-as-constraint, animation.
-- **ZownGPU** (WebGPU-equivalent; wgpu via FFI → native Vulkan/Metal/DX12 later);
-  shaders in a Zown subset; text shaping in stdlib.
-- Audio signal-graph + low-latency lane; unified input + sensors (capability-gated);
-  **accessibility** and **i18n** built into the node types; PDF/PNG export; print.
+- [x] Layout tree with no markup: `co`, `tx`, `bt`, `rw`, `cm`, and `ly`.
+      `zown draw` paints the rectangles. Contrast is marked `ok` or `low`.
+- [ ] ZownGPU, shaders, text shaping, animation, input delivery, audio, PDF.
+      Not started. The picture is not a font and not a GPU.
 
 ---
 

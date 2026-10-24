@@ -278,6 +278,8 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
             "rn" => return exec_rn(rt),
             "ts" => return exec_ts(rt),
             "pp" => return exec_pp(rt),
+            "rw" => return ui_box(rt, true),
+            "cm" => return ui_box(rt, false),
             "vf" => return vec_ctor(rt, "vf", 4, true, true, 32),
             "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
@@ -355,6 +357,30 @@ pub unsafe extern "C" fn rt_pop_truthy(rt: *mut Rt) -> i32 {
             fail(&mut *rt, e);
             2
         }
+    }
+}
+
+/// `color gap pad [nodes] rw|cm` on the native path.
+unsafe fn ui_box(rt: *mut Rt, row: bool) -> i32 {
+    let op = if row { "rw" } else { "cm" };
+    let id = match (*rt).vm.pop_func_id(op) {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let (color, gap, pad) = match (*rt).vm.take_box_frame(op) {
+        Ok(frame) => frame,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let saved = (*rt).vm.take_stack();
+    let code = call_block(rt, id, op);
+    let kids = (*rt).vm.take_stack();
+    (*rt).vm.set_stack(saved);
+    if code != 0 {
+        return 1;
+    }
+    match (*rt).vm.finish_box(op, op, color, gap, pad, kids) {
+        Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
     }
 }
 

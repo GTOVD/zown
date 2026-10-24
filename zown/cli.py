@@ -11,6 +11,7 @@ Usage:
     zown fmt [-w] <file.zn>   canonical whitespace; -w writes the file
     zown test [path]          run .zn programs (default tests/zn)
     zown mesh [port]          two IPv6 peers exchange a content-addressed bundle
+    zown draw <file.zn>       paint the node left on the stack as a PPM
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -215,6 +216,36 @@ def cmd_mesh(args) -> int:
     return EXIT_OK
 
 
+def cmd_draw(args) -> int:
+    from .ui import UiNode, raster
+    src = _read(args.file)
+    if not getattr(args, "unchecked", False):
+        diags, code = _static_check(src, args)
+        if code is not None:
+            return code
+        if diags:
+            _emit_diags(diags, args,
+                        f"rejected: {args.file} — {len(diags)} issue(s) found by the "
+                        f"static checker; not drawn (--unchecked overrides)")
+            return EXIT_REJECTED
+    vm = VM(file=args.file)
+    try:
+        vm.run_src(src)
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    if len(vm.stack) != 1 or not isinstance(vm.stack[0], UiNode):
+        sys.stderr.write("draw: the program must leave one layout node on the stack\n")
+        return EXIT_ERROR
+    node = vm.stack[0]
+    if node.w < 1 or node.h < 1:
+        sys.stderr.write("draw: the root has no area\n")
+        return EXIT_ERROR
+    sys.stdout.buffer.write(raster(node))
+    return EXIT_OK
+
+
 def cmd_test(args) -> int:
     from .tester import run_tests
     return run_tests(args.path)
@@ -268,6 +299,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="rendezvous UDP port on ::1 (default 59770)")
     pmsh.set_defaults(func=cmd_mesh)
 
+    pd = sub.add_parser("draw", help="paint the layout node a program leaves on the stack")
+    pd.add_argument("file")
+    pd.set_defaults(func=cmd_draw)
+
     return p
 
 
@@ -276,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

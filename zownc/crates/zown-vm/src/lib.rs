@@ -12,6 +12,7 @@ mod lanes;
 mod mesh;
 mod native;
 mod stdwords;
+mod ui;
 mod value;
 
 use std::collections::{HashMap, HashSet};
@@ -869,6 +870,12 @@ impl Vm {
             "h3" => self.b_h3(),
             "ni" => self.b_ni(),
             "ua" => self.b_ua(),
+            "co" => self.b_co(),
+            "tx" => self.b_tx(),
+            "bt" => self.b_bt(),
+            "rw" => self.b_box(true),
+            "cm" => self.b_box(false),
+            "ly" => self.b_ly(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1671,13 +1678,28 @@ pub fn is_builtin(name: &str) -> bool {
             | "h3"
             | "ni"
             | "ua"
+            | "co"
+            | "tx"
+            | "bt"
+            | "rw"
+            | "cm"
+            | "ly"
     )
 }
 
 fn is_type_pattern(s: &str) -> bool {
     matches!(
         s,
-        "int" | "float" | "str" | "block" | "cap" | "width" | "vec" | "big" | "res"
+        "int" | "float"
+            | "str"
+            | "block"
+            | "cap"
+            | "width"
+            | "vec"
+            | "big"
+            | "res"
+            | "color"
+            | "node"
     )
 }
 

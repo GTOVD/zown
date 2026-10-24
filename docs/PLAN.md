@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M12: BLAKE3 bundles and an IPv6 UDP exchange).
+Last updated: 2026-10-24 (M13: typed layout tree and a PPM picture).
 
 ---
 
@@ -65,7 +65,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ✅ | cooperative ticks; `1 lc` trace is stable; `native_parity` 67/67. OS `SCHED_FIFO` is not observable behavior (§22) |
 | M11 | Batteries stdlib + `std` in Zown | ✅ | `mx` `mn` `cl` are Zown; `zown test` and `zown fmt` ship. Crypto, files, LSP, and collections are SPEC §23 and are not stubbed |
 | M12 | ZownNet — decentralized mesh | ✅ | BLAKE3 `h3`, `~p`/`~f`, `zown mesh` on `[::1]`. QUIC, DHT, Ed25519, and ChaCha are not implemented |
-| M13 | Native UI + ZownGPU + audio + input | ⬜ | typed layout tree (no HTML/CSS), wgpu→native, a11y, i18n |
+| M13 | Native UI + ZownGPU + audio + input | ✅ | layout tree `co tx bt rw cm ly` and `zown draw` PPM. GPU, audio, and input delivery are not implemented |
 | M14 | Embedded store + distribution | ⬜ | mmap graph+columnar, CRDT, version chain, transparency log, semantic patch protocol, signed sync |
 | M15 | AI control plane + rolling execution | ⬜ | telemetry/tracing, declarative intent, hot-swap, self-healing loop, on-device ML |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
@@ -578,15 +578,13 @@ that delivers `ff02::5a77` uses the same datagrams; this environment does not.
 **Goal:** a full frontend with no HTML/CSS (see `DESIGN.md` §4–§5).
 
 **Tasks**
-- [ ] Typed declarative layout tree; retained scene graph; fl/grid; typed style;
-      responsive-as-constraint; animation.
-- [ ] ZownGPU over `wgpu` (FFI) → native Vulkan/Metal/DX12 later; shaders in a
-      Zown subset; text shaping in stdlib.
-- [ ] Audio signal-graph + low-latency lane; unified input + sensors
-      (capability-gated); accessibility + i18n in the node types; PDF/PNG export.
+- [x] **M13a.** `co` is a color (`r g b`, channels `0..255`). `tx` and `bt` are leaves. `rw` and `cm` run a block on a fresh stack and lay the nodes out, start-aligned, with `pad` and `gap`. `ly` pushes the preorder dump. Both VMs match (`cases_v2/layout`). A bad channel is `BOUNDS`; a non-node child is `TYPE_MISMATCH`.
+- [x] **M13b.** Leaf contrast is `ok` or `low` against the parent box (black if the leaf is the root). Luma is linear Rec. 709 in integer arithmetic, so Python and Rust cannot drift. The button's accessible name is its label.
+- [x] **M13c.** `zown draw` paints the one node a program leaves as a `P6` PPM: parent rectangle first, children on top. GPU, shaders, animation, input delivery, audio, and PDF stay design-only (§15). The picture is the CPU rectangles, not a font.
 
-**Acceptance:** a sample app renders, animates, takes input, reads a screen reader
-tree, and exports itself to PDF.
+**Acceptance:** a sample scene lays out and paints without HTML. Met by
+`examples/ui.zn` and `zown draw`. A screen reader, animation, and PDF are not
+in this slice. `native_parity` is 74/74.
 
 ---
 
@@ -682,6 +680,7 @@ memory type.)*
 | D9 | Fast lanes are a **cooperative tick trace**, not OS threads (2026-10-24). `room = max(cpus-1, 1)`, grant `min(request, room)`, default request `min(2, room)`. Each tick runs every registered lane, then at most one job. `\|` sends; `pm`/`pn` pull. Pipe capacity 8. `~m`/`~n` only; other `~name` is `UNSUPPORTED` | SPEC §22; M10 |
 | D10 | Std words are Zown blocks registered with `wd` (2026-10-24). `mx`, `mn`, and `cl` live in `std/core.zn`. `ab` stays a host word because `<` cannot see `-0.0`. Crypto and files are named in §23 and not stubbed | SPEC §7, §23; M11 |
 | D11 | The mesh slice is **BLAKE3 plus IPv6 UDP**, not QUIC (2026-10-24). `h3`/`~p`/`~f` are the content address. The node id is not an Ed25519 key. `zown mesh` exchanges one bundle on `[::1]` | SPEC §24; M12 |
+| D12 | UI in the oracle is a **layout tree and a PPM**, not a GPU (2026-10-24). `co tx bt rw cm ly` build it. Contrast is integer luma. `zown draw` paints rectangles | SPEC §25; M13 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -734,8 +733,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M13 — UI.** Typed layout, GPU, and audio. `~o` / `~s` / `~r` and QUIC stay
-   unimplemented; the mesh slice that runs is SPEC §24.
+1. **M14 — store.** The graph, the query tokens, and signed bundles. Layout is
+   SPEC §25; GPU and audio are still §15.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

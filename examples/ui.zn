@@ -1,0 +1,6 @@
+# A column: dark box, white "Hi", and a Go button.
+# `ly` prints the laid-out rectangles. `zown draw` paints them if `ly` is left off.
+255 255 255 co :fg
+30 30 30 co :bg
+bg 4 2 [ $Hi$ 8 fg tx $Go$ 4 fg bt ] cm ly
+.

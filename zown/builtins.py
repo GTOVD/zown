@@ -20,6 +20,7 @@ from .errors import (
 from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
+from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
 
 
 def _need_str(vm, op: str, pos: Pos) -> str:
@@ -624,6 +625,12 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "h3": (b_h3, "blake3", "str h3 -> 64 hex digits of BLAKE3(UTF-8)"),
     "ni": (b_ni, "node_id", "push this VM's 32-byte node id as 64 hex digits"),
     "ua": (b_ua, "node_addr", "push this VM's IPv6 ULA (fd00::/8 from the node id)"),
+    "co": (b_co, "color", "r g b co -> a color; each channel is an int in 0..255"),
+    "tx": (b_tx, "text", "$text$ size color tx -> a text node (width is characters times size)"),
+    "bt": (b_bt, "button", "$label$ size color bt -> a button node (role button, padded label)"),
+    "rw": (b_rw, "row", "color gap pad [nodes] rw -> a row box, children start-aligned"),
+    "cm": (b_cm, "column", "color gap pad [nodes] cm -> a column box, children start-aligned"),
+    "ly": (b_ly, "layout", "node ly -> the preorder layout dump"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

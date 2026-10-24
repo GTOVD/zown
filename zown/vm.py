@@ -43,6 +43,7 @@ from .errors import (
     ZownError,
 )
 from .lanes import Lanes, op_pipe, op_spawn, op_tilde
+from .ui import Color, UiNode
 from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
 
@@ -185,8 +186,8 @@ def truthy(v: Any) -> bool:
         return len(v.nodes) > 0
     if isinstance(v, str):
         return len(v) > 0
-    if isinstance(v, (Cap, WidthTag)):
-        return True  # a token is always a "present" value
+    if isinstance(v, (Cap, WidthTag, Color, UiNode)):
+        return True  # a token, a color, or a node is a present value
     if isinstance(v, Vec):
         return len(v.lanes) > 0
     if isinstance(v, Big):
@@ -401,6 +402,10 @@ def type_name(v: Any) -> str:
         return "width"
     if isinstance(v, Vec):
         return "vec"
+    if isinstance(v, Color):
+        return "color"
+    if isinstance(v, UiNode):
+        return "node"
     if isinstance(v, Big):
         return "big"
     if isinstance(v, Res):
@@ -609,7 +614,7 @@ def op_while(vm: VM, pos: Pos) -> None:
 # result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
 # The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res"}
+_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node"}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -706,6 +711,12 @@ def _as_str(v: Any) -> str:
         return v.name
     if isinstance(v, Vec):
         return f"{v.name}({' '.join(_as_str(x) for x in v.lanes)})"
+    if isinstance(v, Color):
+        return f"co({v.r} {v.g} {v.b})"
+    if isinstance(v, UiNode):
+        if v.kind in ("tx", "bt"):
+            return f"{v.kind}({v.text})"
+        return f"{v.kind}({len(v.children)})"
     return str(v)
 
 

@@ -56,6 +56,10 @@ python3 bin/zown test
 
 # two local IPv6 peers exchange one BLAKE3-addressed bundle
 python3 bin/zown mesh
+
+# the layout tree, then the same scene as a PPM picture
+python3 bin/zown examples/ui.zn
+python3 bin/zown draw examples/paint.zn > ui.ppm
 ```
 
 Install the `zown` command for real:

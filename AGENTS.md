@@ -67,8 +67,8 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (119 unit tests, 20 +
-51 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+All five oracle commands must end in `0 failed` (121 unit tests, 20 +
+54 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
 `--unchecked` to observe the *runtime* packet of a program the checker rejects,
@@ -152,8 +152,10 @@ refuses the lane operators. **M11 ✅** — `mx`, `mn`, and `cl` are Zown in
 `zown/std/core.zn`; `zown test` and `zown fmt` ship. Crypto, files, and LSP
 are SPEC §23 and are not implemented. **M12 ✅** — BLAKE3 `h3`, local
 `~p`/`~f`, and `zown mesh` (two IPv6 UDP peers on `[::1]`). QUIC, the DHT,
-and Ed25519 are not implemented. `native_parity` is 71/71. Next milestone
-is M13 (UI).
+and Ed25519 are not implemented. **M13 ✅** — layout tree (`co`, `tx`,
+`bt`, `rw`, `cm`, `ly`) and `zown draw` (PPM). GPU, audio, and input
+delivery are not implemented. `native_parity` is 74/74. Next milestone
+is M14 (the store).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

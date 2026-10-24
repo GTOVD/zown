@@ -21,8 +21,9 @@ const PATTERN_TYPES: &[&str] = &[
 ];
 const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];
+const BOX_CTORS: &[&str] = &["rw", "cm"];
 const INVOKING_OPS: &[&str] = &["@", ";", "??"];
-const INVOKING_WORDS: &[&str] = &["gr", "ty", "vf", "vd", "vi", "vu"];
+const INVOKING_WORDS: &[&str] = &["gr", "ty", "vf", "vd", "vi", "vu", "rw", "cm"];
 
 /// One static finding. `render_lines` is the conformance format.
 #[derive(Debug, Clone)]
@@ -335,7 +336,9 @@ impl Checker {
             ..
         }) = nxt
         {
-            if VEC_CTORS.contains(&name.as_str()) && !self.bound.contains(name) {
+            if (VEC_CTORS.contains(&name.as_str()) || BOX_CTORS.contains(&name.as_str()))
+                && !self.bound.contains(name)
+            {
                 inner = known.cloned();
             } else {
                 inner = None;

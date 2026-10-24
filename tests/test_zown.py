@@ -1153,6 +1153,60 @@ def test_two_peers_exchange_a_bundle():
     assert left.startswith("fd") and right.startswith("fd") and left != right
 
 
+# --- layout (M13) --------------------------------------------------------------
+def test_layout_dump_and_low_contrast():
+    out, _ = run("""255 255 255 co :fg
+255 255 0 co :ye
+ye 0 0 [ $No$ 4 fg tx ] cm ly
+.
+""")
+    assert out == "cm 0 0 8 4\n  tx 0 0 8 4 low No\n"
+    _fails("256 0 0 co", BOUNDS, "co")
+    _fails("0 0 0 co :c c 0 0 [ 1 ] cm", TYPE_MISMATCH, "cm")
+
+
+def test_draw_paints_the_box_and_the_text():
+    from zown.cli import main
+    from zown.ui import UiNode, raster
+    src = """255 255 255 co :fg
+30 30 30 co :bg
+bg 4 2 [ $Hi$ 8 fg tx ] cm
+"""
+    _, vm = run(src)
+    node = vm.stack[0]
+    assert isinstance(node, UiNode)
+    raw = raster(node)
+    assert raw.startswith(b"P6\n20 12\n255\n")
+    body = raw.split(b"\n", 3)[3]
+    assert body[0:3] == bytes((30, 30, 30))
+    i = (2 * 20 + 2) * 3
+    assert body[i:i + 3] == bytes((255, 255, 255))
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "ui.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+
+    class _Out:
+        def __init__(self):
+            self.buffer = io.BytesIO()
+
+        def write(self, _s):
+            return None
+
+        def flush(self):
+            return None
+
+    out = _Out()
+    old = sys.stdout
+    sys.stdout = out
+    try:
+        code = main(["draw", path])
+    finally:
+        sys.stdout = old
+    assert code == 0
+    assert out.buffer.getvalue().startswith(b"P6\n20 12\n255\n")
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(
