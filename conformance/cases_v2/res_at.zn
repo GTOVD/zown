@@ -2,16 +2,16 @@
 # yields ok(value) or err(code). The payload is reachable only through `??`
 # with [ok]/[err] arms, so the failure path can never be skipped by accident.
 5 :x 2 :y
-[ x y / ] at .                                   # ok(2.5)
+[ x y / ] ty .                                   # ok(2.5)
 0 :y
-[ x y / ] at .                                   # err(DIV_ZERO)
+[ x y / ] ty .                                   # err(DIV_ZERO)
 2 :y
-[ x y / ] at [ [ok] [ 2 * . ] [err] [ . ] ] ??   # 5   (the ok arm gets the unwrapped 2.5)
+[ x y / ] ty [ [ok] [ 2 * . ] [err] [ . ] ] ??   # 5   (the ok arm gets the unwrapped 2.5)
 0 :y
-[ x y / ] at [ [ok] [ . ] [err] [ . ] ] ??       # DIV_ZERO (the err arm gets the code)
-[ x y / ] at [ [res] [ , $a result$ . ] ] ??     # [res] is the type pattern (no unwrap)
-[ x y / ] at ! .                                 # 1   a result is truthy iff ok
-[ x y / ] at [ $good$ ] [ $bad$ ] ? @ .          # bad (branch on ok-ness without unwrapping)
-[ `s rq 1 ] at [ [err] [ . ] [ok] [ , ] ] ??     # CAP_DENIED — a security fault is a value too
-[ [ x y / ] at ] at .                            # ok(err(DIV_ZERO)) — results nest
-7 [ 1 ] at , .                                   # 7   the outer stack is untouched
+[ x y / ] ty [ [ok] [ . ] [err] [ . ] ] ??       # DIV_ZERO (the err arm gets the code)
+[ x y / ] ty [ [res] [ , $a result$ . ] ] ??     # [res] is the type pattern (no unwrap)
+[ x y / ] ty ! .                                 # 1   a result is truthy iff ok
+[ x y / ] ty [ $good$ ] [ $bad$ ] ? @ .          # bad (branch on ok-ness without unwrapping)
+[ `s rq 1 ] ty [ [err] [ . ] [ok] [ , ] ] ??     # CAP_DENIED — a security fault is a value too
+[ [ x y / ] ty ] ty .                            # ok(err(DIV_ZERO)) — results nest
+7 [ 1 ] ty , .                                   # 7   the outer stack is untouched

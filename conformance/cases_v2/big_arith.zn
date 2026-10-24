@@ -9,4 +9,4 @@ $99999999999999999999$ b 1 + .    # a literal beyond int is written as a digit s
 9 b sq .                          # 3        perfect square stays big
 5 b 5 == .                        # 1        compares by value
 5 b [ [big] [ , $big$ . ] [int] [ , $int$ . ] ] ??     # a big is not an int
-5 b [ [5] [ , $five$ . ] [_] [ , $other$ . ] ] ??      # literal patterns compare by value
+5 b [ [5] [ , $five$ . ] [any] [ , $other$ . ] ] ??      # literal patterns compare by value

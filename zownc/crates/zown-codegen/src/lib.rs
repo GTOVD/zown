@@ -565,7 +565,7 @@ fn nats(instrs: &[Instr]) -> Vec<NatOp> {
             Instr::Select => NatOp::Op("?".into()),
             Instr::While => NatOp::Op(";".into()),
             Instr::Match => NatOp::Op("??".into()),
-            Instr::Attempt => NatOp::Name("at".into()),
+            Instr::Attempt => NatOp::Name("ty".into()),
         })
         .collect()
 }
@@ -719,21 +719,21 @@ mod tests {
 
     #[test]
     fn attempt_div_zero() {
-        let r = run("1 :x 0 :y [ x y / ] at .");
+        let r = run("1 :x 0 :y [ x y / ] ty .");
         assert_eq!(r.exit, 0, "{}", r.stderr);
         assert_eq!(r.stdout, "err(DIV_ZERO)\n");
     }
 
     #[test]
     fn match_seven() {
-        let r = run("7 [ [7] [ . ] [_] [ , $no$ . ] ] ??");
+        let r = run("7 [ [7] [ . ] [any] [ , $no$ . ] ] ??");
         assert_eq!(r.exit, 0, "{}", r.stderr);
         assert_eq!(r.stdout, "7\n");
     }
 
     #[test]
     fn vector_sum() {
-        let r = run("[ 1 2 3 4 ] i4 vsum .");
+        let r = run("[ 1 2 3 4 ] vi vh .");
         assert_eq!(r.exit, 0, "{}", r.stderr);
         assert_eq!(r.stdout, "10\n");
     }
@@ -751,7 +751,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("match.exe");
-        write_exe("7 [ [7] [ . ] [_] [ , $no$ . ] ] ??", "match.zn", &exe).unwrap();
+        write_exe("7 [ [7] [ . ] [any] [ , $no$ . ] ] ??", "match.zn", &exe).unwrap();
         let out = std::process::Command::new(&exe).output().unwrap();
         assert!(
             out.status.success(),

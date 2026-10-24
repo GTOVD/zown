@@ -1,3 +1,3 @@
-# `at` has the fixed stack effect ( blk -- res ): its body must leave exactly
+# `ty` has the fixed stack effect ( blk -- res ): its body must leave exactly
 # one value on the isolated stack.
-[ 1 2 ] at
+[ 1 2 ] ty

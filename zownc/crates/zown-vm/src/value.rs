@@ -7,7 +7,7 @@ use zown_ast::Node;
 
 use crate::bigint::BigInt;
 
-/// A fixed-width integer tag (`i8` … `u128`). Policy words `wr`/`st`/`ck`
+/// A fixed-width integer tag (`i8` … `ux`). Policy words `wr`/`st`/`ck`
 /// reduce a value into it (SPEC §11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WidthTag {
@@ -17,6 +17,9 @@ pub struct WidthTag {
 
 impl WidthTag {
     pub fn name(&self) -> String {
+        if self.bits == 128 {
+            return if self.signed { "ix" } else { "ux" }.to_string();
+        }
         format!("{}{}", if self.signed { 'i' } else { 'u' }, self.bits)
     }
 
@@ -59,7 +62,7 @@ impl Lane {
     }
 }
 
-/// A fixed-lane SIMD vector (`f4`, `d2`, `i4`, `b16`).
+/// A fixed-lane SIMD vector (`vf`, `vd`, `vi`, `vu`).
 #[derive(Clone, Debug)]
 pub struct VecVal {
     pub name: &'static str,

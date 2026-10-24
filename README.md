@@ -80,9 +80,9 @@ zown examples/fizzbuzz.zn
 And the v0.2 safety surface, all live in the oracle:
 
 ```
-`s [ `s rq $sending$ . ] gr          # capabilities: zero authority unless granted
-[ 1 0 / ] at [ [ok]  [ . ]           # errors are values: ok(v) / err(code) ...
-              [err] [ $failed: $ \ + . ] ] ??   # ...and only ?? can open them
+`t [ `t rq $sending$ . ] gr          # capabilities: zero authority unless granted
+[ 1 0 / ] ty [ [ok]  [ . ]           # errors are values: ok(v) / err(code) ...
+              [err] [ $failed: $ \ ct . ] ] ??  # ...and only ?? can open them
 2 b 100 pw .                         # int is a checked 64-bit; `b` is exact big
 5 :x 'x .                            # 'x moves a binding out; a bare x borrows
 ```
@@ -95,12 +95,12 @@ Full definition: [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Why it looks like this
 
-The [design conversation](#design-notes) that started Zown is full of ambition
-*and* contradictions (e.g. `*` used for both "multiply" and "loop"; `=` for both
-"dup" and "equals"). v0.1's job was to turn that into a **coherent language that
-actually runs**, then phase in the systems vision without breaking it. Where the
-notes disagreed with themselves, [`docs/SPEC.md`](docs/SPEC.md) is the authority
-and marks the resolution.
+Each token has one meaning, and every prebuilt word is one character, then two,
+then at most three. `*` is multiply (`rp` repeats a string, `;` loops). `=` is
+dup (`==` tests equality). `+` adds (`ct` joins strings). `_` negates (`any` is
+the default pattern). `b` builds a big integer. `at` indexes a vector lane, and
+`ty` turns a block into a result. The long name of a short word lives in the
+shadow manifest. [`docs/SPEC.md`](docs/SPEC.md) is the authority for each of these.
 
 Three ideas make density safe rather than confusing:
 

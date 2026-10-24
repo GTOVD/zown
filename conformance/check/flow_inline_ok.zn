@@ -2,8 +2,8 @@
 # the exact authority of their caller. Inside a grant they must check clean.
 `s [
   [ `s rq ] @
-  1 [ [int] [ , `s rq ] [_] [ , ] ] ??
+  1 [ [int] [ , `s rq ] [any] [ , ] ] ??
   0 [ `s rq ] [ `s rq ] ? @
   [ `s rq 0 ] [ `s rq ] ;
-  [ `s rq 1 2 3 4 ] i4 ,
+  [ `s rq 1 2 3 4 ] vi ,
 ] gr

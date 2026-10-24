@@ -1,4 +1,4 @@
 # v0.2 capabilities: zero authority by default, scoped grant, non-fatal probe.
-`s hv .                              # 0  -> no authority to start
-`s [ `s rq $send-ok$ . `s hv . ] gr  # grant `s for this block
-`s hv .                              # 0  -> authority restored after the block
+`t hv .                              # 0  -> no authority to start
+`t [ `t rq $send-ok$ . `t hv . ] gr  # grant `t (net-send) for this block
+`t hv .                              # 0  -> authority restored after the block

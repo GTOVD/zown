@@ -83,11 +83,26 @@ def test_arithmetic_rpn():
     assert vm.stack == [1]
 
 
-def test_string_concat_with_plus():
-    _, vm = run("$foo$ $bar$ +")
+def test_retired_spellings_are_not_aliases():
+    # A token that used to mean two things is unbound, not a synonym.
+    for src in ("vadd", "vsub", "vmul", "vsum", "vat", "clr", "i128", "u128", "i4", "f4", "b16", "d2"):
+        _fails(src, NAME_UNRESOLVED)
+
+
+def test_plus_and_star_are_numeric_only():
+    _fails("$foo$ $bar$ +", TYPE_MISMATCH, "+")
+    _fails("$ab$ 3 *", TYPE_MISMATCH, "*")
+
+
+def test_string_concat_and_repeat_are_their_own_words():
+    _, vm = run("$foo$ $bar$ ct")
     assert vm.stack == ["foobar"]
-    _, vm = run("$n=$ 5 +")
+    _, vm = run("$n=$ 5 s ct")
     assert vm.stack == ["n=5"]
+    _, vm = run("$ab$ 3 rp")
+    assert vm.stack == ["ababab"]
+    _, vm = run("$ab$ 2 _ rp $ab$ 0 rp")
+    assert vm.stack == ["", ""]
 
 
 def test_bindings_push_value():
@@ -317,7 +332,7 @@ def test_big_compares_and_matches_by_value():
     assert vm.stack == [1]                            # big zero is falsy
     _, vm = run("5 b [ [big] [ , $big$ ] [int] [ , $int$ ] ] ??")
     assert vm.stack == ["big"]                        # a big is not an int
-    _, vm = run("5 b [ [5] [ , $five$ ] [_] [ , $other$ ] ] ??")
+    _, vm = run("5 b [ [5] [ , $five$ ] [any] [ , $other$ ] ] ??")
     assert vm.stack == ["five"]                       # literal patterns compare by value
 
 
@@ -373,52 +388,52 @@ def test_big_snapshot_is_json_safe():
 
 # --- SIMD vectors (v0.2) -------------------------------------------------------
 def test_vec_construct_and_shape():
-    _, vm = run("[ 1 2 3 4 ] i4")
+    _, vm = run("[ 1 2 3 4 ] vi")
     v = vm.stack[0]
-    assert isinstance(v, Vec) and v.name == "i4" and v.lanes == [1, 2, 3, 4]
+    assert isinstance(v, Vec) and v.name == "vi" and v.lanes == [1, 2, 3, 4]
 
 
 def test_vec_elementwise_ops():
-    _, vm = run("[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd")
+    _, vm = run("[ 1 2 3 4 ] vi [ 10 20 30 40 ] vi va")
     assert vm.stack[0].lanes == [11, 22, 33, 44]
-    _, vm = run("[ 5 5 5 5 ] i4 [ 1 2 3 4 ] i4 vsub")
+    _, vm = run("[ 5 5 5 5 ] vi [ 1 2 3 4 ] vi vs")
     assert vm.stack[0].lanes == [4, 3, 2, 1]
 
 
 def test_vec_integer_lanes_wrap():
-    src = "[ 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16 " \
-          "[ 10 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16 vadd 0 vat"
+    src = "[ 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] vu " \
+          "[ 10 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] vu va 0 at"
     _, vm = run(src)
     assert vm.stack == [4]  # 260 wraps to 4 in u8
 
 
 def test_vec_sum_and_at():
-    _, vm = run("[ 1 2 3 4 ] i4 vsum")
+    _, vm = run("[ 1 2 3 4 ] vi vh")
     assert vm.stack == [10]
-    _, vm = run("[ 7 8 9 10 ] i4 2 vat")
+    _, vm = run("[ 7 8 9 10 ] vi 2 at")
     assert vm.stack == [9]
 
 
 def test_vec_wrong_arity_is_bounds():
     try:
-        run("[ 1 2 3 ] i4")
+        run("[ 1 2 3 ] vi")
         assert False
     except ZownError as e:
-        assert e.code == BOUNDS and e.op == "i4"
+        assert e.code == BOUNDS and e.op == "vi"
 
 
 def test_vec_type_mismatch():
     try:
-        run("[ 1 2 3 4 ] i4 [ 1.0 2.0 ] d2 vadd")
+        run("[ 1 2 3 4 ] vi [ 1.0 2.0 ] vd va")
         assert False
     except ZownError as e:
-        assert e.code == TYPE_MISMATCH and e.op == "vadd"
+        assert e.code == TYPE_MISMATCH and e.op == "va"
 
 
 # --- pattern matching (v0.2) ---------------------------------------------------
 def _match_label(subject_src):
     arms = "[ [int] [ , $int$ ] [str] [ , $str$ ] [float] [ , $float$ ] " \
-           "[_] [ , $other$ ] ]"
+           "[any] [ , $other$ ] ]"
     _, vm = run(f"{subject_src} {arms} ??")
     return vm.stack[-1]
 
@@ -432,7 +447,7 @@ def test_match_by_type():
 
 def test_match_literal_and_subject_in_body():
     # body runs with the matched subject on top of the stack
-    _, vm = run("7 [ [7] [ ] [_] [ , 0 ] ] ??")
+    _, vm = run("7 [ [7] [ ] [any] [ , 0 ] ] ??")
     assert vm.stack == [7]
 
 
@@ -505,7 +520,7 @@ def test_check_move_stays_silent_when_it_cannot_know():
     assert _check("[ 1 ] :f 5 :x 'x , f @ x") == []      # f @ may have rebound x
     assert _check("5 :s 's , s") == []                   # falls back to the builtin s
     assert _check("0 :c 5 :x 'x , [ 5 :x c 1 < ] [ x ] ;") == []   # cond rebinds before body
-    assert _check("5 :x 'x , [ x ] at [ [_] [ , ] ] ??") == []    # inside at: handled
+    assert _check("5 :x 'x , [ x ] ty [ [any] [ , ] ] ??") == []    # inside at: handled
     assert [d.code for d in _check("5 :x [ 'x , x ] :g")] == [NAME_UNRESOLVED]  # within one block
 
 
@@ -524,7 +539,7 @@ def test_depth_counts_nesting_not_iterations():
 
 
 def test_recursion_trap_is_a_catchable_result():
-    _, vm = run("[ f @ ] :f [ f @ ] at")
+    _, vm = run("[ f @ ] :f [ f @ ] ty")
     assert vm.stack == [Res(False, "STACK_OVERFLOW")]
 
 
@@ -541,71 +556,71 @@ def test_defined_behavior_rows():
     _fails("1 0 %", DIV_ZERO, "%")
     _, vm = run("7 _ 3 %  7 3 _ %")
     assert vm.stack == [2, -2]                        # modulo takes the divisor's sign
-    _, vm = run("$ab$ 2 _ *  $ab$ 0 *")
+    _, vm = run("$ab$ 2 _ rp  $ab$ 0 rp")
     assert vm.stack == ["", ""]                       # repeat with count <= 0 is ""
-    _fails("[ 1 2 3 4 ] i4 4 vat", BOUNDS, "vat")     # lane index out of range
+    _fails("[ 1 2 3 4 ] vi 4 at", BOUNDS, "at")     # lane index out of range
 
 
 # --- result values (M8c-ii, D3) ------------------------------------------------
-def test_at_wraps_the_single_value_or_the_error_code():
-    _, vm = run("5 :x 2 :y [ x y / ] at")
+def test_ty_wraps_the_single_value_or_the_error_code():
+    _, vm = run("5 :x 2 :y [ x y / ] ty")
     assert vm.stack == [Res(True, 2.5)]
-    _, vm = run("1 :x 0 :y [ x y / ] at")
+    _, vm = run("1 :x 0 :y [ x y / ] ty")
     assert vm.stack == [Res(False, "DIV_ZERO")]
-    _, vm = run("[ `s rq 1 ] at")                    # a security fault is a value too
+    _, vm = run("[ `s rq 1 ] ty")                    # a security fault is a value too
     assert vm.stack == [Res(False, "CAP_DENIED")]
-    _, vm = run("7 [ 1 ] at")                        # isolated stack: outer values untouched
+    _, vm = run("7 [ 1 ] ty")                        # isolated stack: outer values untouched
     assert vm.stack == [7, Res(True, 1)]
 
 
-def test_at_body_must_leave_exactly_one_value():
-    _fails("[ 1 2 ] at", BOUNDS, "at")
-    _fails("[ ] at", BOUNDS, "at")
-    _, vm = run("5 [ 2 / ] at")                      # the body cannot see the outer 5
+def test_ty_body_must_leave_exactly_one_value():
+    _fails("[ 1 2 ] ty", BOUNDS, "ty")
+    _fails("[ ] ty", BOUNDS, "ty")
+    _, vm = run("5 [ 2 / ] ty")                      # the body cannot see the outer 5
     assert vm.stack == [5, Res(False, "STACK_UNDERFLOW")]
 
 
 def test_result_payload_is_reachable_only_through_match():
-    out, _ = run("[ 6 ] at [ [ok] [ 2 * . ] [err] [ . ] ] ??")
+    out, _ = run("[ 6 ] ty [ [ok] [ 2 * . ] [err] [ . ] ] ??")
     assert out == "12\n"                             # the ok arm receives the unwrapped 6
-    out, _ = run("[ 1 0 / ] at [ [ok] [ . ] [err] [ . ] ] ??")
+    out, _ = run("[ 1 0 / ] ty [ [ok] [ . ] [err] [ . ] ] ??")
     assert out == "DIV_ZERO\n"                       # the err arm receives the code
-    _, vm = run("[ 1 ] at [ [res] [ ] ] ??")
+    _, vm = run("[ 1 ] ty [ [res] [ ] ] ??")
     assert vm.stack == [Res(True, 1)]                # [res] is the type pattern: no unwrap
-    _fails("[ 1 ] at 1 +", TYPE_MISMATCH, "+")       # opaque to every other operator
-    _fails("[ 1 0 / ] at [ [ok] [ . ] ] ??", NO_MATCH, "??")
+    _fails("[ 1 ] ty 1 +", TYPE_MISMATCH, "+")       # opaque to every other operator
+    _fails("[ 1 0 / ] ty [ [ok] [ . ] ] ??", NO_MATCH, "??")
 
 
 def test_result_truthiness_is_its_ok_flag():
-    _, vm = run("[ 1 ] at ! [ 1 0 / ] at !")
+    _, vm = run("[ 1 ] ty ! [ 1 0 / ] ty !")
     assert vm.stack == [0, 1]
-    out, _ = run("[ 1 0 / ] at [ $good$ ] [ $bad$ ] ? @ .")
+    out, _ = run("[ 1 0 / ] ty [ $good$ ] [ $bad$ ] ? @ .")
     assert out == "bad\n"
 
 
 def test_result_display_and_snapshot():
-    out, _ = run("[ 5 ] at . [ 1 0 / ] at .")
+    out, _ = run("[ 5 ] ty . [ 1 0 / ] ty .")
     assert out == "ok(5)\nerr(DIV_ZERO)\n"
-    e = _fails("[ 5 ] at $x$ -", TYPE_MISMATCH)
+    e = _fails("[ 5 ] ty $x$ -", TYPE_MISMATCH)
     assert e.packet()["stack"] == ["ok:5"]           # after popping the offending $x$
 
 
 def test_check_result_match_must_be_exhaustive():
-    assert [d.code for d in _check("[ 1 0 / ] at [ [ok] [ . ] ] ??")] == [NO_MATCH]
-    assert [d.code for d in _check("[ 1 ] at [ [err] [ . ] ] ??")] == [NO_MATCH]
-    assert _check("[ 1 ] at [ [ok] [ . ] [err] [ . ] ] ??") == []
-    assert _check("[ 1 ] at [ [ok] [ . ] [_] [ , ] ] ??") == []
-    assert _check("[ 1 ] at [ [res] [ , ] ] ??") == []
+    assert [d.code for d in _check("[ 1 0 / ] ty [ [ok] [ . ] ] ??")] == [NO_MATCH]
+    assert [d.code for d in _check("[ 1 ] ty [ [err] [ . ] ] ??")] == [NO_MATCH]
+    assert _check("[ 1 ] ty [ [ok] [ . ] [err] [ . ] ] ??") == []
+    assert _check("[ 1 ] ty [ [ok] [ . ] [any] [ , ] ] ??") == []
+    assert _check("[ 1 ] ty [ [res] [ , ] ] ??") == []
     assert _check("5 [ [ok] [ . ] ] ??") == []        # subject not known to be a result: silent
 
 
-def test_check_faults_inside_at_are_the_handled_path():
-    # a capability denial inside `at` is caught -> no static CAP_DENIED
-    assert _check("[ `s rq 1 ] at [ [err] [ . ] [ok] [ , ] ] ??") == []
-    # ...and an escaped block that might run under `at` is not judged either
-    assert _check("[ `s rq ] :f  f at [ [err] [ . ] [ok] [ , ] ] ??") == []
-    # but well-formedness still holds inside `at`: a typo is a typo
-    assert [d.code for d in _check("[ zz ] at [ [_] [ , ] ] ??")] == [NAME_UNRESOLVED]
+def test_check_faults_inside_ty_are_the_handled_path():
+    # a capability denial inside `ty` is caught -> no static CAP_DENIED
+    assert _check("[ `s rq 1 ] ty [ [err] [ . ] [ok] [ , ] ] ??") == []
+    # ...and an escaped block that might run under `ty` is not judged either
+    assert _check("[ `s rq ] :f  f ty [ [err] [ . ] [ok] [ , ] ] ??") == []
+    # but well-formedness still holds inside `ty`: a typo is a typo
+    assert [d.code for d in _check("[ zz ] ty [ [any] [ , ] ] ??")] == [NAME_UNRESOLVED]
 
 
 # --- static checker (M8a) ------------------------------------------------------
@@ -630,16 +645,16 @@ def test_check_accepts_name_bound_anywhere():
 
 
 def test_check_does_not_flag_builtins_or_widths():
-    assert _check("ln up 300 u8 wr [ 1 2 3 4 ] i4 vsum") == []
+    assert _check("ln up 300 u8 wr [ 1 2 3 4 ] vi vh") == []
 
 
 def test_check_match_patterns_are_not_names():
     # `int`/`str` inside patterns must not be reported as unbound names
-    assert _check("42 [ [int] [ , $i$ ] [str] [ , $s$ ] [_] [ , $o$ ] ] ??") == []
+    assert _check("42 [ [int] [ , $i$ ] [str] [ , $s$ ] [any] [ , $o$ ] ] ??") == []
 
 
 def test_check_match_body_names_are_checked():
-    diags = _check("42 [ [int] [ , bogus ] [_] [ , $o$ ] ] ??")
+    diags = _check("42 [ [int] [ , bogus ] [any] [ , $o$ ] ] ??")
     assert len(diags) == 1 and diags[0].code == NAME_UNRESOLVED
 
 
@@ -709,7 +724,7 @@ def test_capflow_inline_consumers_inherit_authority():
     # @ / ; / ? @ / ?? / vector constructors run a literal block in the caller's scope
     assert _denied("`s [ [ `s rq ] @ ] gr") == []
     assert _denied("`s [ 1 [ [int] [ , `s rq ] ] ?? ] gr") == []
-    assert _denied("`s [ [ `s rq 1 2 3 4 ] i4 , ] gr") == []
+    assert _denied("`s [ [ `s rq 1 2 3 4 ] vi , ] gr") == []
     for src in ("[ `s rq ] @", "0 [ `s rq ] [ ] ? @", "0 [ ] [ `s rq ] ? @",
                 "[ `s hv ] [ `s rq ] ;", "[ `s rq ] [ ] ;", "1 [ [int] [ , `s rq ] ] ??"):
         assert len(_denied(src)) == 1, src

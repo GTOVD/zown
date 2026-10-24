@@ -6,5 +6,5 @@
 300 u8 wr .                       # 44   -> int   (u8's range fits int)
 5 u64 ck .                        # 5    -> big   (u64's range exceeds int; same digits)
 1 _ u64 wr .                      # 18446744073709551615 -> big
-5 u64 ck [ [big] [ , $u64 is big$ . ] [_] [ , $?$ . ] ] ??
-300 u8 wr [ [int] [ , $u8 is int$ . ] [_] [ , $?$ . ] ] ??
+5 u64 ck [ [big] [ , $u64 is big$ . ] [any] [ , $?$ . ] ] ??
+300 u8 wr [ [int] [ , $u8 is int$ . ] [any] [ , $?$ . ] ] ??

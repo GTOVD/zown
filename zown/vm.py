@@ -19,8 +19,8 @@ blocks + operators:
     subject [arms] ??       -> pattern match (v0.2): first [pattern][body] arm wins
 
 v0.2 additions (SPEC Part II): capability tokens (`c) with `gr`/`rq`/`hv`,
-fixed-width integer tags (i8..u128) with `wr`/`st`/`ck`, and SIMD vectors
-(f4 d2 i4 b16). Static checks that run before execution live in checker.py.
+fixed-width integer tags (i8..ix, u8..ux) with `wr`/`st`/`ck`, and SIMD vectors
+(vf vd vi vu). Static checks that run before execution live in checker.py.
 """
 
 from __future__ import annotations
@@ -117,8 +117,8 @@ class Cap:
 class WidthTag:
     """A fixed-width integer type tag (v0.2; SPEC Part II §11).
 
-    The default Zown integer is arbitrary precision. A `WidthTag` (pushed by words
-    `i8 i16 i32 i64 i128 u8 u16 u32 u64 u128`) names a bounded representation; the
+    The default Zown integer is a checked 64-bit. A `WidthTag` (pushed by words
+    `i8 i16 i32 i64 ix u8 u16 u32 u64 ux`) names a bounded representation; the
     policy words `wr`/`st`/`ck` then reduce a value into that width. Overflow is
     therefore *never silent* — it is always wrap, saturate, or a checked trap.
     """
@@ -128,6 +128,10 @@ class WidthTag:
 
     @property
     def name(self) -> str:
+        # 128-bit widths are `ix`/`ux`: `i128` is four characters, past the
+        # library-word limit. Every other width's suffix is its bit count.
+        if self.bits == 128:
+            return "ix" if self.signed else "ux"
         return f"{'i' if self.signed else 'u'}{self.bits}"
 
     @property
@@ -142,7 +146,7 @@ class WidthTag:
     def fits_int(self) -> bool:
         """Does the width's *entire* range fit the checked 64-bit `int`? A policy
         word (`wr`/`st`/`ck`) yields an `int` for such widths (i8..i64, u8..u32)
-        and a `big` otherwise (u64, i128, u128) — the type is decided by the
+        and a `big` otherwise (u64, ix, ux) — the type is decided by the
         width, not by the value, so it is static."""
         return self.lo >= INT_MIN and self.hi <= INT_MAX
 
@@ -154,9 +158,9 @@ class WidthTag:
 class Vec:
     """A fixed-lane SIMD vector (v0.2; SPEC Part II §11).
 
-    Lane count and lane type are fixed by the constructor word (`f4` = f32x4,
-    `d2` = f64x2, `i4` = i32x4, `b16` = u8x16). Elementwise ops (`vadd`/`vsub`/
-    `vmul`) require matching vector types; integer lanes wrap to their width, the
+    Lane count and lane type are fixed by the constructor word (`vf` = f32x4,
+    `vd` = f64x2, `vi` = i32x4, `vu` = u8x16). Elementwise ops (`va`/`vs`/`vm`)
+    require matching vector types; integer lanes wrap to their width, the
     same "no silent overflow" rule as scalar fixed-width ints.
 
     Note: the oracle stores float lanes as Python floats (f64). It does not model
@@ -164,7 +168,7 @@ class Vec:
     here the observable semantics are lane count, type compatibility, and wrap.
     """
 
-    name: str          # "f4" | "d2" | "i4" | "b16"
+    name: str          # "vf" | "vd" | "vi" | "vu"
     count: int
     is_float: bool
     signed: bool       # meaningful only for integer lanes
@@ -406,11 +410,9 @@ def _numeric(vm: VM, op: str, pos: Pos, a: Any, b: Any, fn) -> Any:
 
 
 def op_add(vm: VM, pos: Pos) -> None:
-    b = vm.pop("+", pos)
-    a = vm.pop("+", pos)
-    if isinstance(a, str) or isinstance(b, str):
-        vm.push(_as_str(a) + _as_str(b))  # `+` concatenates when either side is text
-        return
+    # `+` adds numbers. String concatenation is the word `ct`.
+    b = vm.pop_num("+", pos)
+    a = vm.pop_num("+", pos)
     vm.push(_numeric(vm, "+", pos, a, b, lambda x, y: x + y))
 
 
@@ -421,11 +423,9 @@ def op_sub(vm: VM, pos: Pos) -> None:
 
 
 def op_mul(vm: VM, pos: Pos) -> None:
-    b = vm.pop("*", pos)
-    a = vm.pop("*", pos)
-    if isinstance(a, str) and isinstance(b, int) and not isinstance(b, bool):
-        vm.push(a * b)  # str repeat: $ab$ 3 *  (a count <= 0 yields "" — defined)
-        return
+    # `*` multiplies numbers. String repeat is the word `rp`.
+    b = vm.pop_num("*", pos)
+    a = vm.pop_num("*", pos)
     vm.push(_numeric(vm, "*", pos, a, b, lambda x, y: x * y))
 
 
@@ -577,10 +577,11 @@ def op_while(vm: VM, pos: Pos) -> None:
 
 
 # Pattern kinds a `??` arm may use (SPEC Part II §16). Patterns are *introspected*
-# (read from the AST), not executed: a type name, a literal, `_` (default), or a
-# result destructurer (`ok` / `err`, §16.1). The checker imports these sets so
+# (read from the AST), not executed: a type name, a literal, `any` (default), or a
+# result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
+# The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "bool", "block", "cap", "width", "vec", "big", "res"}
+_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res"}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -598,11 +599,11 @@ def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> tuple[b
     if len(pat_nodes) != 1:
         raise vm.err(BAD_PATTERN,
                      f"a pattern holds exactly one token, got {len(pat_nodes)}",
-                     op="??", pos=pos, hint="use [int], [42], [$txt$], [ok], or [_] (default)")
+                     op="??", pos=pos, hint="use [int], [42], [$txt$], [ok], or [any] (default)")
     n = pat_nodes[0]
     tag = n[0]
-    if tag == "op" and n[1] == "_":
-        return True, subject  # wildcard / default arm
+    if tag == "name" and n[1] == "any":
+        return True, subject  # wildcard / default arm. `any` is not a stack word.
     if tag in ("int", "float", "str"):
         return ival(subject) == n[1], subject  # literal patterns compare by value (big too)
     if tag == "name" and n[1] in _RES_PATTERNS:
@@ -613,7 +614,7 @@ def _pattern_matches(vm: VM, subject: Any, pat_nodes: list, pos: Pos) -> tuple[b
         return type_name(subject) == n[1], subject
     raise vm.err(BAD_PATTERN, f"unrecognized pattern `{_pat_desc(n)}`",
                  op="??", pos=pos,
-                 hint="a pattern is a type name, a literal, ok/err, or _ (default)")
+                 hint="a pattern is a type name, a literal, ok/err, or any (default)")
 
 
 def op_match(vm: VM, pos: Pos) -> None:
@@ -641,8 +642,8 @@ def op_match(vm: VM, pos: Pos) -> None:
     what = ("err result" if isinstance(subject, Res) and not subject.ok
             else "ok result" if isinstance(subject, Res) else f"{type_name(subject)} subject")
     raise vm.err(NO_MATCH, f"no arm matched the {what}", op="??", pos=pos,
-                 hint="handle it: [err] [ ... ], or add a default arm [_] [ ... ]"
-                 if isinstance(subject, Res) else "add a default arm: [_] [ ... ]")
+                 hint="handle it: [err] [ ... ], or add a default arm [any] [ ... ]"
+                 if isinstance(subject, Res) else "add a default arm: [any] [ ... ]")
 
 
 _OPS: dict[str, Callable[[VM, Pos], None]] = {

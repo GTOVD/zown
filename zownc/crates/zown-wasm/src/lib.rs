@@ -210,7 +210,7 @@ fn emit_instr(
         }
         Instr::ConstCap(_) | Instr::Move(_) | Instr::Match | Instr::Attempt => {
             return Err(
-                "UNSUPPORTED: v0.2 caps, moves, `??`, and `at` are not in the WASM backend (PLAN M9)"
+                "UNSUPPORTED: v0.2 caps, moves, `??`, and `ty` are not in the WASM backend (PLAN M9)"
                     .into(),
             );
         }
@@ -334,7 +334,30 @@ fn emit_load(name: &str, vars: &HashMap<String, usize>, body: &mut String) -> Re
             "(i64.const 0)",
             "(i64.extend_i32_s (i32.div_s (i32.sub (global.get $sp) (global.get $sbase)) (i32.const 16)))",
         ),
-        "clr" => body.push_str("    (global.set $sp (global.get $sbase))\n"),
+        "cl" => body.push_str("    (global.set $sp (global.get $sbase))\n"),
+        "ct" => {
+            body.push_str(POP_B);
+            body.push_str(POP_A);
+            body.push_str(
+                "    (if (i32.and (i64.eq (local.get $at) (i64.const 2)) \
+                                   (i64.eq (local.get $bt) (i64.const 2)))\n\
+                 \x20     (then (call $push (i64.const 2) (i64.extend_i32_u \
+                              (call $str_concat (i32.wrap_i64 (local.get $ap)) \
+                                                (i32.wrap_i64 (local.get $bp))))))\n\
+                 \x20     (else unreachable))\n",
+            );
+        }
+        "rp" => {
+            body.push_str(POP_B);
+            body.push_str(POP_A);
+            body.push_str(
+                "    (if (i32.and (i64.eq (local.get $at) (i64.const 2)) \
+                                   (i64.eq (local.get $bt) (i64.const 0)))\n\
+                 \x20     (then (call $push (i64.const 2) (i64.extend_i32_u \
+                              (call $str_repeat (i32.wrap_i64 (local.get $ap)) (local.get $bp)))))\n\
+                 \x20     (else unreachable))\n",
+            );
+        }
         "pr" => {
             body.push_str(POP_A);
             body.push_str("    (call $print_raw (local.get $at) (local.get $ap))\n");
@@ -356,10 +379,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
             body.push_str(
                 "    (if (i32.or (i64.eq (local.get $at) (i64.const 2)) \
                                   (i64.eq (local.get $bt) (i64.const 2)))\n\
-                 \x20     (then (call $push (i64.const 2) (i64.extend_i32_u \
-                              (call $str_concat \
-                                (call $sval (local.get $at) (local.get $ap)) \
-                                (call $sval (local.get $bt) (local.get $bp))))))\n\
+                 \x20     (then unreachable)\n\
                  \x20     (else (if (i32.or (i64.eq (local.get $at) (i64.const 1)) \
                                             (i64.eq (local.get $bt) (i64.const 1)))\n\
                  \x20             (then (call $push (i64.const 1) (i64.reinterpret_f64 \
@@ -375,8 +395,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
             body.push_str(
                 "    (if (i32.and (i64.eq (local.get $at) (i64.const 2)) \
                                    (i64.eq (local.get $bt) (i64.const 0)))\n\
-                 \x20     (then (call $push (i64.const 2) (i64.extend_i32_u \
-                              (call $str_repeat (i32.wrap_i64 (local.get $ap)) (local.get $bp)))))\n\
+                 \x20     (then unreachable)\n\
                  \x20     (else (if (i32.or (i64.eq (local.get $at) (i64.const 1)) \
                                             (i64.eq (local.get $bt) (i64.const 1)))\n\
                  \x20             (then (call $push (i64.const 1) (i64.reinterpret_f64 \

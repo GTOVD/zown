@@ -1,7 +1,7 @@
 //! Static checker, a port of `zown/checker.py`.
 //!
 //! A finding is a definite unhandled fault or a violation of a static rule the
-//! SPEC mandates. Inside `at`, faults are the handled path and stay silent.
+//! SPEC mandates. Inside `ty`, faults are the handled path and stay silent.
 //! Patterns are read, never executed. See the Python module for the full
 //! contract; this file follows it branch for branch.
 
@@ -17,12 +17,12 @@ const BAD_PATTERN: &str = "BAD_PATTERN";
 const NO_MATCH: &str = "NO_MATCH";
 
 const PATTERN_TYPES: &[&str] = &[
-    "int", "float", "str", "bool", "block", "cap", "width", "vec", "big", "res",
+    "int", "float", "str", "block", "cap", "width", "vec", "big", "res",
 ];
 const RES_PATTERNS: &[&str] = &["ok", "err"];
-const VEC_CTORS: &[&str] = &["f4", "d2", "i4", "b16"];
+const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];
 const INVOKING_OPS: &[&str] = &["@", ";", "??"];
-const INVOKING_WORDS: &[&str] = &["gr", "at", "f4", "d2", "i4", "b16"];
+const INVOKING_WORDS: &[&str] = &["gr", "ty", "vf", "vd", "vi", "vu"];
 
 /// One static finding. `render_lines` is the conformance format.
 #[derive(Debug, Clone)]
@@ -87,7 +87,7 @@ impl Checker {
     fn check(mut self, nodes: &[Node]) -> Vec<Diag> {
         self.collect_binds(nodes);
         self.collect_grantable(nodes);
-        self.uses_at = self.uses_word(nodes, "at");
+        self.uses_at = self.uses_word(nodes, "ty");
         let none = BTreeSet::new();
         self.walk(nodes, Some(&none), false, None);
         self.diags
@@ -272,7 +272,7 @@ impl Checker {
         let nxt3 = at(nodes, ii + 3);
 
         if Self::is_op(nxt, "??") {
-            let subject_is_res = self.is_word(prev, "at")
+            let subject_is_res = self.is_word(prev, "ty")
                 && matches!(
                     prev2,
                     Some(Node {
@@ -327,7 +327,7 @@ impl Checker {
             } else {
                 inner = None;
             }
-        } else if self.is_word(nxt, "at") {
+        } else if self.is_word(nxt, "ty") {
             inner = known.cloned();
             in_at = true;
         } else if let Some(Node {
@@ -428,7 +428,7 @@ impl Checker {
                 ),
             }
         }
-        let covered = seen.contains("_")
+        let covered = seen.contains("any")
             || seen.contains("res")
             || (seen.contains("ok") && seen.contains("err"));
         if subject_is_res && !covered {
@@ -449,7 +449,7 @@ impl Checker {
                 blk.pos,
                 Some("??".into()),
                 None,
-                "add [err] and [ok] arms, or a default [_]",
+                "add [err] and [ok] arms, or a default [any]",
             );
         }
     }
@@ -462,13 +462,13 @@ impl Checker {
                 pat.pos,
                 Some("??".into()),
                 None,
-                "use [int], [42], [$txt$], [ok], or [_]",
+                "use [int], [42], [$txt$], [ok], or [any]",
             );
             return None;
         }
         let n = &nodes[0];
         match &n.kind {
-            NodeKind::Op(s) if s == "_" => Some("_".into()),
+            NodeKind::Name(s) if s == "any" => Some("any".into()),
             NodeKind::Int(_) | NodeKind::Float(_) | NodeKind::Str(_) => Some("lit".into()),
             NodeKind::Name(s)
                 if PATTERN_TYPES.contains(&s.as_str()) || RES_PATTERNS.contains(&s.as_str()) =>
@@ -491,7 +491,7 @@ impl Checker {
                     pat.pos,
                     Some("??".into()),
                     None,
-                    "a pattern is a type name, a literal, ok/err, or _",
+                    "a pattern is a type name, a literal, ok/err, or any",
                 );
                 None
             }

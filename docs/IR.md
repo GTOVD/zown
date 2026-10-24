@@ -36,12 +36,12 @@ IrBlock(Vec<Instr>)
 | `Select`        | `?`                | choose a block by a condition              |
 | `While`         | `;`                | `[cond] [body] ;`                          |
 | `Match`         | `??`               | pattern-match; not a value operator        |
-| `Attempt`       | the name `at`      | result constructor (unlowers to the name)  |
+| `Attempt`       | the name `ty`      | result constructor (unlowers to the name)  |
 
 `@ ? ; ??` are dedicated instructions because backends must treat them specially
-(calls, branches, loops, matching). `at` lowers to `Attempt` so a backend can
+(calls, branches, loops, matching). `ty` lowers to `Attempt` so a backend can
 see the result constructor without scanning names; unlower turns it back into
-the name `at`, so a binding of that name still round-trips. Every other
+the name `ty`, so a binding of that name still round-trips. Every other
 operator is a uniform `Op(sym)`.
 
 ## Example

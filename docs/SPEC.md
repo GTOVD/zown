@@ -2,8 +2,9 @@
 
 Zown is an **AI-native, token-dense, stack-based** programming language. It is
 designed to be written and read primarily by machines: control flow, stack
-manipulation, and most operations are single ASCII characters, and the standard
-library uses 1–2 character words. A program rarely needs identifiers at all.
+manipulation, and most operations are single ASCII characters, and every prebuilt
+word is one character, or two, or three — never longer, and never a second name
+for something another token already means. A program rarely needs identifiers at all.
 
 This document defines the **v0.1 core** that the reference interpreter in this
 repo actually implements (**Part I**, §1–§10). The longer-term vision (native
@@ -107,15 +108,19 @@ A user binding therefore shadows a stdlib word of the same name.
 ### Arithmetic
 | Op  | Meaning           | Notes                                            |
 |-----|-------------------|--------------------------------------------------|
-| `+` | add / concatenate | if either operand is a string, concatenates      |
+| `+` | add               | numbers only. Two strings concatenate with `ct`  |
 | `-` | subtract          | numbers only                                     |
-| `*` | multiply / repeat | `str int *` repeats the string                   |
+| `*` | multiply          | numbers only. `str count rp` repeats a string    |
 | `/` | divide            | error `DIV_ZERO` on `/0`                          |
 | `%` | modulo            | error `DIV_ZERO` on `%0`                          |
 | `_` | negate (unary)    | `5 _` -> `-5`                                     |
 
-> **Resolved contradiction:** the notes used `*` for *both* multiply and "loop".
-> In Zown, `*` is multiply; looping is the `;` word (see §6).
+> **Resolved contradiction:** the notes used `*` for multiply, for looping, and
+> for repeating a string. In Zown, `*` is multiply only. Looping is `;` (§6).
+> Repeating a string is the word `rp`. `+` is add only; joining two strings is
+> the word `ct`. A dot between two digit runs is a float literal (`5.5`); the
+> print operator is the token `.` only when it is not part of that literal
+> (`5.` prints 5).
 
 ### Comparison & logic (push `1`/`0`)
 | Op   | Meaning            |
@@ -222,10 +227,17 @@ also feeds the manifest generator.
 | `rd`  | round     | round to nearest int                         |
 | `s`   | to_str    | convert top value to its string form         |
 | `n`   | to_num    | parse a string into a number (`OVERFLOW` beyond `int`) |
-| `b`   | big       | convert an int / whole float / digit string to a `big` (§11) |
+| `b`   | big       | convert an int / whole float / digit string to a `big` (§11). Not a vector prefix |
 | `dp`  | depth     | push the current stack depth                 |
 | `rt`  | rot       | rotate top three (`a b c -> b c a`)          |
-| `clr` | clear     | clear the whole stack                        |
+| `cl`  | clear     | clear the whole stack                        |
+| `ct`  | concat    | concatenate two strings (`a b ct`). Both must already be strings |
+| `rp`  | repeat    | `str count rp` repeats the string; a count `<= 0` yields `""` |
+
+A prebuilt word is the shortest free spelling that still has one meaning: one
+character, then two, then three. `cl` is two because `c` is the standard
+clock capability. There is no second stack word for any row above. The manifest
+carries the long alias; the source does not.
 
 ---
 
@@ -300,11 +312,10 @@ ident    = letter { letter | digit } ;
 
 # Part II — Planned language surface (v0.2 design)
 
-Everything below is **design, not yet implemented**. It is specified here so the
-native compiler (PLAN M9) is built once with the full type system in hand, and so
-the Python oracle (PLAN M7) can validate the semantically-observable parts first.
-**Tokens are provisional**, pending a density audit — the *semantics* and the
-*shape* are what's being frozen.
+Sections below are **implemented** in the oracle where they say so, and
+**design-only** where they say so. The native compiler consumes the implemented
+surface. The density audit (2026-10-24) froze the tokens: each one has a single
+meaning, and every prebuilt word is at most three characters.
 
 Two principles carry over from Part I and govern every addition:
 
@@ -341,11 +352,11 @@ notation (`1e+30`); `inf`, `-inf`, `nan` print as such and `n` parses them.
 
 | Class | Types |
 |-------|-------|
-| signed int | `i8 i16 i32 i64 i128` |
-| unsigned int | `u8 u16 u32 u64 u128` |
-| pointer-size | `usize isize` |
-| float | `f32 f64` |
-| exact | `dec` (decimal), `big` (arbitrary precision — **implemented**, the `b` word), `cx` (complex) |
+| signed int | `i8 i16 i32 i64 ix` — the suffix is the bit width; `ix` is 128 because `i128` is four characters |
+| unsigned int | `u8 u16 u32 u64 ux` — `ux` is unsigned 128 |
+| pointer-size | `iz` `uz` (*design-only*; the source words, not `isize` / `usize`) |
+| float | one kind, `float` (binary64). A narrower float, if it is ever added, will not be spelled `f32` — that digit shape belongs to widths, and `vf` is already the f32×4 vector |
+| exact | `dc` (decimal, design-only), `big` (arbitrary precision — **implemented**, the `b` word), `cx` (complex, design-only) |
 
 #### Fixed-width arithmetic — **implemented (M7c-i, oracle)**
 
@@ -368,7 +379,7 @@ n width ck   # check  — pass through, or raise OVERFLOW if it won't fit
 Policy words are integer-only (a fractional float is a `TYPE_MISMATCH`); a `big`
 input is reduced like any integer. **The result's type is decided by the width,
 not the value:** widths whose entire range fits `int` (`i8…i64`, `u8…u32`) yield
-an `int`; the others (`u64`, `i128`, `u128`) yield a `big` — so `5 u64 ck` is
+an `int`; the others (`u64`, `ix`, `ux`) yield a `big` — so `5 u64 ck` is
 `5 b`, and the type is static. `dec` and `cx` remain design-only.
 
 ### Vector / SIMD types — **implemented (M7c-ii, oracle)**
@@ -377,18 +388,21 @@ Lane-typed values that will lower to native SIMD (SSE/AVX/NEON, chosen by target
 A constructor word evaluates a block to produce its lanes:
 
 ```
-f4   = f32 x4      d2 = f64 x2
-i4   = i32 x4      b16 = u8 x16
-[ 1 2 3 4 ] i4               # build an i32x4
-[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd    # i4(11 22 33 44)
-[ 1 2 3 4 ] i4 vsum .        # 10   (horizontal sum -> scalar)
-[ 7 8 9 10 ] i4 2 vat .      # 9    (lane 2)
+vf   = f32 x4      vd = f64 x2
+vi   = i32 x4      vu = u8 x16
+[ 1 2 3 4 ] vi               # build an i32x4
+[ 1 2 3 4 ] vi [ 10 20 30 40 ] vi va    # vi(11 22 33 44)
+[ 1 2 3 4 ] vi vh .          # 10   (horizontal sum -> scalar)
+[ 7 8 9 10 ] vi 2 at .       # 9    (lane 2)
 ```
 
-Elementwise ops are word-form (`vadd vsub vmul`), **not** `v+`/`v*`: a Zown
-identifier cannot contain an operator char, so `v+` would lex as `v` then `+`.
-Ops require matching vector types (else `TYPE_MISMATCH`); integer lanes wrap to
-their width, the same rule as scalar fixed-width ints.
+Every vector word starts with `v` and is two characters. The number in `i8` or
+`u64` is a bit width, so a vector is not spelled `i4` or `b16` (`b` is already
+the big-integer word). Elementwise ops are `va` `vs` `vm`, the horizontal sum is
+`vh`, and the lane index is `at`. They are words rather than `v+` because an
+identifier cannot contain an operator character. Ops require matching vector
+types (else `TYPE_MISMATCH`); integer lanes wrap to their width, the same rule
+as scalar fixed-width ints.
 
 > Oracle limitation: float lanes are stored as f64; the oracle does not model f32
 > rounding. Lane count, type compatibility, and integer wrap are the observable
@@ -410,7 +424,7 @@ code; the manifest maps the code to its full name + scope.
 
 | Code | Capability | Notes |
 |------|-----------|-------|
-| `` `s `` | net-send | scopable: `` `s rate:1000/s `` |
+| `` `t `` | net-send | scopable: `` `t rate:1000/s ``. Not `` `s ``: the word `s` is `to_str` |
 | `` `r `` | net-recv | |
 | `` `d `` | disk | path-scoped at grant time |
 | `` `g `` | gpu-compute | |
@@ -424,7 +438,7 @@ A block's required capabilities live in its **manifest** entry (`caps`), not in 
 source — the source stays dense:
 
 ```
-[ ... ] :get        # manifest: get.caps = ["`s","`r"]
+[ ... ] :get        # manifest: get.caps = ["`t","`r"]
 ```
 
 A call that uses a capability it was not granted fails to type (or traps with a
@@ -443,9 +457,9 @@ move authority through the stack. A program starts with **zero** grants.
 | `hv` | `` `cap hv `` | push `1` if `` `cap `` is granted, else `0` (non-fatal probe) |
 
 ```
-`s hv .                          # 0  -> no authority by default
-`s [ `s rq $send-ok$ . ] gr      # grant net-send for this block only
-`s hv .                          # 0  -> authority restored after the block
+`t hv .                          # 0  -> no authority by default
+`t [ `t rq $send-ok$ . ] gr      # grant net-send for this block only
+`t hv .                          # 0  -> authority restored after the block
 ```
 
 Grants nest and unwind independently. Privileged stdlib operations (net, disk,
@@ -469,7 +483,7 @@ invokes its block — flow is not lexical scope. Two facts are provable:
 
 1. **Exact authority.** Top-level code runs with exactly **zero** grants. A block
    literal that is *anchored* — consumed inline by `@`, `;`, `? @`, `??`, a SIMD
-   constructor (`f4 d2 i4 b16`), or `gr` — runs with exactly the enclosing
+   constructor (`vf vd vi vu`), or `gr` — runs with exactly the enclosing
    authority, plus `c` for the literal form `` `c [ ... ] gr ``. Inside such
    blocks the granted set is still exact, so `c ∉ set` is a definite denial.
 2. **Never granted.** Capability values are created only by `` ` `` literals, and
@@ -530,7 +544,7 @@ targets an **interface**, not an IP; the runtime resolves which peer provides it
 | Token | Meaning |
 |-------|---------|
 | `~o` | open a stream to a peer |
-| `~s` | send on a stream (needs `` `s ``) |
+| `~s` | send on a stream (needs `` `t ``). The `~` makes this a different token from the word `s` |
 | `~r` | recv from a stream (needs `` `r ``) |
 | `~c` | connect to an interface (resolved via the mesh) |
 | `~l` | local same-machine fast path (shared memory) |
@@ -543,7 +557,7 @@ structurally compatible (checked at compile time, else at capability-grant time)
 ```
 # a protocol type (conceptual; dense form TBD)
 proto Store [ get:[Hash]->[val?]  put:[Hash val]->[ok|err] ]
-`s Store ~c :db        # connect to any peer that speaks Store
+`t Store ~c :db        # connect to any peer that speaks Store
 ```
 
 Content addresses are written `$zown:<hash>$`; mutable refs are
@@ -588,17 +602,17 @@ stack** for the body to use; if none matches, a structured `NO_MATCH` is raised
 it never executes it.
 
 ```
-42 [ [int]   [ , $an int$ . ]      # type pattern: int/big/float/str/bool/block/cap/width/vec
+42 [ [int]   [ , $an int$ . ]      # type pattern: int/big/float/str/block/cap/width/vec
      [str]   [ up . ]              # body sees the subject (here: uppercase it)
      [7]     [ , $seven$ . ]       # literal pattern (int/float/str), compared by value
-     [_]     [ , $other$ . ] ] ??  # _ is the default arm
+     [any]   [ , $other$ . ] ] ??  # any is the default arm. There is no bool type
 ```
 
 | Pattern | Matches |
 |---------|---------|
 | `[int]` `[big]` … `[vec]` | a value of that type (`type_name`) |
 | `[42]` `[$hi$]` | a value equal to the literal (`5 b` matches `[5]`) |
-| `[_]` | anything (default) |
+| `[any]` | anything (default). `any` is not a stack word, and `_` is only negate |
 
 Malformed arms (odd count, a non-block arm, or an unrecognized pattern token)
 raise `BAD_PATTERN`. **Destructuring** (`[a b]` over a tuple) stays design-only
@@ -613,10 +627,10 @@ the data is unreachable until the failure case is consumed" (decision D3: the
 consumer is `??`, since `?` is select).
 
 ```
-[ body ] at            # run body; ok(its single value) or err(the .zerr code it raised)
+[ body ] ty            # run body; ok(its single value) or err(the .zerr code it raised)
 ```
 
-- `at` runs the body on an **isolated stack** (like the SIMD constructors) so its
+- `ty` runs the body on an **isolated stack** (like the SIMD constructors) so its
   stack effect is always `( blk -- res )` on both paths — the ok and err shapes
   are identical, which keeps stack programs predictable. Pass inputs through
   bindings (`5 :x [ x 2 / ] at`). The body must leave exactly one value, else
@@ -628,21 +642,21 @@ consumer is `??`, since `?` is select).
   result with the *code string*; `[res]` is the ordinary type pattern (no
   unwrap). To every other operator a result is opaque (`TYPE_MISMATCH`); it
   prints as `ok(5)` / `err(DIV_ZERO)`; its truthiness is its ok-ness, so
-  `[ … ] at [then] [else] ? @` branches without exposing the payload.
-- **Exhaustiveness is a static rule.** For the literal shape `[ … ] at [ arms ]
+  `[ … ] ty [then] [else] ? @` branches without exposing the payload.
+- **Exhaustiveness is a static rule.** For the literal shape `[ … ] ty [ arms ]
   ??` the checker requires the arms to cover both `ok` and `err` — via
-  `[ok]`+`[err]`, `[res]`, or a default `[_]` — else a static `NO_MATCH` and the
+  `[ok]`+`[err]`, `[res]`, or a default `[any]` — else a static `NO_MATCH` and the
   program is rejected before it runs (§8). At run time an unhandled err is
   `NO_MATCH` as well.
 
 ```
 5 :x 0 :y
-[ x y / ] at [ [ok]  [ 2 * . ]
-               [err] [ $div failed: $ \ + . ] ] ??    # div failed: DIV_ZERO
-[ `s rq 1 ] at ! [ $no net$ . ] [ ] ? @              # probe a capability without faulting
+[ x y / ] ty [ [ok]  [ 2 * . ]
+               [err] [ $div failed: $ \ ct . ] ] ??   # div failed: DIV_ZERO
+[ `t rq 1 ] ty ! [ $no net$ . ] [ ] ? @              # probe a capability without faulting
 ```
 
-Inside an `at` body a fault is the *intended* err path, so the checker does not
+Inside a `ty` body a fault is the *intended* err path, so the checker does not
 report capability-flow denials there; well-formedness findings (unresolved names,
 malformed arms, exhaustiveness) are still reported — no execution makes them right.
 
@@ -657,7 +671,7 @@ Part I §5 reservations stand. Part II claims:
 | `"` | reserved for a future *mutable reference* sigil once heap values exist (§20) |
 | `~x` words | network/lane primitives (§14) |
 | `» « →` | embedded graph DB query pipeline (`DESIGN.md` §6) |
-| `??` | pattern-match dispatch (§16, provisional) |
+| `??` | pattern-match dispatch (§16). `?` stays select; `??` is not a second meaning of `?` |
 
 Unclaimed symbols remain lex errors so they stay open for future density wins.
 
@@ -678,9 +692,9 @@ domain errors, `nan` → integer — trapped at runtime), plus the runtime traps
   "code": "CAP_DENIED",
   "msg": "operation requires net-send; not granted",
   "op": "~s",
-  "cap": "`s",
+  "cap": "`t",
   "node": "zown:abc123...",
-  "hint": "grant `s in the module manifest, or route via a capability holder"
+  "hint": "grant `t in the module manifest, or route via a capability holder"
 }
 ```
 
@@ -697,7 +711,7 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `int` result outside `[-2^63, 2^63-1]` (`+ - * _ ab pw fl ce rd n`) | trap `OVERFLOW` | `errors_v2/int_overflow`, `pw_overflow`, `n_overflow` |
 | integer literal beyond `int` | lex trap `OVERFLOW` | `errors_v2/lit_overflow` |
 | `big` arithmetic | exact, unbounded (value) | `cases_v2/big_arith` |
-| width policy result (`wr st ck`) | `int` for widths inside `int`, `big` for `u64 i128 u128` | `cases_v2/int_checked` |
+| width policy result (`wr st ck`) | `int` for widths inside `int`, `big` for `u64 ix ux` | `cases_v2/int_checked` |
 | division / modulo by zero — int, big, **and float** | trap `DIV_ZERO` | `errors/divzero`, `errors_v2/float_divzero` |
 | zero to a negative power | trap `DIV_ZERO` | (unit test) |
 | float overflow (`* + pw`) | `±inf` (value) | `cases_v2/float_ieee` |
@@ -707,9 +721,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `±inf` → integer | trap `OVERFLOW` | `errors_v2/float_inf_to_int` |
 | whole float beyond `int` | stays a float (`1e+30`) | `cases_v2/float_ieee` |
 | `%` with negative operands | result takes the divisor's sign (Python rule), ints and floats | `cases_v2/defined_behavior` |
-| string repeat with count ≤ 0 | `""` | `cases_v2/defined_behavior` |
+| string repeat (`rp`) with count ≤ 0 | `""` | `cases_v2/defined_behavior` |
 | vector lane index out of range | trap `BOUNDS` | `errors_v2/vec_oob` |
-| wrong lane count / `at` body arity | trap `BOUNDS` | `errors_v2/vec_arity`, `res_arity` |
+| wrong lane count / `ty` body arity | trap `BOUNDS` | `errors_v2/vec_arity`, `res_arity` |
 | stack underflow | trap `STACK_UNDERFLOW` | `errors/underflow` |
 | **unbounded recursion** (invocations nested past the limit) | trap `STACK_OVERFLOW` at the invoking site; loops (`;`) never consume depth | `errors_v2/recursion`, `cases_v2/defined_behavior` |
 | **block nesting past the parser's limit** | parse trap `REPAIR_SYNTAX` | (unit test) |
@@ -721,7 +735,7 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | use-after-free, out-of-bounds memory, data race | **impossible in v0.2** — no raw memory or shared mutable state; the M9 memory model must keep it so (fat pointers, `BOUNDS`) | M9 |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
-Every trap above is a value when it happens inside `at` (§16.1):
+Every trap above is a value when it happens inside `ty` (§16.1):
 `[ f @ ] :f [ f @ ] at` yields `err(STACK_OVERFLOW)`. The oracle's limits are
 128 nested invocations and 256 nested blocks; native runtimes set their own but
 the *kind* of outcome is fixed by this table.
@@ -753,11 +767,11 @@ x                  # NAME_UNRESOLVED (static and run time)
 - **Static use-after-move.** Within one node sequence the checker (§8) tracks
   names moved so far: a later bare `name` (unless it is also a builtin) or a
   second `'name` is a static `NAME_UNRESOLVED` and the program is rejected.
-  A `:name` clears the mark; any node that can run code (`@ ; ??`, `gr`, `at`,
+  A `:name` clears the mark; any node that can run code (`@ ; ??`, `gr`, `ty`,
   SIMD constructors) clears all marks, since it may have rebound anything.
   Blocks that run immediately at their position (`@`, the `;` condition, the
-  `? @` branches, `??` bodies, `gr`, `at`, constructors) inherit the marks; the
-  `;` body (its condition ran first) and escaped blocks start clean. Inside `at`
+  `? @` branches, `??` bodies, `gr`, `ty`, constructors) inherit the marks; the
+  `;` body (its condition ran first) and escaped blocks start clean. Inside `ty`
   the fault is the handled path and is not reported. Goldens: `conformance/check/
   move_*`.
 - **Why it matters later.** Today every value is immutable, so a move is only a

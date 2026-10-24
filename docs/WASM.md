@@ -22,9 +22,9 @@ python3 conformance/wasm_parity.py                      # all cases, .wat + .was
 | Slice | Scope | State |
 |-------|-------|-------|
 | **M6a** | integers: literals, `+ - * % _`, comparisons, `&& \|\| !`, and `.` | ✅ |
-| **M6b** | tagged values + strings: `$...$`, `+`/`*` on strings, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ |
+| **M6b** | tagged values + strings: `$...$`, `ct`/`rp`, `tr/up/lo/ln/rv`, stack ops `= , \ & rt` | ✅ |
 | **M6c** | blocks + control: `[ … ]`, `@ ? ;`, `:bind` / name load (in-memory stack + `call_indirect`) | ✅ |
-| **M6d** | floats + math words (`/ sq pw fl ce rd`, `n s dp clr pr`); binary `.wasm` emission | ✅ **all 13 cases green** |
+| **M6d** | floats + math words (`/ sq pw fl ce rd`, `n s dp cl pr`); binary `.wasm` emission | ✅ **all 13 cases green** |
 
 ## The tagged-value model (M6b)
 
@@ -62,9 +62,9 @@ This is what lets blocks — compiled to separate functions — share one stack.
 ### Lowering
 
 - `ConstInt(v)` → push `(0, v)`; `ConstStr(s)` → push `(2, litptr)`
-- `+` → if either operand is a string: `$str_concat($sval(a), $sval(b))` (ints are
-  rendered to decimal via `$str_from_int`); else integer add
-- `*` → if `str * int`: `$str_repeat`; else integer mul
+- `+` / `*` → numeric add and multiply (int, or float when either operand is a
+  float). A string operand traps. Concatenation is the word `ct` (`$str_concat`
+  of two string payloads); repeat is the word `rp` (`$str_repeat`)
 - `- % _ < > <= >=` → integer ops; `==`/`!=` compare strings by content
   (`$str_eq`) and ints by value, with mismatched tags unequal
 - `&& || !` → `$truthy` (ints nonzero, strings nonempty), combined
@@ -107,7 +107,7 @@ divisor-signed modulo for both. Math words map to native ops where possible —
 `sq`→`f64.sqrt`, `fl`→`f64.floor`, `ce`→`f64.ceil`, `rd`→`f64.nearest`
 (round-half-to-even, like Python `round`) — with `pw` using an integer fast path
 (`$ipow`) and `ab`/`mx`/`mn` preserving the operand's type. `n` parses a string
-to a number; `s` renders one; `dp`/`clr` use the stack pointer; `pr` prints
+to a number; `s` renders one; `dp`/`cl` use the stack pointer; `pr` prints
 without a newline.
 
 **Float formatting.** `$fmt_f64` applies the display rule (whole-valued finite
@@ -134,5 +134,5 @@ extension writes `.wat`. Both run identically under wasmtime, verified by
 
 M8d landed the v0.2 values in the Rust VM, and M9b runs them through Cranelift
 (`zownc native`). This backend still emits a structured `UNSUPPORTED` for
-capability tokens, width tags, SIMD vectors, `??`, and `at` (no silent
+capability tokens, width tags, SIMD vectors, `??`, and `ty` (no silent
 divergence). Giving them WASM tags is the remaining work here.

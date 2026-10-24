@@ -42,7 +42,7 @@ and codegen — then validate them in the Python reference so the compiler is bu
 once, correctly. No new backend in this phase; semantics first.
 
 - Capability types (zero authority by default; unforgeable, scoped, revocable).
-- Full numeric model (`i8…i128 u8…u128 f32 f64 decimal bigint complex`; explicit
+- Full numeric model (`i8…ix u8…ux`, `float`, `b`, and design-only `iz`/`uz`/`dc`/`cx`; explicit
   overflow), SIMD/vector + tensor types, crypto types (`Key Sig Hash NodeID`).
 - Network type primitives (`~` family), protocol-as-type compatibility.
 - Native UI type primitives (typed layout tree; no HTML/CSS), GPU types.

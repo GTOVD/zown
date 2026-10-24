@@ -155,10 +155,10 @@ impl Vm {
             None => Err(self.err(
                 BOUNDS,
                 format!(
-                    "`at` body must leave exactly one value, left {}",
+                    "`ty` body must leave exactly one value, left {}",
                     produced.len()
                 ),
-                Some("at".into()),
+                Some("ty".into()),
                 "bind inputs first (5 :x) and leave the single result on the stack",
             )),
         }
@@ -213,9 +213,9 @@ impl Vm {
             other => format!("{} subject", other.type_name()),
         };
         let hint = if matches!(subject, Value::Res(_)) {
-            "handle it: [err] [ ... ], or add a default arm [_] [ ... ]"
+            "handle it: [err] [ ... ], or add a default arm [any] [ ... ]"
         } else {
-            "add a default arm: [_] [ ... ]"
+            "add a default arm: [any] [ ... ]"
         };
         self.err(
             NO_MATCH,

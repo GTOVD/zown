@@ -174,6 +174,31 @@ def b_to_str(vm, pos: Pos) -> None:
     vm.push(_as_str(vm.pop("s", pos)))
 
 
+def b_cat(vm, pos: Pos) -> None:
+    # a b ct  -> concatenate two strings. `+` is numeric add and does not do this.
+    from .vm import type_name
+    b = vm.pop("ct", pos)
+    a = vm.pop("ct", pos)
+    if not isinstance(a, str) or not isinstance(b, str):
+        raise vm.err(TYPE_MISMATCH,
+                     f"`ct` expected two strings, got {type_name(a)} and {type_name(b)}",
+                     op="ct", pos=pos, hint="convert with `s` first")
+    vm.push(a + b)
+
+
+def b_repeat(vm, pos: Pos) -> None:
+    # str count rp  -> the string repeated `count` times. A count <= 0 yields "".
+    # `*` is numeric multiply and does not do this.
+    from .vm import type_name
+    n = vm.pop("rp", pos)
+    s = vm.pop("rp", pos)
+    if not isinstance(s, str) or isinstance(n, bool) or not isinstance(n, int):
+        raise vm.err(TYPE_MISMATCH,
+                     f"`rp` expected a string and an int, got {type_name(s)} and {type_name(n)}",
+                     op="rp", pos=pos, hint="the count is a plain int; negate with `_`")
+    vm.push(s * n if n > 0 else "")
+
+
 def _parse_int_text(vm, op: str, pos: Pos, s: str):
     """Parse decimal digits; returns a Python int or raises TYPE_MISMATCH."""
     try:
@@ -284,20 +309,20 @@ def b_have(vm, pos: Pos) -> None:
 
 # --- result values (v0.2; SPEC Part II §16.1) ----------------------------------
 def b_attempt(vm, pos: Pos) -> None:
-    # [ body ] at  -> ok(value) if body ran and left exactly one value on an
+    # [ body ] ty  -> ok(value) if body ran and left exactly one value on an
     #                 isolated stack; err(code) if it raised any .zerr.
-    # The body runs on an isolated stack (like the SIMD constructors) so `at` has
+    # The body runs on an isolated stack (like the SIMD constructors) so `ty` has
     # the fixed stack effect ( blk -- res ) on both paths; pass inputs through
-    # bindings (5 :x [ x 2 / ] at). Output, bindings, and grants made by the body
-    # are not undone — only the stack is isolated.
+    # bindings (5 :x [ x 2 / ] ty). Output, bindings, and grants made by the body
+    # are not undone — only the stack is isolated. `at` is lane index, not this.
     from .errors import BOUNDS
     from .vm import Res
-    blk = vm.pop_block("at", pos)
+    blk = vm.pop_block("ty", pos)
     saved = vm.stack
     vm.stack = []
     try:
         try:
-            vm.invoke(blk, "at", pos)
+            vm.invoke(blk, "ty", pos)
         except ZownError as e:
             vm.stack = saved
             vm.push(Res(False, e.code))
@@ -306,21 +331,22 @@ def b_attempt(vm, pos: Pos) -> None:
     finally:
         vm.stack = saved
     if len(left) != 1:
-        raise vm.err(BOUNDS, f"`at` body must leave exactly one value, left {len(left)}",
-                     op="at", pos=pos,
+        raise vm.err(BOUNDS, f"`ty` body must leave exactly one value, left {len(left)}",
+                     op="ty", pos=pos,
                      hint="bind inputs first (5 :x) and leave the single result on the stack")
     vm.push(Res(True, left[0]))
 
 
 # --- fixed-width integers (v0.2; SPEC Part II §11) -----------------------------
-# The default Zown int is arbitrary precision. A width tag (i8..u128) plus a
-# policy word makes overflow explicit: `wr` wraps (two's complement), `st`
-# saturates to the width's range, `ck` traps with OVERFLOW if the value won't fit.
+# The default Zown int is a checked 64-bit. A width tag plus a policy word makes
+# overflow explicit: `wr` wraps (two's complement), `st` saturates to the width's
+# range, `ck` traps with OVERFLOW if the value won't fit. The suffix is the bit
+# width. 128 does not fit in two digits, so those two words are `ix` and `ux`.
 _WIDTHS = [
     ("i8", True, 8), ("i16", True, 16), ("i32", True, 32), ("i64", True, 64),
-    ("i128", True, 128),
+    ("ix", True, 128),
     ("u8", False, 8), ("u16", False, 16), ("u32", False, 32), ("u64", False, 64),
-    ("u128", False, 128),
+    ("ux", False, 128),
 ]
 
 
@@ -335,7 +361,7 @@ def _pop_width(vm, op: str, pos: Pos):
     from .vm import WidthTag
     w = vm.pop(op, pos)
     if not isinstance(w, WidthTag):
-        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a width tag (i8..u128) on top",
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a width tag (i8..ix, u8..ux) on top",
                      op=op, pos=pos, hint="push a width like u8 before the policy word")
     return w
 
@@ -399,16 +425,17 @@ def b_chk(vm, pos: Pos) -> None:
 
 
 # --- SIMD vectors (v0.2; SPEC Part II §11) -------------------------------------
-# A constructor word evaluates a block to produce its lanes: `[1 2 3 4] f4`. Lane
+# A constructor word evaluates a block to produce its lanes: `[1 2 3 4] vi`. Lane
 # count and type are fixed by the word. Integer lanes wrap to their width (the
-# same no-silent-overflow rule). Elementwise ops (vadd/vsub/vmul) require matching
-# vector types. (Ops are word-form, not `v+`: the lexer would split `v` and `+`.)
+# same no-silent-overflow rule). Every vector word starts with `v` and is two
+# characters: constructors `vf vd vi vu`, elementwise `va vs vm`. A digit after
+# `i` or `u` is a scalar bit width, so a vector is never spelled `i4` or `b16`.
 _VECS = [
     # name, count, is_float, signed, bits
-    ("f4", 4, True, True, 32),
-    ("d2", 2, True, True, 64),
-    ("i4", 4, False, True, 32),
-    ("b16", 16, False, False, 8),
+    ("vf", 4, True, True, 32),   # f32 x4
+    ("vd", 2, True, True, 64),   # f64 x2
+    ("vi", 4, False, True, 32),  # i32 x4
+    ("vu", 16, False, False, 8), # u8 x16
 ]
 
 
@@ -479,21 +506,21 @@ def _make_vbinop(op: str, fn):
 
 
 def b_vsum(vm, pos: Pos) -> None:
-    # vec vsum  -> horizontal sum to a scalar (exact; lane width is not re-applied).
-    v = _pop_vec(vm, "vsum", pos)
+    # vec vh  -> horizontal sum to a scalar (exact; lane width is not re-applied).
+    v = _pop_vec(vm, "vh", pos)
     total = sum(v.lanes)
     from .vm import _num_result
     vm.push(_num_result(total) if v.is_float else total)
 
 
-def b_vat(vm, pos: Pos) -> None:
-    # vec idx vat  -> the lane at idx (BOUNDS if out of range).
+def b_at(vm, pos: Pos) -> None:
+    # vec idx at  -> the lane at idx (BOUNDS if out of range).
     from .errors import BOUNDS
-    idx = _pop_intish(vm, "vat", pos)
-    v = _pop_vec(vm, "vat", pos)
+    idx = _pop_intish(vm, "at", pos)
+    v = _pop_vec(vm, "at", pos)
     if idx < 0 or idx >= len(v.lanes):
         raise vm.err(BOUNDS, f"lane {idx} is outside {v.name} [0..{len(v.lanes) - 1}]",
-                     op="vat", pos=pos)
+                     op="at", pos=pos)
     vm.push(v.lanes[idx])
 
 
@@ -518,23 +545,24 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "b": (b_big, "big", "v b -> arbitrary-precision big from an int, whole float, or digit string"),
     "dp": (b_depth, "depth", "push the current stack depth"),
     "rt": (b_rot, "rot", "rotate the top three values (a b c -> b c a)"),
-    "clr": (b_clear, "clear", "clear the entire stack"),
-    "at": (b_attempt, "attempt", "[body] at -> ok(value) or err(code); unwrap with ?? [ok]/[err] arms"),
+    "cl": (b_clear, "clear", "clear the entire stack"),
+    "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
+    "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
+    "ty": (b_attempt, "attempt", "[body] ty -> ok(value) or err(code); unwrap with ?? [ok]/[err] arms"),
+    "at": (b_at, "at", "vec idx at -> the lane at idx (BOUNDS if out of range)"),
     "gr": (b_grant, "grant", "`cap [body] gr -> run body with `cap granted, then restore"),
     "rq": (b_require, "require", "`cap rq -> assert capability is granted (CAP_DENIED if not)"),
     "hv": (b_have, "have", "`cap hv -> push 1 if capability is granted, else 0"),
     "wr": (b_wrap, "wrap", "n width wr -> n wrapped into width (two's complement)"),
     "st": (b_sat, "saturate", "n width st -> n clamped to width's [min..max]"),
     "ck": (b_chk, "check", "n width ck -> n if it fits width, else OVERFLOW"),
+    "va": (_make_vbinop("va", lambda x, y: x + y), "vec_add", "elementwise add two matching vectors"),
+    "vs": (_make_vbinop("vs", lambda x, y: x - y), "vec_sub", "elementwise subtract two matching vectors"),
+    "vm": (_make_vbinop("vm", lambda x, y: x * y), "vec_mul", "elementwise multiply two matching vectors"),
+    "vh": (b_vsum, "vec_sum", "horizontal sum of a vector's lanes to a scalar"),
 }
 
-WORDS["vadd"] = (_make_vbinop("vadd", lambda x, y: x + y), "vec_add", "elementwise add two matching vectors")
-WORDS["vsub"] = (_make_vbinop("vsub", lambda x, y: x - y), "vec_sub", "elementwise subtract two matching vectors")
-WORDS["vmul"] = (_make_vbinop("vmul", lambda x, y: x * y), "vec_mul", "elementwise multiply two matching vectors")
-WORDS["vsum"] = (b_vsum, "vec_sum", "horizontal sum of a vector's lanes to a scalar")
-WORDS["vat"] = (b_vat, "vec_at", "vec idx vat -> the lane at idx (BOUNDS if out of range)")
-
-# fixed-width integer type tags (i8..u128): each pushes a WidthTag value.
+# fixed-width integer type tags (i8..ix, u8..ux): each pushes a WidthTag value.
 for _name, _signed, _bits in _WIDTHS:
     _kind = "signed" if _signed else "unsigned"
     _alias = ("int" if _signed else "uint") + str(_bits)
@@ -544,7 +572,7 @@ for _name, _signed, _bits in _WIDTHS:
         f"width tag: {_kind} {_bits}-bit integer",
     )
 
-# SIMD vector constructor words: `[ ...lanes ] f4` etc.
+# SIMD vector constructor words: `[ ...lanes ] vf` etc.
 for _vname, _count, _isf, _vsigned, _vbits in _VECS:
     _lane = ("f" if _isf else ("i" if _vsigned else "u")) + str(_vbits)
     WORDS[_vname] = (

@@ -71,7 +71,7 @@ impl Builder {
                 NodeKind::Int(v) => instrs.push(Instr::ConstInt(*v)),
                 NodeKind::Float(v) => instrs.push(Instr::ConstFloat(*v)),
                 NodeKind::Str(s) => instrs.push(Instr::ConstStr(s.clone())),
-                NodeKind::Name(s) if s == "at" => instrs.push(Instr::Attempt),
+                NodeKind::Name(s) if s == "ty" => instrs.push(Instr::Attempt),
                 NodeKind::Name(s) => instrs.push(Instr::Load(s.clone())),
                 NodeKind::Bind(s) => instrs.push(Instr::Bind(s.clone())),
                 NodeKind::Move(s) => instrs.push(Instr::Move(s.clone())),
@@ -129,7 +129,7 @@ fn unlower_block(prog: &IrProgram, id: usize) -> Vec<Node> {
                 Instr::Select => NodeKind::Op("?".into()),
                 Instr::While => NodeKind::Op(";".into()),
                 Instr::Match => NodeKind::Op("??".into()),
-                Instr::Attempt => NodeKind::Name("at".into()),
+                Instr::Attempt => NodeKind::Name("ty".into()),
             };
             Node::new(kind, Pos::default())
         })
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn roundtrip_match_and_attempt() {
-        for src in ["1 [ [int] [ . ] [_] [ , ] ] ??", "[ 1 ] at .", "5 :x 'x ."] {
+        for src in ["1 [ [int] [ . ] [any] [ , ] ] ??", "[ 1 ] ty .", "5 :x 'x ."] {
             let a = ast(src);
             assert_eq!(unlower(&lower(&a)), a, "roundtrip failed for {src:?}");
         }

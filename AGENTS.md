@@ -18,12 +18,12 @@ push, operators pop; `[ ... ]` is a first-class block; `:x` binds, `x` pushes a
 copy (a *borrow*; or runs a builtin word), `'x` *moves* the value out and unbinds,
 `@` invokes. Meaning lives in a sidecar *shadow manifest* (`file.zn.json`), not in
 identifiers. Errors are structured `.zerr` packets with a recovery `code`, and
-`[ body ] at` turns one into a value (`ok(v)`/`err(code)`) that only `??` with
+`[ body ] ty` turns one into a value (`ok(v)`/`err(code)`) that only `??` with
 `[ok]`/`[err]` arms can open. `int` is a checked 64-bit integer (overflow is an
 `OVERFLOW`, never silent); `b` makes an exact `big`. v0.2 also has capability
-tokens (`` `s ``, zero authority by default, `gr`/`rq`/`hv`), fixed-width ints
-(`u8 wr`), SIMD vectors (`[1 2 3 4] i4`), and pattern matching
-(`x [ [int] [..] [_] [..] ] ??`). **`zown run` refuses any program the static
+tokens (`` `t `` is net-send, zero authority by default, `gr`/`rq`/`hv`), fixed-width ints
+(`u8 wr`, 128-bit is `ix`/`ux`), SIMD vectors (`[1 2 3 4] vi`, `va`/`vs`/`vm`), and pattern matching
+(`x [ [int] [..] [any] [..] ] ??`). **`zown run` refuses any program the static
 checker faults** (exit 2); there is no undefined behavior (SPEC §19).
 
 ## The three implementations and the one rule
@@ -32,7 +32,7 @@ checker faults** (exit 2); there is no undefined behavior (SPEC §19).
    observable behavior *is* the semantics.
 2. **`zownc/` — the Rust toolchain** (lexer, parser, IR, VM, checker, WASM,
    Cranelift). Differentially tested against the oracle. The VM and checker
-   implement v0.2. Cranelift runs v0.2. WASM still refuses `??`, `at`, `gr`, and vectors.
+   implement v0.2. Cranelift runs v0.2. WASM still refuses `??`, `ty`, `gr`, and vectors.
 3. **The conformance corpus (`conformance/`)** — language-agnostic goldens that
    both must satisfy.
 
@@ -67,7 +67,7 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (as of M8c: 98 unit tests, 20 +
+All five oracle commands must end in `0 failed` (100 unit tests, 20 +
 39 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
@@ -110,7 +110,7 @@ checklist is in `PLAN.md` → "How a slice is done"; the short form:
   binary arithmetic so `big`/float promotion is uniform.
 - **Density.** Prefer a symbol to a word, a 1–2 char word to a long one. A Zown
   identifier is `[A-Za-z][A-Za-z0-9]*` — it cannot contain operator characters
-  (that is why vector ops are `vadd`, not `v+`).
+  (that is why vector ops are `va`/`vs`/`vm`, not `v+`). A library word is at most three characters and has one meaning.
 - **Reserved symbols stay reserved** (`| ~ ^ ( ) { }`, `» « →`) — see SPEC §5/§17.
 - **Never fabricate provenance/crypto.** Manifest `module` crypto fields stay
   `null` until M14 computes real hashes/signatures.
@@ -139,12 +139,12 @@ sound). Runtime value kinds: `int float str Block Big Res Cap WidthTag Vec`
 
 M0–M8 done. M8a name resolution + match shape
 ✅, M8b static capability flow ✅, **M8c ✅** (check-before-run gate, checked
-`int` + `big`, result values `at`, no-UB catalogue §19, `'x` moves). **M8d-i ✅** (Rust frontend: Cap/`'x`/`??`/checked int literals, AST spans,
+`int` + `big`, result values `ty`, no-UB catalogue §19, `'x` moves). **M8d-i ✅** (Rust frontend: Cap/`'x`/`??`/checked int literals, AST spans,
 `zownc ast` 45/45). **M8d-ii/iii ✅** (checked `int`, `big`, widths, vectors,
-`??`, `at`, caps; `vm_parity` 59/59). **M8d-iv/v ✅** (`Match`/`Attempt`, checked
+`??`, `ty`, caps; `vm_parity` 59/59). **M8d-iv/v ✅** (`Match`/`Attempt`, checked
 WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13).
 **M9a–M9b ✅** — Cranelift: `zownc native` (in-process) and `zownc native -o exe`.
-v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`, `at`,
+v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`, `ty`,
 `gr`, and the vector constructors. WASM still answers `UNSUPPORTED` for v0.2
 values. Still open in M9: inline arithmetic, deterministic exes, SIMD lowering,
 and the `buf` spec.

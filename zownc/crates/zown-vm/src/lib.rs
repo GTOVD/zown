@@ -309,12 +309,9 @@ impl Vm {
 
     // --- arithmetic (SPEC §11: overflow is never silent) -----------------------
     fn op_add(&mut self) -> Result<(), RunError> {
-        let b = self.pop("+")?;
-        let a = self.pop("+")?;
-        if matches!(a, Value::Str(_)) || matches!(b, Value::Str(_)) {
-            self.push(Value::Str(format!("{}{}", a.display(), b.display())));
-            return Ok(());
-        }
+        // `+` adds numbers. String concatenation is `ct`.
+        let b = self.pop_num("+")?;
+        let a = self.pop_num("+")?;
         self.push(self.num_binop("+", &a, &b, Bin::Add)?);
         Ok(())
     }
@@ -327,16 +324,9 @@ impl Vm {
     }
 
     fn op_mul(&mut self) -> Result<(), RunError> {
-        let b = self.pop("*")?;
-        let a = self.pop("*")?;
-        if let (Value::Str(s), Value::Int(n)) = (&a, &b) {
-            self.push(Value::Str(if *n > 0 {
-                s.repeat(*n as usize)
-            } else {
-                String::new()
-            }));
-            return Ok(());
-        }
+        // `*` multiplies numbers. String repeat is `rp`.
+        let b = self.pop_num("*")?;
+        let a = self.pop_num("*")?;
         self.push(self.num_binop("*", &a, &b, Bin::Mul)?);
         Ok(())
     }
@@ -658,7 +648,7 @@ impl Vm {
         }
         let n = &pat[0];
         let matched = match &n.kind {
-            NodeKind::Op(s) if s == "_" => return Ok(Some(subject.clone())),
+            NodeKind::Name(s) if s == "any" => return Ok(Some(subject.clone())),
             NodeKind::Int(v) => subject.zown_eq(&Value::Int(*v)),
             NodeKind::Float(v) => subject.zown_eq(&Value::Float(*v)),
             NodeKind::Str(s) => subject.zown_eq(&Value::Str(s.clone())),
@@ -683,7 +673,7 @@ impl Vm {
             BAD_PATTERN,
             msg,
             Some("??".into()),
-            "a pattern is a type name, a literal, ok/err, or _ (default)",
+            "a pattern is a type name, a literal, ok/err, or any (default)",
         )
     }
 
@@ -709,8 +699,8 @@ impl Vm {
             "b" => self.b_big(),
             "dp" => self.b_depth(),
             "rt" => self.b_rot(),
-            "clr" => self.b_clear(),
-            "at" => self.b_attempt(),
+            "cl" => self.b_clear(),
+            "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
             "hv" => self.b_have(),
@@ -721,21 +711,23 @@ impl Vm {
             "i16" => self.b_width(true, 16),
             "i32" => self.b_width(true, 32),
             "i64" => self.b_width(true, 64),
-            "i128" => self.b_width(true, 128),
+            "ix" => self.b_width(true, 128),
             "u8" => self.b_width(false, 8),
             "u16" => self.b_width(false, 16),
             "u32" => self.b_width(false, 32),
             "u64" => self.b_width(false, 64),
-            "u128" => self.b_width(false, 128),
-            "f4" => self.b_vec("f4", 4, true, true, 32),
-            "d2" => self.b_vec("d2", 2, true, true, 64),
-            "i4" => self.b_vec("i4", 4, false, true, 32),
-            "b16" => self.b_vec("b16", 16, false, false, 8),
-            "vadd" => self.b_vbinop("vadd", Bin::Add),
-            "vsub" => self.b_vbinop("vsub", Bin::Sub),
-            "vmul" => self.b_vbinop("vmul", Bin::Mul),
-            "vsum" => self.b_vsum(),
-            "vat" => self.b_vat(),
+            "ux" => self.b_width(false, 128),
+            "vf" => self.b_vec("vf", 4, true, true, 32),
+            "vd" => self.b_vec("vd", 2, true, true, 64),
+            "vi" => self.b_vec("vi", 4, false, true, 32),
+            "vu" => self.b_vec("vu", 16, false, false, 8),
+            "va" => self.b_vbinop("va", Bin::Add),
+            "vs" => self.b_vbinop("vs", Bin::Sub),
+            "vm" => self.b_vbinop("vm", Bin::Mul),
+            "vh" => self.b_vsum(),
+            "at" => self.b_vat(),
+            "ct" => self.b_cat(),
+            "rp" => self.b_repeat(),
             _ => return None,
         })
     }
@@ -1127,9 +1119,9 @@ impl Vm {
     }
 
     fn b_attempt(&mut self) -> Result<(), RunError> {
-        let blk = self.pop_block("at")?;
+        let blk = self.pop_block("ty")?;
         let saved = std::mem::take(&mut self.stack);
-        let ran = self.invoke(blk, "at");
+        let ran = self.invoke(blk, "ty");
         let left = std::mem::replace(&mut self.stack, saved);
         self.seal_attempt(left, ran.err())
     }
@@ -1212,7 +1204,7 @@ impl Vm {
             Value::Width(w) => Ok(w),
             _ => Err(self.err(
                 TYPE_MISMATCH,
-                format!("`{op}` expected a width tag (i8..u128) on top"),
+                format!("`{op}` expected a width tag (i8..ix or u8..ux) on top"),
                 Some(op.to_string()),
                 "push a width like u8 before the policy word",
             )),
@@ -1358,8 +1350,54 @@ impl Vm {
         }
     }
 
+    fn b_cat(&mut self) -> Result<(), RunError> {
+        let b = self.pop("ct")?;
+        let a = self.pop("ct")?;
+        match (a, b) {
+            (Value::Str(x), Value::Str(y)) => {
+                self.push(Value::Str(format!("{x}{y}")));
+                Ok(())
+            }
+            (a, b) => Err(self.err(
+                TYPE_MISMATCH,
+                format!(
+                    "`ct` expected two strings, got {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ),
+                Some("ct".into()),
+                "convert with `s` first",
+            )),
+        }
+    }
+
+    fn b_repeat(&mut self) -> Result<(), RunError> {
+        let n = self.pop("rp")?;
+        let s = self.pop("rp")?;
+        match (s, n) {
+            (Value::Str(s), Value::Int(n)) => {
+                self.push(Value::Str(if n > 0 {
+                    s.repeat(n as usize)
+                } else {
+                    String::new()
+                }));
+                Ok(())
+            }
+            (s, n) => Err(self.err(
+                TYPE_MISMATCH,
+                format!(
+                    "`rp` expected a string and an int, got {} and {}",
+                    s.type_name(),
+                    n.type_name()
+                ),
+                Some("rp".into()),
+                "the count is a plain int; negate with `_`",
+            )),
+        }
+    }
+
     fn b_vsum(&mut self) -> Result<(), RunError> {
-        let v = self.pop_vec("vsum")?;
+        let v = self.pop_vec("vh")?;
         if v.is_float {
             let mut t = 0.0;
             for lane in &v.lanes {
@@ -1384,8 +1422,8 @@ impl Vm {
     }
 
     fn b_vat(&mut self) -> Result<(), RunError> {
-        let idx = self.pop_intish("vat")?;
-        let v = self.pop_vec("vat")?;
+        let idx = self.pop_intish("at")?;
+        let v = self.pop_vec("at")?;
         let n = v.lanes.len();
         match idx.to_i64() {
             Some(i) if i >= 0 && (i as usize) < n => {
@@ -1403,7 +1441,7 @@ impl Vm {
                     v.name,
                     n.saturating_sub(1)
                 ),
-                Some("vat".into()),
+                Some("at".into()),
                 "",
             )),
         }
@@ -1433,8 +1471,8 @@ pub fn is_builtin(name: &str) -> bool {
             | "b"
             | "dp"
             | "rt"
-            | "clr"
-            | "at"
+            | "cl"
+            | "ty"
             | "gr"
             | "rq"
             | "hv"
@@ -1445,28 +1483,30 @@ pub fn is_builtin(name: &str) -> bool {
             | "i16"
             | "i32"
             | "i64"
-            | "i128"
+            | "ix"
             | "u8"
             | "u16"
             | "u32"
             | "u64"
-            | "u128"
-            | "f4"
-            | "d2"
-            | "i4"
-            | "b16"
-            | "vadd"
-            | "vsub"
-            | "vmul"
-            | "vsum"
-            | "vat"
+            | "ux"
+            | "vf"
+            | "vd"
+            | "vi"
+            | "vu"
+            | "va"
+            | "vs"
+            | "vm"
+            | "vh"
+            | "at"
+            | "ct"
+            | "rp"
     )
 }
 
 fn is_type_pattern(s: &str) -> bool {
     matches!(
         s,
-        "int" | "float" | "str" | "bool" | "block" | "cap" | "width" | "vec" | "big" | "res"
+        "int" | "float" | "str" | "block" | "cap" | "width" | "vec" | "big" | "res"
     )
 }
 
@@ -1615,17 +1655,17 @@ mod tests {
         assert_eq!(run("300 u8 wr .").out, "44\n");
         assert_eq!(run("5 u64 ck .").out, "5\n");
         assert_eq!(run("1 _ u64 wr .").out, "18446744073709551615\n");
-        assert_eq!(run("[ 1 2 3 4 ] i4 vsum .").out, "10\n");
+        assert_eq!(run("[ 1 2 3 4 ] vi vh .").out, "10\n");
         assert_eq!(
-            run("[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd .").out,
-            "i4(11 22 33 44)\n"
+            run("[ 1 2 3 4 ] vi [ 10 20 30 40 ] vi va .").out,
+            "vi(11 22 33 44)\n"
         );
         assert_eq!(run("`s hv .").out, "0\n");
         assert_eq!(run("`s [ `s hv . ] gr").out, "1\n");
-        assert_eq!(run("[ 1 0 / ] at .").out, "err(DIV_ZERO)\n");
+        assert_eq!(run("[ 1 0 / ] ty .").out, "err(DIV_ZERO)\n");
         assert_eq!(run("5 :x 'x .").out, "5\n");
         assert_eq!(
-            run("42 [ [int] [ , $int$ . ] [_] [ , $no$ . ] ] ??").out,
+            run("42 [ [int] [ , $int$ . ] [any] [ , $no$ . ] ] ??").out,
             "int\n"
         );
         assert_eq!(code("[ f @ ] :f f @"), STACK_OVERFLOW);

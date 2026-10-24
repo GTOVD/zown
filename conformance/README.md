@@ -55,17 +55,17 @@ python3 conformance/native_parity.py    # Cranelift JIT (`zownc native`)
   invoke control flow; one error per recovery code: `STACK_UNDERFLOW`, `DIV_ZERO`,
   `NAME_UNRESOLVED`, `NOT_CALLABLE`, `TYPE_MISMATCH`, `REPAIR_SYNTAX` (lex + parse).
 - **v0.2** (`cases_v2/`, `errors_v2/`): capabilities (`gr rq hv`, `CAP_DENIED`),
-  fixed-width ints (`wr st ck`, `OVERFLOW`), SIMD vectors (`vadd vsub vmul vsum
-  vat`, `BOUNDS`), pattern matching (`??`, `NO_MATCH`, `BAD_PATTERN`), the
+  fixed-width ints (`wr st ck`, `OVERFLOW`), SIMD vectors (`va vs vm vh
+  at`, `BOUNDS`), pattern matching (`??`, `NO_MATCH`, `BAD_PATTERN`), the
   checked-int / `big` / IEEE-float numeric model (`b`, `OVERFLOW` on int results
   and literals, `inf`/`nan` values, `UB_TRAP` on nan→int and negative `sq`).
-  Also: result values (`at`, `[ok]`/`[err]`, `NO_MATCH`, `BOUNDS`), linear
+  Also: result values (`ty`, `[ok]`/`[err]`, `NO_MATCH`, `BOUNDS`), linear
   bindings (`'x`), and the SPEC §19 no-UB rows (`STACK_OVERFLOW`, float
   `DIV_ZERO`, `vec_oob`, `defined_behavior`).
 - **check** (`check/`): name resolution, `??` arm shape, capability flow, result
   exhaustiveness, and use-after-move — both the definite findings and the
   sound-silence cases (dynamic extent, escaped blocks, inline consumers, faults
-  inside `at`, rebinding, the `;` body).
+  inside `ty`, rebinding, the `;` body).
 
 `vm_parity.py`, `check_parity.py`, and `native_parity.py` cover v0.1 and v0.2.
 `native_parity.py` fails if a program is skipped or the matching set shrinks.

@@ -5,7 +5,7 @@
 7 _ 3 % .            # 2    modulo takes the sign of the divisor
 7 3 _ % .            # -2
 7.5 2 % .            # 1.5  ...for floats as well
-$ab$ 2 _ * ln .      # 0    string repeat with a count <= 0 is the empty string
-$ab$ 0 * ln .        # 0
+$ab$ 2 _ rp ln .     # 0    string repeat with a count <= 0 is the empty string
+$ab$ 0 rp ln .       # 0
 0 :n [ n 300 < ] [ n 1 + :n ] ; n .   # 300  loops do not consume invocation depth
-[ f @ ] :f [ f @ ] at .               # err(STACK_OVERFLOW) — even a depth trap is a value
+[ f @ ] :f [ f @ ] ty .               # err(STACK_OVERFLOW) — even a depth trap is a value

@@ -163,10 +163,10 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
     if !(*rt).vm.is_bound(&name) {
         match name.as_str() {
             "gr" => return grant(rt),
-            "f4" => return vec_ctor(rt, "f4", 4, true, true, 32),
-            "d2" => return vec_ctor(rt, "d2", 2, true, true, 64),
-            "i4" => return vec_ctor(rt, "i4", 4, false, true, 32),
-            "b16" => return vec_ctor(rt, "b16", 16, false, false, 8),
+            "vf" => return vec_ctor(rt, "vf", 4, true, true, 32),
+            "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
+            "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
+            "vu" => return vec_ctor(rt, "vu", 16, false, false, 8),
             _ => {}
         }
     }
@@ -250,24 +250,24 @@ pub unsafe extern "C" fn rt_call(rt: *mut Rt, id: i32, which: i32) -> i32 {
     call_block(rt, id as u32, op)
 }
 
-/// `[body] at` — run the body on a fresh stack and push `ok` or `err`.
+/// `[body] ty` — run the body on a fresh stack and push `ok` or `err`.
 #[no_mangle]
 pub unsafe extern "C" fn rt_attempt(rt: *mut Rt) -> i32 {
     if rt_failed(rt) != 0 {
         return 1;
     }
-    if (*rt).vm.is_bound("at") {
-        return match (*rt).vm.apply_name("at") {
+    if (*rt).vm.is_bound("ty") {
+        return match (*rt).vm.apply_name("ty") {
             Ok(()) => 0,
             Err(e) => fail(&mut *rt, e),
         };
     }
-    let id = match (*rt).vm.pop_func_id("at") {
+    let id = match (*rt).vm.pop_func_id("ty") {
         Ok(id) => id,
         Err(e) => return fail(&mut *rt, e),
     };
     let saved = (*rt).vm.take_stack();
-    let code = call_block(rt, id, "at");
+    let code = call_block(rt, id, "ty");
     let produced = (*rt).vm.take_stack();
     (*rt).vm.set_stack(saved);
     let failed = if code != 0 { (*rt).err.take() } else { None };
