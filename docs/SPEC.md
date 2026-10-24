@@ -344,6 +344,13 @@ for a float is `OVERFLOW`). `/` keeps an exact integral quotient integral (`10 b
 literal `??` patterns compare by value across the three kinds (`5 b 5 ==` → `1`);
 type patterns do not (`[int]` does not match a big).
 
+**Native `big` (decision D7, 2026-10-24).** The bits are a sign and a
+little-endian vector of base-2^32 limbs: no leading zero limb, and zero is
+non-negative. That is the representation in `zown-vm` (`BigInt`). It is not a
+language-visible encoding; programs only see the decimal form and the `big`
+type. A WASM payload for `big` is an index into a side table (tag 4 in
+[`WASM.md`](./WASM.md)), because a limb vector does not fit in one `i64`.
+
 **`b` — the big constructor — implemented (M8c-i, oracle).** `v b` converts an
 int, a whole float, a big (no-op), or a **string of digits** — which is how a
 literal beyond the int range is written: `$99999999999999999999$ b`. Whole floats
@@ -732,11 +739,11 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | capability used without a grant | **static** `CAP_DENIED` when provable; runtime trap `CAP_DENIED` otherwise | `check/flow_*`, `errors_v2/caps_denied*` |
 | result not handled exhaustively | **static** `NO_MATCH`; runtime trap `NO_MATCH` | `check/res_exhaustive`, `errors_v2/res_unhandled` |
 | null / uninitialized value | **impossible** — no null exists; a name is bound or `NAME_UNRESOLVED` | — |
-| use-after-free, out-of-bounds memory, data race | **impossible in v0.2** — no raw memory or shared mutable state; the M9 memory model must keep it so (fat pointers, `BOUNDS`) | M9 |
+| use-after-free, out-of-bounds memory, data race | **impossible today** — no raw memory. §21 is the fat-pointer contract that keeps it so once `buf` exists (`BOUNDS`, never a dangling address) | §21 |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
-`[ f @ ] :f [ f @ ] at` yields `err(STACK_OVERFLOW)`. The oracle's limits are
+`[ f @ ] :f [ f @ ] ty` yields `err(STACK_OVERFLOW)`. The oracle's limits are
 128 nested invocations and 256 nested blocks; native runtimes set their own but
 the *kind* of outcome is fixed by this table.
 
@@ -779,4 +786,44 @@ x                  # NAME_UNRESOLVED (static and run time)
   fat pointers), `'name` is the transfer of *exclusive* ownership the drop/no-GC
   story needs, and `"` is reserved for the mutable-reference sigil that story
   will add. The rule is fixed now so the checker's flow analysis is already in
-  place when memory arrives.
+  place when memory arrives. The heap those moves will own is specified in §21
+  and is not implemented: the oracle does not allocate a `buf`.
+
+## 21. Memory — fat pointers (`buf`) — *design-only (M9)*
+
+> Not implemented. A byte array with a bounds check can be faked in the oracle,
+> but exclusive drop, a borrow that dies with its owner, and use-after-free
+> cannot — a copying interpreter would be pretending to have a heap. This
+> section is the contract. No runtime in this repository allocates a `buf`.
+
+A `buf` is the only reference to heap memory. It is a fat pointer: a base the
+program cannot observe, a byte length, and a permission. There is no integer
+address, no null, and no way to forge one. An index outside `0 .. length`, or
+a use after the exclusive owner has been dropped, is `BOUNDS`. It is never a
+raw load.
+
+| Word | Effect |
+|------|--------|
+| `bf` | `n bf` allocates `n` zero bytes and pushes an **exclusive** `buf`. `n` is an `int` `≥ 0`, else `TYPE_MISMATCH`. A length the runtime will not grant is `BOUNDS` (an implementation-defined budget, not UB). |
+| `ln` | `buf ln` pushes the byte length. `ln` keeps its one meaning, length, and also accepts a string or a block. |
+| `bg` | `buf idx bg` pushes the byte at `idx` as an `int` in `0..255`. |
+| `bp` | `buf idx byte bp` stores `byte` (`int`) at `idx`. |
+
+`bg` and `bp` are three characters or fewer and do not reuse `at` (vector
+index), `st` (saturate), or `b` (big).
+
+**Ownership.** Allocation is exclusive.
+
+- `=` on a `buf` pushes a **borrow** and leaves the exclusive value under it.
+  A borrow may `bg` and `ln`. It may not `bp` (`TYPE_MISMATCH`).
+- `,` on an exclusive `buf` frees the bytes, then drops the value. `,` on a
+  borrow drops only the borrow.
+- `'name` moves whatever the binding held. Exclusive stays exclusive. The
+  bytes are freed only when that exclusive value is dropped.
+- A borrow whose exclusive owner has already been dropped is dangling. `bg`,
+  `bp`, and `ln` on it are `BOUNDS`. The fat pointer does not become an
+  address the program can reuse.
+
+`"` stays reserved for a future mutable reference that is not exclusive
+ownership (§17, §20). Until §21 is implemented, a program cannot construct a
+`buf`; `bf` is not a word.

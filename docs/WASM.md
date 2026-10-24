@@ -130,9 +130,26 @@ silently different program.
 extension writes `.wat`. Both run identically under wasmtime, verified by
 `conformance/wasm_parity.py` (each case is checked in both formats).
 
-## Next: v0.2 tags in this backend
+## v0.2 tags (decision D8, 2026-10-24)
 
-M8d landed the v0.2 values in the Rust VM, and M9b runs them through Cranelift
-(`zownc native`). This backend still emits a structured `UNSUPPORTED` for
-capability tokens, width tags, SIMD vectors, `??`, and `ty` (no silent
-divergence). Giving them WASM tags is the remaining work here.
+The tag is still the `i64` under the payload. Tags 0–3 are unchanged. The rest
+are allocated so a later emitter cannot pick a colliding number. A payload that
+does not fit in one `i64` is an index into a side table in the module, not the
+bytes themselves.
+
+| tag | type | payload |
+|-----|------|---------|
+| `0` | int | the `i64` |
+| `1` | float | `f64` bit pattern |
+| `2` | str | pointer to `[i32 len][bytes…]` |
+| `3` | block | funcref table index |
+| `4` | big | index into the big table (sign + little-endian `u32` limbs, SPEC §11) |
+| `5` | cap | index into the string table of the capability name |
+| `6` | width | `(signed << 16) \| bit_width` (`ix`/`ux` are bit width 128) |
+| `7` | vec | index into the vector table (lane bytes, kind in the table entry) |
+| `8` | res | index into the result table (`ok`/`err` + payload index) |
+
+This backend still emits a structured `UNSUPPORTED` for `ConstCap`, `Move`,
+`??`, and `ty`, and for any word that builds a tag `4`–`8`. It does not guess
+a v0.1 value for them. Running those programs under `wasmtime` is the next
+slice of this backend; the numbers above are the ABI.

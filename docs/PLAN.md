@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M9c: int arithmetic and comparisons are inlined in Cranelift).
+Last updated: 2026-10-24 (M9 closed: buf spec, deterministic exes, SIMD, LLVM `-O2`).
 
 ---
 
@@ -60,8 +60,8 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M5 | IR + lowering | ✅ | `zown-ir`; lossless round-trip on all 16 programs |
 | M6 | WASM backend (`-o .wasm`) | ✅ | Full v0.1 -> `.wat` + binary `.wasm`; all 13 cases run in wasmtime |
 | M7 | **Design freeze: SPEC v0.2 + oracle** | ✅ | M7a capabilities, M7b manifest v2, M7c numerics+SIMD, M7d pattern matching — all in the oracle; net/UI/crypto types frozen as design-only |
-| M8 | Safety core (type & memory model) | ✅ | M8a–M8d ✅. `zownc check` gates `zownc run` (exit 2). WASM runs v0.1 with checked `int`; v0.2 values there are a structured `UNSUPPORTED` until M9 |
-| M9 | Native backend + perf (Cranelift→LLVM) | 🔄 | M9a–M9c ✅. Int `+ - * _` and comparisons are Cranelift ops; other values still call the VM. `native_parity` 59/59. Still open: deterministic exes, SIMD lowering, `buf` spec |
+| M8 | Safety core (type & memory model) | ✅ | M8a–M8d ✅. `zownc check` gates `zownc run` (exit 2). WASM runs v0.1 with checked `int`. v0.2 tag numbers are D8; executing them in WASM is still `UNSUPPORTED` |
+| M9 | Native backend + perf (Cranelift→LLVM) | ✅ | M9a–M9f ✅. Int ops inlined, SIMD `va`/`vs`/`vm` (except `vu` multiply), deterministic exes, `zownc native -O` and `zownc llvm` (`clang -O2`). `buf` is design-only (§21). `native_parity` 59/59 |
 | M10 | Concurrency: dynamic fast lanes (`~ ^ \|`) | ⬜ | app-defined lanes; data plane vs control plane split |
 | M11 | Batteries stdlib + `std` in Zown | ⬜ | crypto/collections/numerics/fs/time/secrets + test/fmt/LSP/doc; starts self-host migration |
 | M12 | ZownNet — decentralized mesh | ⬜ | IPv6 crypto-identity, ZownTransport, DHT+gossip, content addressing, offline mesh |
@@ -110,7 +110,7 @@ machines it has been developed on.
 Full verification (what "green" means for the oracle side, ~2 s):
 
 ```bash
-python3 tests/test_zown.py          # unit tests (100)
+python3 tests/test_zown.py          # unit tests (101)
 python3 tests/test_examples.py      # the shipped examples
 python3 conformance/run.py          # v0.1 goldens (20)
 python3 conformance/v2.py           # v0.2 goldens (39)
@@ -520,10 +520,9 @@ add **LLVM** (`inkwell`) later for `-O` and bare metal. One IR feeds both.
 - [x] **M9a.** Each IR block is a Cranelift function. Calls and `while` are native; values, operators, and words go through `zown-rt` (the reference VM), so results match the tree-walker. `zownc native` runs in-process. `zownc native -o prog.exe` emits an object and links it with the host `rustc` (the exe’s `main` is Rust, so the allocator and stdout are initialized). Verified on Windows x64 gnu: v0.1 conformance 20/20, plus the v0.2 programs that do not use `??`, `at`, `gr`, or `f4`/`d2`/`i4`/`b16` (`conformance/native_parity.py`). ELF/Mach-O use the same object path and are not separately exercised here.
 - [x] **M9b.** `??`, `ty`, `gr`, and `vf`/`vd`/`vi`/`vu` run as native calls (D6 renamed the earlier spellings `at` and `f4`/`d2`/`i4`/`b16`). The runtime keeps each block's instruction shape so `??` can read patterns, then calls the matching arm. `ty` and the vector constructors run the block on a fresh stack; `gr` grants the capability for the call and drops it after. A bound name still shadows the word. `native_parity` is 59/59, and a linked exe that uses `??` matches the JIT.
 - [x] **M9c.** When every operand is a plain `int`, `+ - * _` and `== != < > <= >=` are Cranelift instructions. Overflow is `OVERFLOW` (the same code the VM raises from `fit_int`). Floats, bigs, `/`, `%`, stack ops, and words still call `zown-rt`. The JIT object is non-PIC; the linked object is PIC so the host `rustc -pie` link succeeds. `native_parity` stays 59/59.
-- [ ] Memory model from M8c-iii: `buf` values, fat pointers, bounds traps. Write the rules into SPEC Part II as *design-only* before any code — do not stub a representation the oracle cannot exhibit.
-- [ ] SIMD lowering (SSE/AVX/NEON by target) once vectors compile; zero-copy I/O (`io_uring`/IOCP).
-- [ ] **Deterministic builds** (bit-identical output — content hashing depends on it). The linked exe is not reproducible today (rustc timestamps and the host linker).
-- [ ] LLVM (`inkwell`) for `-O` and bare metal, after the int fast path (M9c).
+- [x] **M9d.** `buf` / fat pointers are SPEC §21, *design-only*. The oracle does not allocate one. Native `big` is a sign plus little-endian base-2^32 limbs (D7). WASM tags 4–8 are assigned in `WASM.md` (D8) and are not emitted yet.
+- [x] **M9e.** `va`/`vs`/`vm` on `vi`/`vf`/`vd`, and `va`/`vs` on `vu`, are Cranelift vector instructions (the host ISA picks SSE/AVX or the equivalent). `vm` on `vu` stays on the VM: this x86 Cranelift has no `imul.i8x16`. `native_parity` stays 59/59.
+- [x] **M9f.** Two `zownc native -o` builds of the same source are byte-identical (`SOURCE_DATE_EPOCH`, no build-id, stripped, remapped paths). `zownc native -O` uses Cranelift `opt_level=speed`. `zownc llvm -o exe` emits LLVM IR and links it with `clang -O2` against `libzown_rt.a`. Bare metal remains M17. Zero-copy I/O stays with the network milestone.
 
 **Acceptance:** native binaries pass conformance on the developer's host
 (Windows x64 today; macOS/arm64 and Linux x64 before M11); two builds of the
@@ -680,6 +679,8 @@ memory type.)*
 | D4 | `!`/`&` stay not/over; **`'x` is move**, a bare name is borrow; `"` reserved for a mutable-reference sigil (2026-09-07) | SPEC §3, §17, §20; M8c-iv |
 | D5 | `.zerr` version **0.2** (2026-09-07) | `errors.py`; SPEC §8 |
 | D6 | **One token, one meaning. A prebuilt word is 1, then 2, then at most 3 characters** (2026-10-24). `+`/`*` are numeric (`ct` concatenates, `rp` repeats). `_` negates (`any` is the default pattern; there is no `bool` type). `ty` attempts; `at` indexes. Vectors are `vf vd vi vu` with `va vs vm vh`. Widths are `i8…i64 ix` and `u8…u64 ux`. `cl` clears. Standard net-send is `` `t ``, because `s` is `to_str`. Retired spellings are unbound, not aliases | SPEC §4, §7, §11, §12, §16 |
+| D7 | Native `big` is a sign plus little-endian base-2^32 limbs, no leading zero, zero non-negative (2026-10-24) | SPEC §11; `zown-vm` `BigInt` |
+| D8 | WASM tags 4–8 are big, cap, width, vec, res (2026-10-24). Not emitted yet | `WASM.md` |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -692,7 +693,9 @@ the milestone noted.
 | Debt | Where | Attach to |
 |------|-------|-----------|
 | WASM has no tags for cap/width/vec/big/res; those programs are `UNSUPPORTED` (not a silent wrong answer). Checked `int` traps with `unreachable`, not a `.zerr` | `zown-wasm` | rest of **M9** |
-| Int `+ - * _` and comparisons are inlined (M9c). Floats, bigs, `/ %`, stack ops, and words still call the VM. `-o exe` needs host `rustc` plus the rlibs beside `zownc`, and the linked exe is not bit-identical across builds. `buf` / fat pointers are still unspecced. WASM still has no tags for cap/width/vec/big/res | `zown-codegen`, `zown-rt`, `zown-wasm` | rest of **M9** |
+| WASM still does not *emit* tags 4–8, `Move`, `??`, or `ty` (the numbers are D8). Checked `int` overflow in WASM is `unreachable`, not a `.zerr` | `zown-wasm` | after **M9**, before mesh/UI need those values on the web |
+| `vm` of a `vu` vector is not a Cranelift `imul.i8x16` (the x86 backend has no such instruction); it runs on the VM | `zown-codegen` | only if a future Cranelift grows the op |
+| `zownc llvm` needs `libzown_rt.a` (`cargo rustc -p zown-rt --crate-type staticlib`) and `clang` | `zown-codegen` | document in the README if the llvm path is used in CI |
 | Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
 | `zownc check` gates `run`; IR has `Match`/`Attempt`. WASM still refuses v0.2 values | `zown-wasm` | **M9** |
 | `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | M8d-iv / M9 |
@@ -730,16 +733,12 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **Rest of M9.** Int arithmetic and comparisons are inlined (M9c);
-   `native_parity` is 59/59. Next: the `buf` / fat-pointer spec (design-only,
-   no runtime), then deterministic exes and SIMD lowering. On Windows there
-   is no MSVC `link.exe`; build with
-   `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu` (do **not** change
-   `rust-toolchain.toml`). Linking an exe shells out to that `rustc`. The
-   linked object is PIC; the JIT object is not.
-2. **`buf` / fat pointers** go into SPEC Part II as *design-only (M9)* before
-   any runtime code. Do not stub a representation the oracle cannot exhibit.
-   Same pass: decide the native representation of `big` (the VM already uses
-   its own bigint) and the WASM tags for the new value kinds.
-3. **Carry-over (independent):** CI workflow; Ryu/Grisu `$fmt_f64`; auto-discover
-   `tele.errors` in the manifest.
+1. **M10 — fast lanes.** `~`, `^`, and `|` are still reserved. The first slice is
+   the lane model in the SPEC (design-only where the oracle cannot show real
+   threads), then a runtime that can run one pinned lane without starving the
+   others.
+2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
+   `$fmt_f64`; emit WASM tags 4–8; auto-discover `tele.errors`.
+3. **Windows link.** No MSVC `link.exe` on the 2026-09 machine. Build with
+   `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. Do not change
+   `rust-toolchain.toml`.

@@ -67,7 +67,7 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (100 unit tests, 20 +
+All five oracle commands must end in `0 failed` (101 unit tests, 20 +
 39 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
@@ -143,12 +143,10 @@ M0–M8 done. M8a name resolution + match shape
 `zownc ast` 45/45). **M8d-ii/iii ✅** (checked `int`, `big`, widths, vectors,
 `??`, `ty`, caps; `vm_parity` 59/59). **M8d-iv/v ✅** (`Match`/`Attempt`, checked
 WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13).
-**M9a–M9c ✅** — Cranelift: `zownc native` (in-process) and `zownc native -o exe`.
-Int `+ - * _` and comparisons are native instructions; other values still call
-the VM. v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`,
-`ty`, `gr`, and the vector constructors. WASM still answers `UNSUPPORTED` for
-v0.2 values. Still open in M9: deterministic exes, SIMD lowering, and the `buf`
-spec.
+**M9 ✅** — Cranelift int fast path, SIMD `va`/`vs`/`vm`, byte-identical
+`native -o` exes, `native -O`, and `zownc llvm` (`clang -O2`). `buf` is
+SPEC §21 and is not implemented. `native_parity` is 59/59. WASM tags 4–8 are
+assigned and not emitted. Next milestone is M10 (fast lanes).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

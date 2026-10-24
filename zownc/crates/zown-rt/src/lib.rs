@@ -30,6 +30,20 @@ impl Rt {
         }
     }
 
+    pub fn clear_desc(&mut self, id: usize) {
+        if self.descs.len() <= id {
+            self.descs.resize(id + 1, Vec::new());
+        }
+        self.descs[id].clear();
+    }
+
+    pub fn push_desc(&mut self, id: usize, op: NatOp) {
+        if self.descs.len() <= id {
+            self.descs.resize(id + 1, Vec::new());
+        }
+        self.descs[id].push(op);
+    }
+
     pub fn set_fn(&mut self, id: usize, f: unsafe extern "C" fn(*mut Rt)) {
         if self.funcs.len() <= id {
             self.funcs.resize(id + 1, rt_missing);
@@ -136,6 +150,42 @@ pub unsafe extern "C" fn rt_take_int(rt: *mut Rt, a_out: *mut i64) -> i32 {
         }
         _ => 1,
     }
+}
+
+/// Pop two matching SIMD vectors for `word` (`va`/`vs`/`vm`) into 16-byte
+/// buffers. Returns the kind, or 0 when the word should run on the VM.
+#[no_mangle]
+pub unsafe extern "C" fn rt_take_simd(
+    rt: *mut Rt,
+    ptr: *const u8,
+    len: usize,
+    a_out: *mut u8,
+    b_out: *mut u8,
+) -> i32 {
+    if rt.is_null() || a_out.is_null() || b_out.is_null() || rt_failed(rt) != 0 {
+        return 0;
+    }
+    let word = str_at(ptr, len);
+    let mut a = [0u8; 16];
+    let mut b = [0u8; 16];
+    let kind = (*rt).vm.prepare_simd(&word, &mut a, &mut b);
+    if kind == 0 {
+        return 0;
+    }
+    std::ptr::copy_nonoverlapping(a.as_ptr(), a_out, 16);
+    std::ptr::copy_nonoverlapping(b.as_ptr(), b_out, 16);
+    kind
+}
+
+/// Push the 16-byte result of an inlined SIMD op.
+#[no_mangle]
+pub unsafe extern "C" fn rt_push_simd(rt: *mut Rt, kind: i32, ptr: *const u8) -> i32 {
+    if rt.is_null() || ptr.is_null() || rt_failed(rt) != 0 {
+        return 1;
+    }
+    let bytes = std::slice::from_raw_parts(ptr, 16);
+    (*rt).vm.push_simd(kind, bytes);
+    0
 }
 
 /// Record `OVERFLOW` for an inlined int operation. The operands are already gone.
@@ -462,6 +512,58 @@ unsafe fn vec_ctor(
         Ok(()) => 0,
         Err(e) => fail(&mut *rt, e),
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rt_box_new(ptr: *const u8, len: usize) -> *mut Rt {
+    let file = str_at(ptr, len);
+    Box::into_raw(Box::new(Rt::new(&file)))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rt_set_fn(rt: *mut Rt, id: u64, f: unsafe extern "C" fn(*mut Rt)) {
+    if !rt.is_null() {
+        (*rt).set_fn(id as usize, f);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rt_desc_begin(rt: *mut Rt, id: u64) {
+    if !rt.is_null() {
+        (*rt).clear_desc(id as usize);
+    }
+}
+
+/// Append one instruction to block `id`'s pattern shape.
+/// `kind`: 0 int (`n`), 1 float (`bits`), 2 str, 3 name, 4 op, 5 block (`n`),
+/// 6 cap, 7 bind, 8 move. Text kinds read `ptr`/`len`.
+#[no_mangle]
+pub unsafe extern "C" fn rt_desc_push(
+    rt: *mut Rt,
+    id: u64,
+    kind: u32,
+    ptr: *const u8,
+    len: usize,
+    n: i64,
+    bits: u64,
+) {
+    if rt.is_null() {
+        return;
+    }
+    let text = str_at(ptr, len);
+    let op = match kind {
+        0 => NatOp::Int(n),
+        1 => NatOp::Float(f64::from_bits(bits)),
+        2 => NatOp::Str(text),
+        3 => NatOp::Name(text),
+        4 => NatOp::Op(text),
+        5 => NatOp::Block(n as u32),
+        6 => NatOp::Cap(text),
+        7 => NatOp::Bind(text),
+        8 => NatOp::Move(text),
+        _ => return,
+    };
+    (*rt).push_desc(id as usize, op);
 }
 
 #[no_mangle]

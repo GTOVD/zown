@@ -89,6 +89,34 @@ def test_retired_spellings_are_not_aliases():
         _fails(src, NAME_UNRESOLVED)
 
 
+def test_fuzzer_never_panics_and_has_no_raw_memory_fault():
+    """Random programs must return a value or a .zerr, never a host crash.
+
+    There is no raw pointer (§21 is design-only), so an out-of-bounds or
+    use-after-free state is not representable. The fuzzer checks that stays true.
+    """
+    import random
+    rng = random.Random(21)
+    atoms = ["0", "1", "2", "3", "5", "8", "$a$", "$b$", "s", "n", "b",
+             "+", "-", "*", "/", "%", "_", "==", "<", "ct", "rp", "=", ",",
+             ".", "dp", "ln", "ty", "cl"]
+    for _ in range(80):
+        parts = [rng.choice(atoms) for _ in range(rng.randint(1, 10))]
+        # A block that does not loop, so the fuzzer cannot hang.
+        if rng.random() < 0.3:
+            parts.append("[ 1 2 + ] @")
+        src = " ".join(parts)
+        try:
+            run(src)
+        except ZownError:
+            pass
+        from zown.checker import check_src
+        try:
+            check_src(src)
+        except ZownError:
+            pass
+
+
 def test_plus_and_star_are_numeric_only():
     _fails("$foo$ $bar$ +", TYPE_MISMATCH, "+")
     _fails("$ab$ 3 *", TYPE_MISMATCH, "*")

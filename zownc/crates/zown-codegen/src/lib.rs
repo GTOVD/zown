@@ -28,12 +28,14 @@ use cranelift_module::DataDescription;
 use cranelift_module::{DataId, FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
+mod llvm_ir;
+
 use zown_ir::{Instr, IrBlock, IrProgram, lower};
 use zown_parser::{ParseError, parse};
 use zown_rt::{
     NatOp, Rt, rt_attempt, rt_bind, rt_call, rt_failed, rt_load, rt_match, rt_move, rt_op,
     rt_overflow, rt_pop_func, rt_pop_truthy, rt_push_cap, rt_push_float, rt_push_func, rt_push_int,
-    rt_push_str, rt_select, rt_take_int, rt_take_ints,
+    rt_push_simd, rt_push_str, rt_select, rt_take_int, rt_take_ints, rt_take_simd,
 };
 
 pub struct ExecResult {
@@ -54,17 +56,28 @@ pub enum NativeError {
 }
 
 pub fn execute(src: &str, file: &str) -> Result<ExecResult, NativeError> {
+    execute_tuned(src, file, false)
+}
+
+/// `fast` selects Cranelift `opt_level=speed` (`zownc native -O`).
+pub fn execute_tuned(src: &str, file: &str, fast: bool) -> Result<ExecResult, NativeError> {
     let nodes = parse(src).map_err(NativeError::Parse)?;
     let ir = lower(&nodes);
-    run_jit(&ir, file).map_err(NativeError::Unsupported)
+    run_jit(&ir, file, fast).map_err(NativeError::Unsupported)
 }
 
 /// Compile `src` to a native executable at `out`. The binary links the same
 /// runtime the JIT uses, so a v0.1 program behaves the same when you run it.
+pub use llvm_ir::write_llvm_exe;
+
 pub fn write_exe(src: &str, file: &str, out: &Path) -> Result<(), NativeError> {
+    write_exe_tuned(src, file, out, false)
+}
+
+pub fn write_exe_tuned(src: &str, file: &str, out: &Path, fast: bool) -> Result<(), NativeError> {
     let nodes = parse(src).map_err(NativeError::Parse)?;
     let ir = lower(&nodes);
-    let bytes = compile_object(&ir).map_err(NativeError::Unsupported)?;
+    let bytes = compile_object(&ir, fast).map_err(NativeError::Unsupported)?;
     link_exe(&bytes, out, &ir, file).map_err(NativeError::Link)
 }
 
@@ -88,9 +101,11 @@ struct Imports {
     take_ints: FuncId,
     take_int: FuncId,
     overflow: FuncId,
+    take_simd: FuncId,
+    push_simd: FuncId,
 }
 
-fn host_isa(pic: bool) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
+fn host_isa(pic: bool, fast: bool) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String> {
     let mut flag_builder = settings::builder();
     flag_builder
         .set("use_colocated_libcalls", "false")
@@ -100,7 +115,9 @@ fn host_isa(pic: bool) -> Result<cranelift_codegen::isa::OwnedTargetIsa, String>
     flag_builder
         .set("is_pic", if pic { "true" } else { "false" })
         .map_err(|e| e.to_string())?;
-    flag_builder.set("opt_level", "none").map_err(|e| e.to_string())?;
+    flag_builder
+        .set("opt_level", if fast { "speed" } else { "none" })
+        .map_err(|e| e.to_string())?;
     let isa_builder = cranelift_native::builder().map_err(|e| e.to_string())?;
     isa_builder
         .finish(settings::Flags::new(flag_builder))
@@ -142,8 +159,8 @@ fn compile_program<M: Module>(
     Ok((module, ids))
 }
 
-fn run_jit(ir: &IrProgram, file: &str) -> Result<ExecResult, String> {
-    let isa = host_isa(false)?;
+fn run_jit(ir: &IrProgram, file: &str, fast: bool) -> Result<ExecResult, String> {
+    let isa = host_isa(false, fast)?;
     let mut jb = JITBuilder::with_isa(isa, default_libcall_names());
     for (name, sym) in host_symbols() {
         jb.symbol(name, sym);
@@ -191,6 +208,8 @@ fn host_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_take_ints", rt_take_ints as *const u8),
         ("rt_take_int", rt_take_int as *const u8),
         ("rt_overflow", rt_overflow as *const u8),
+        ("rt_take_simd", rt_take_simd as *const u8),
+        ("rt_push_simd", rt_push_simd as *const u8),
     ]
 }
 
@@ -269,6 +288,8 @@ fn declare_imports<M: Module>(module: &mut M, ptr: Type) -> Result<Imports, Stri
         take_ints: decl(module, "rt_take_ints", &[ptr, ptr, ptr], Some(i32t))?,
         take_int: decl(module, "rt_take_int", &[ptr, ptr], Some(i32t))?,
         overflow: decl(module, "rt_overflow", &[ptr, ptr, i64t], Some(i32t))?,
+        take_simd: decl(module, "rt_take_simd", &[ptr, ptr, i64t, ptr, ptr], Some(i32t))?,
+        push_simd: decl(module, "rt_push_simd", &[ptr, i32t, ptr], Some(i32t))?,
     })
 }
 
@@ -282,6 +303,8 @@ struct Cx<'a, M: Module> {
     fail: cranelift_codegen::ir::Block,
     /// Two `i64` slots. Inlined int ops stage operands here.
     pair: StackSlot,
+    /// Two 16-byte SIMD payloads, 16-byte aligned.
+    simd: StackSlot,
 }
 
 fn compile_block<M: Module>(
@@ -306,7 +329,8 @@ fn compile_block<M: Module>(
     b.def_var(rt, rt_val);
     let fail = b.create_block();
     let pair = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 3));
-    let mut cx = Cx { module, b, imports, strings, lens, rt, fail, pair };
+    let simd = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 4));
+    let mut cx = Cx { module, b, imports, strings, lens, rt, fail, pair, simd };
     cx.prologue();
     for instr in &block.0 {
         cx.emit(instr);
@@ -389,6 +413,7 @@ impl<'a, M: Module> Cx<'a, M> {
                 let (p, n) = self.str_ptr(s);
                 self.call_status(self.imports.bind, &[p, n]);
             }
+            Instr::Load(s) if matches!(s.as_str(), "va" | "vs" | "vm") => self.emit_simd(s),
             Instr::Load(s) => {
                 let (p, n) = self.str_ptr(s);
                 self.call_status(self.imports.load, &[p, n]);
@@ -418,6 +443,88 @@ impl<'a, M: Module> Cx<'a, M> {
                 self.call_status(self.imports.attempt, &[]);
             }
         }
+    }
+
+    /// `va`/`vs`/`vm` on two matching vectors. A shadowed name, or any other
+    /// stack shape, falls through to `rt_load` so the VM reports the error.
+    fn emit_simd(&mut self, word: &str) {
+        let a_addr = self.simd_addr(0);
+        let b_addr = self.simd_addr(16);
+        let (np, nl) = self.str_ptr(word);
+        let kind = self.call_ret(self.imports.take_simd, &[np, nl, a_addr, b_addr]);
+        let kind_v = self.b.declare_var(types::I32);
+        self.b.def_var(kind_v, kind);
+        let zero = self.b.ins().iconst(types::I32, 0);
+        let miss = self.b.ins().icmp(IntCC::Equal, kind, zero);
+        let slow = self.b.create_block();
+        let fast = self.b.create_block();
+        let done = self.b.create_block();
+        self.b.ins().brif(miss, slow, &[], fast, &[]);
+
+        self.b.switch_to_block(slow);
+        let (np, nl) = self.str_ptr(word);
+        self.call_status(self.imports.load, &[np, nl]);
+        self.b.ins().jump(done, &[]);
+
+        self.b.switch_to_block(fast);
+        let rest = self.b.create_block();
+        self.emit_simd_kind(word, kind_v, 1, types::I32X4, false, done);
+        if word != "vm" {
+            self.emit_simd_kind(word, kind_v, 2, types::I8X16, false, done);
+        }
+        self.emit_simd_kind(word, kind_v, 3, types::F32X4, true, done);
+        self.emit_simd_kind(word, kind_v, 4, types::F64X2, true, done);
+        self.b.ins().jump(rest, &[]);
+        self.b.switch_to_block(rest);
+        self.b.ins().jump(self.fail, &[]);
+        self.b.switch_to_block(done);
+    }
+
+    fn emit_simd_kind(
+        &mut self,
+        word: &str,
+        kind_v: cranelift_frontend::Variable,
+        want: i64,
+        ty: Type,
+        float: bool,
+        done: cranelift_codegen::ir::Block,
+    ) {
+        let kind = self.b.use_var(kind_v);
+        let imm = self.b.ins().iconst(types::I32, want);
+        let eq = self.b.ins().icmp(IntCC::Equal, kind, imm);
+        let hit = self.b.create_block();
+        let next = self.b.create_block();
+        self.b.ins().brif(eq, hit, &[], next, &[]);
+
+        self.b.switch_to_block(hit);
+        let a_addr = self.simd_addr(0);
+        let b_addr = self.simd_addr(16);
+        let a = self.b.ins().load(ty, MemFlags::trusted(), a_addr, 0);
+        let b = self.b.ins().load(ty, MemFlags::trusted(), b_addr, 0);
+        let result = if float {
+            match word {
+                "va" => self.b.ins().fadd(a, b),
+                "vs" => self.b.ins().fsub(a, b),
+                _ => self.b.ins().fmul(a, b),
+            }
+        } else {
+            match word {
+                "va" => self.b.ins().iadd(a, b),
+                "vs" => self.b.ins().isub(a, b),
+                _ => self.b.ins().imul(a, b),
+            }
+        };
+        let store_at = self.simd_addr(0);
+        self.b.ins().store(MemFlags::trusted(), result, store_at, 0);
+        let k = self.b.ins().iconst(types::I32, want);
+        self.call_status(self.imports.push_simd, &[k, store_at]);
+        self.b.ins().jump(done, &[]);
+
+        self.b.switch_to_block(next);
+    }
+
+    fn simd_addr(&mut self, offset: i32) -> Clif {
+        self.b.ins().stack_addr(types::I64, self.simd, offset)
     }
 
     /// `+ - *` on two ints. Anything else (float, big, a type error, underflow)
@@ -618,8 +725,8 @@ impl<'a, M: Module> Cx<'a, M> {
     }
 }
 
-fn compile_object(ir: &IrProgram) -> Result<Vec<u8>, String> {
-    let isa = host_isa(true)?;
+fn compile_object(ir: &IrProgram, fast: bool) -> Result<Vec<u8>, String> {
+    let isa = host_isa(true, fast)?;
     let builder = ObjectBuilder::new(isa, "zown", default_libcall_names())
         .map_err(|e| e.to_string())?;
     let module = ObjectModule::new(builder);
@@ -631,7 +738,12 @@ fn compile_object(ir: &IrProgram) -> Result<Vec<u8>, String> {
 /// registering every block with the runtime. `rustc` supplies the standard
 /// library so the runtime's allocator and stdout are initialized.
 fn link_exe(object: &[u8], out: &Path, ir: &IrProgram, file: &str) -> Result<(), String> {
+    // One linker at a time. The directory name is remapped to a constant so
+    // two builds of the same source do not embed a pid or a temp path.
+    static LINK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LINK_LOCK.lock().map_err(|e| e.to_string())?;
     let dir = std::env::temp_dir().join(format!("zown-link-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let obj = dir.join("prog.o");
     let driver = dir.join("driver.rs");
@@ -649,7 +761,8 @@ fn link_exe(object: &[u8], out: &Path, ir: &IrProgram, file: &str) -> Result<(),
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let mut cmd = rustc_cmd(&rustc);
-    cmd.arg(&driver)
+    cmd.env("SOURCE_DATE_EPOCH", "0")
+        .arg(&driver)
         .arg("-o")
         .arg(&out_abs)
         .arg("--edition")
@@ -657,7 +770,19 @@ fn link_exe(object: &[u8], out: &Path, ir: &IrProgram, file: &str) -> Result<(),
         .arg("-L")
         .arg(format!("dependency={}", deps.display()))
         .arg("-C")
-        .arg(format!("link-arg={}", obj.display()));
+        .arg(format!("link-arg={}", obj.display()))
+        .arg("-C")
+        .arg("debuginfo=0")
+        .arg("-C")
+        .arg("strip=symbols")
+        .arg("-C")
+        .arg("incremental=off")
+        .arg("-C")
+        .arg("codegen-units=1")
+        .arg("-C")
+        .arg("link-arg=-Wl,--build-id=none")
+        .arg("--remap-path-prefix")
+        .arg(format!("{dir}=zown-link", dir = dir.display()));
     for ext in &externs {
         cmd.arg("--extern").arg(ext);
     }
@@ -904,6 +1029,55 @@ mod tests {
         let r = run("5 3 < .  3 5 < .");
         assert_eq!(r.exit, 0, "{}", r.stderr);
         assert_eq!(r.stdout, "0\n1\n");
+    }
+
+    #[test]
+    fn llvm_exe_prints_hello_and_arith() {
+        let dir = std::env::temp_dir().join(format!("zown-llvm-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let hello = dir.join("hello");
+        write_llvm_exe("[$Hello, World!$.]:h h@", "hello.zn", &hello).unwrap();
+        let out = std::process::Command::new(&hello).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout, b"Hello, World!\n");
+        let arith = dir.join("arith");
+        write_llvm_exe("0:c [ c 3 < ] [ c . c 1 + :c ] ;", "count.zn", &arith).unwrap();
+        let out = std::process::Command::new(&arith).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout, b"0\n1\n2\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn optimized_native_matches_the_vm() {
+        let r = execute_tuned("10 20 * .", "a.zn", true).unwrap();
+        assert_eq!(r.exit, 0, "{}", r.stderr);
+        assert_eq!(r.stdout, "200\n");
+    }
+
+    #[test]
+    fn two_exes_of_the_same_source_match() {
+        let dir = std::env::temp_dir().join(format!("zown-det-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.exe");
+        let b = dir.join("b.exe");
+        let src = "10 20 * .";
+        write_exe(src, "arith.zn", &a).unwrap();
+        write_exe(src, "arith.zn", &b).unwrap();
+        let ba = std::fs::read(&a).unwrap();
+        let bb = std::fs::read(&b).unwrap();
+        assert_eq!(ba, bb, "native exe is not byte-identical across two builds");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

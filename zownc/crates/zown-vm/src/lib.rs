@@ -103,6 +103,55 @@ enum Bin {
     Mul,
 }
 
+fn simd_kind(v: &Value) -> Option<i32> {
+    match v {
+        Value::Vec(v) => match v.name {
+            "vi" => Some(1),
+            "vu" => Some(2),
+            "vf" => Some(3),
+            "vd" => Some(4),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn write_simd(v: &Value, out: &mut [u8; 16]) {
+    let Value::Vec(v) = v else { return };
+    *out = [0; 16];
+    match v.name {
+        "vi" => {
+            for (i, lane) in v.lanes.iter().enumerate() {
+                if let Lane::Int(n) = lane {
+                    out[i * 4..i * 4 + 4].copy_from_slice(&(*n as i32).to_le_bytes());
+                }
+            }
+        }
+        "vu" => {
+            for (i, lane) in v.lanes.iter().enumerate() {
+                if let Lane::Int(n) = lane {
+                    out[i] = *n as u8;
+                }
+            }
+        }
+        "vf" => {
+            for (i, lane) in v.lanes.iter().enumerate() {
+                if let Lane::Float(f) = lane {
+                    out[i * 4..i * 4 + 4].copy_from_slice(&(*f as f32).to_le_bytes());
+                }
+            }
+        }
+        "vd" => {
+            for (i, lane) in v.lanes.iter().enumerate() {
+                if let Lane::Float(f) = lane {
+                    out[i * 8..i * 8 + 8].copy_from_slice(&f.to_le_bytes());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 impl Vm {
     pub fn new(file: Option<String>) -> Self {
         Vm {
@@ -124,6 +173,80 @@ impl Vm {
 
     fn push(&mut self, v: Value) {
         self.stack.push(v);
+    }
+
+    /// If `word` is not a user binding and the top two values are the same SIMD
+    /// shape (`vi` `vu` `vf` `vd`), pop them and write 16-byte lane payloads
+    /// (little-endian). Returns the kind (`1` vi, `2` vu, `3` vf, `4` vd), or
+    /// `0` when the VM should execute the word instead.
+    pub fn prepare_simd(&mut self, word: &str, a_out: &mut [u8; 16], b_out: &mut [u8; 16]) -> i32 {
+        if self.env.contains_key(word) || self.stack.len() < 2 {
+            return 0;
+        }
+        let n = self.stack.len();
+        let ka = simd_kind(&self.stack[n - 2]);
+        let kb = simd_kind(&self.stack[n - 1]);
+        match (ka, kb) {
+            (Some(k1), Some(k2)) if k1 == k2 => {
+                // Cranelift has no `imul.i8x16` on x86. `vm` of `vu` stays on the VM.
+                if k1 == 2 && word == "vm" {
+                    return 0;
+                }
+                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap();
+                write_simd(&a, a_out);
+                write_simd(&b, b_out);
+                k1
+            }
+            _ => 0,
+        }
+    }
+
+    /// Push a vector produced by an inlined SIMD op. `bytes` is the 16-byte
+    /// payload written by [`prepare_simd`](Self::prepare_simd).
+    pub fn push_simd(&mut self, kind: i32, bytes: &[u8]) {
+        if bytes.len() < 16 {
+            return;
+        }
+        let (name, count, is_float, signed, bits) = match kind {
+            1 => ("vi", 4, false, true, 32),
+            2 => ("vu", 16, false, false, 8),
+            3 => ("vf", 4, true, true, 32),
+            4 => ("vd", 2, true, true, 64),
+            _ => return,
+        };
+        let mut lanes = Vec::with_capacity(count);
+        if is_float && bits == 64 {
+            for i in 0..2 {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&bytes[i * 8..i * 8 + 8]);
+                lanes.push(Lane::Float(f64::from_le_bytes(buf)));
+            }
+        } else if is_float {
+            for i in 0..4 {
+                let mut buf = [0u8; 4];
+                buf.copy_from_slice(&bytes[i * 4..i * 4 + 4]);
+                lanes.push(Lane::Float(f32::from_le_bytes(buf) as f64));
+            }
+        } else if bits == 8 {
+            for i in 0..16 {
+                lanes.push(Lane::Int(bytes[i] as i64));
+            }
+        } else {
+            for i in 0..4 {
+                let mut buf = [0u8; 4];
+                buf.copy_from_slice(&bytes[i * 4..i * 4 + 4]);
+                lanes.push(Lane::Int(i32::from_le_bytes(buf) as i64));
+            }
+        }
+        self.stack.push(Value::Vec(VecVal {
+            name,
+            count,
+            is_float,
+            signed,
+            bits,
+            lanes,
+        }));
     }
 
     /// `OVERFLOW` after an inlined int operation already popped its operands.

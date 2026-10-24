@@ -27,7 +27,8 @@ COMMANDS:
     irast <file.zn>   Lower to IR then rebuild the AST as JSON (round-trip check)
     wat <file.zn>     Compile to WebAssembly text (.wat) and print it
     build <file.zn>   Compile to WebAssembly (-o <path>; .wasm = binary, else .wat)
-    native <file.zn>  Compile with Cranelift and run in-process
+    native [-O] <file.zn>  Compile with Cranelift and run in-process (-O optimizes)
+    llvm <file.zn> -o exe  Compile via LLVM IR with clang -O2
                       -o <path.exe> writes a standalone executable instead
     version           Print version
     help              Show this help
@@ -58,6 +59,8 @@ fn main() -> ExitCode {
     args.retain(|a| a != "--zerr");
     let unchecked = args.iter().any(|a| a == "--unchecked");
     args.retain(|a| a != "--unchecked");
+    let fast = args.iter().any(|a| a == "-O");
+    args.retain(|a| a != "-O");
 
     // extract `-o <path>` (used by `build`)
     let mut out_path: Option<String> = None;
@@ -73,7 +76,7 @@ fn main() -> ExitCode {
 
     // shorthand: `zownc file.zn` == `zownc run file.zn`
     let known = [
-        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "version", "help",
+        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "llvm", "version", "help",
     ];
     if let Some(first) = args.first() {
         if !first.starts_with('-') && !known.contains(&first.as_str()) {
@@ -141,9 +144,25 @@ fn main() -> ExitCode {
             }
         },
         "native" => match args.get(1) {
-            Some(path) => cmd_native(path, zerr, unchecked, out_path.as_deref()),
+            Some(path) => cmd_native(path, zerr, unchecked, fast, out_path.as_deref()),
             None => {
                 eprintln!("zownc native: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "llvm" => match args.get(1) {
+            Some(path) => {
+                let out = match out_path {
+                    Some(p) => p,
+                    None => {
+                        eprintln!("zownc llvm: -o <exe> is required\n\n{USAGE}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                cmd_llvm(path, &out)
+            }
+            None => {
+                eprintln!("zownc llvm: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -209,7 +228,27 @@ fn cmd_run(path: &str, zerr: bool, unchecked: bool) -> ExitCode {
     }
 }
 
-fn cmd_native(path: &str, zerr: bool, unchecked: bool, out: Option<&str>) -> ExitCode {
+fn cmd_llvm(path: &str, out: &str) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match zown_codegen::write_llvm_exe(&src, path, std::path::Path::new(out)) {
+        Ok(()) => {
+            eprintln!("wrote {out}");
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("zownc llvm: {msg}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_native(path: &str, zerr: bool, unchecked: bool, fast: bool, out: Option<&str>) -> ExitCode {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -238,7 +277,7 @@ fn cmd_native(path: &str, zerr: bool, unchecked: bool, out: Option<&str>) -> Exi
         }
     }
     if let Some(out) = out {
-        return match zown_codegen::write_exe(&src, path, std::path::Path::new(out)) {
+        return match zown_codegen::write_exe_tuned(&src, path, std::path::Path::new(out), fast) {
             Ok(()) => {
                 eprintln!("wrote {out}");
                 ExitCode::SUCCESS
@@ -250,7 +289,7 @@ fn cmd_native(path: &str, zerr: bool, unchecked: bool, out: Option<&str>) -> Exi
             }
         };
     }
-    match zown_codegen::execute(&src, path) {
+    match zown_codegen::execute_tuned(&src, path, fast) {
         Ok(r) => {
             print!("{}", r.stdout);
             if r.exit == 0 {
