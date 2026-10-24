@@ -10,6 +10,7 @@ members = [
     "crates/zown-check",
     "crates/zown-rt",
     "crates/zown-codegen",
+    "crates/zown-bare",
     "crates/zown-cli",
 ]
 

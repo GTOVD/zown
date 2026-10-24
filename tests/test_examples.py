@@ -17,6 +17,7 @@ EXPECTED = {
         "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n"
     ),
     "lanes.zn": "mncmnmn\n7\n9\n",
+    "bare.zn": "Zown\n",
     "ui.zn": "cm 0 0 20 24\n  tx 2 2 16 8 ok Hi\n  bt 2 14 16 8 ok Go\n",
     "graph.zn": (
         "b\nc\n\n"

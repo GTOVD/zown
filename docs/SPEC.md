@@ -1114,3 +1114,11 @@ Two host words make that program possible. `hd` pushes the first character of a 
 `lx` prints one line per token: the kind, a space, and the raw lexeme. Comments are not printed. A string's lexeme includes both `$` quotes and the escape characters as they appear in the source. The scanner still reads escapes, so `\$` does not end the string. The host lexer (`token_dump`) prints the same lines for every program it accepts. `zown stage zown/std/lex.zn` is the fixed point: the lexer tokenizes its own source, and the dump matches the host. `conformance/stage_parity.py` runs that same program through `zownc native`.
 
 An integer literal past the `int` range, and a file the host lexer rejects, are unchanged host errors. This slice does not reimplement them. The parser, the lowering, and a compiler binary produced by Zown are not in this slice. A byte-identical stage-2 executable is still the endgame (`PLAN` M16), and it is not claimed here.
+
+## 29. Bare metal — **implemented (M17, boot sector)**
+
+`zownc bare file.zn -o boot.bin` writes a 512-byte PC boot sector. The program may only print string literals: `$text$ pr` prints the text, and `$text$ .` prints it and then a newline. Anything else is refused. A NUL in the text is refused. Text that does not fit the sector is refused.
+
+The sector runs in 16-bit real mode. The BIOS loads it at `0x7C00`. It writes each character to the VGA text buffer at `0xB8000` with attribute `0x07`, 80 columns to a row. A newline starts the next row. The same bytes, including newlines, are written to port `0xE9` so a host without a framebuffer can see them. After the text, the sector runs `int 0x20`. The handler stores `0xB1` at linear address `0x8000` and returns with `iret`. Then the CPU halts.
+
+This is the text on the screen and one software interrupt. It is not a long-mode kernel, not a hardware IRQ, and not a microkernel. Capability isolation and the rest of a Zown OS stay design-only. `examples/bare.zn` prints `Zown`. `conformance/bare_boot.py` boots that image in QEMU and reads the VGA cells back.

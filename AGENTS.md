@@ -65,7 +65,7 @@ python3 conformance/check.py        # static-checker goldens (oracle-only)
 python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py \
-  && python3 conformance/stage_parity.py
+  && python3 conformance/stage_parity.py && python3 conformance/bare_boot.py
 ```
 
 All five oracle commands must end in `0 failed` (126 unit tests, 20 +
@@ -164,7 +164,11 @@ and hot-swap are not implemented. **M15 ✅** — logical control-plane log
 implemented. **M16 ✅** — `zown/std/lex.zn` is the lexer. `zown stage`
 checks its token dump against the host, including on its own source.
 `stage_parity` runs that program natively. A stage-2 compiler binary is
-not produced. `native_parity` is 80/80. Next milestone is M17 (bare metal).
+not produced. **M17 ✅** — `zownc bare` writes a 512-byte real-mode boot
+sector. QEMU reads `Zown` from the VGA text buffer, and `int 0x20` stores
+`0xB1` at `0x8000`. A microkernel is not implemented. `native_parity` is
+80/80. The numbered milestones each have a running slice. What remains is
+the design-only tail (a stage-2 compiler binary, a microkernel, CI).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

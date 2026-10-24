@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M16: a lexer written in Zown).
+Last updated: 2026-10-24 (M17: a boot sector that prints to VGA).
 
 ---
 
@@ -69,7 +69,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M14 | Embedded store + distribution | ✅ | in-memory graph `gv ge » → «` and `zown keep` (fsynced BLAKE3 bundle). mmap, CRDT, Ed25519, and hot-swap are not implemented |
 | M15 | AI control plane + rolling execution | ✅ | logical log: spans, intent, faults (`ch vr td sp se nt wn ob df rm lg`, `zown watch`). No clock. Hot-swap, a fleet, and on-device ML are not implemented |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ✅ | `zown/std/lex.zn` matches the host token dump, including on its own source. Native runs it (`stage_parity`). A stage-2 compiler binary is not produced |
-| M17 | Zown OS / bare metal | ⬜ | `--target=bare`, microkernel demo |
+| M17 | Zown OS / bare metal | ✅ | `zownc bare` writes a 512-byte real-mode sector. QEMU shows the text at `0xB8000`. `int 0x20` stores `0xB1` at `0x8000`. Not a microkernel |
 
 > M7–M17 were expanded from the original M7–M15 to fold in the full
 > sovereign-substrate vision (`DESIGN.md`). The key change: a **design-freeze
@@ -641,13 +641,11 @@ in this slice. `native_parity` is 74/74.
 **Goal:** prove "build anything," including kernels.
 
 **Tasks**
-- [ ] `--target=bare` (x86_64-unknown-none): no std, freestanding.
-- [ ] MMIO + a bootable image that writes to the VGA text buffer.
-- [ ] Minimal interrupt handler demo.
+- [x] **M17a.** `zownc bare file.zn -o boot.bin` emits a 512-byte real-mode boot sector. The program may only be `$text$ pr` and `$text$ .`. The sector writes those characters to the VGA text buffer at `0xB8000` (attribute `0x07`, 80 columns) and to port `0xE9`.
+- [x] **M17b.** After the text, `int 0x20` runs a handler in the sector. The handler stores `0xB1` at `0x8000` and returns. `conformance/bare_boot.py` boots the image in QEMU and reads both the cells and that byte.
+- [ ] **M17c.** Long mode, a hardware IRQ, and a microkernel whose trusted core is hardware abstraction plus capability isolation. Not implemented. This sector is real mode and halts.
 
-**Acceptance:** a `.bin` boots in QEMU and prints to screen. End state: a
-microkernel in Zown whose trusted core is only hardware abstraction + capability
-enforcement + isolation; everything else is a Zown module.
+**Acceptance:** `examples/bare.zn` boots in QEMU and the VGA cells are `Zown`. Met by `bare_boot.py`. A microkernel is not this slice.
 
 ---
 
@@ -680,6 +678,7 @@ memory type.)*
 | D13 | The store slice is an **in-memory graph and an fsynced BLAKE3 bundle**, not mmap or a signature (2026-10-24). `gv ge gs gl gh sb so` and `» « →` are the surface. Integrity is `INTEGRITY_FAIL`. Ed25519, CRDTs, and hot-swap stay design-only | SPEC §26; M14 |
 | D14 | The control plane in the oracle is a **logical log** (2026-10-24). Spans, intent, and faults share one numbered trace tagged with a content hash, a version, and a trace id. No clock. `rm` records a note; it does not run code. Hot-swap, a fleet, and on-device ML stay design-only | SPEC §27; M15 |
 | D15 | Self-hosting starts at the **lexer** (2026-10-24). `std/lex.zn` prints the same `KIND lexeme` lines as the host, including on its own source. Stage-0 executes it. A stage-2 compiler binary is not produced | SPEC §28; M16 |
+| D16 | The bare-metal slice is a **512-byte real-mode boot sector** (2026-10-24). It prints string literals to the VGA text buffer and runs `int 0x20`. It is not long mode and not a microkernel | SPEC §29; M17 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -732,8 +731,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M17 — bare metal.** A freestanding image. The lexer is SPEC §28; a
-   stage-2 compiler binary is still not produced.
+1. **What is still design-only.** A stage-2 compiler binary (M16c), a
+   microkernel (M17c), and the earlier carry-overs: CI, Ryu/Grisu
+   `$fmt_f64`, WASM tags 4–8.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

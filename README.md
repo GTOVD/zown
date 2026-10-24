@@ -70,6 +70,10 @@ python3 bin/zown examples/intent.zn
 
 # the Zown lexer tokenizes its own source; the dump must match the host
 python3 bin/zown stage zown/std/lex.zn
+
+# a boot sector whose VGA text is the string this program prints
+# (after `cd zownc && cargo build`)
+./zownc/target/debug/zownc bare examples/bare.zn -o zown.bin
 ```
 
 Install the `zown` command for real:
@@ -205,7 +209,8 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
    on-device ML are not implemented.
 9. **Self-hosting (M16)** — the running slice is a lexer written in Zown
    (`zown stage`). A parser and a stage-2 compiler binary are not implemented.
-   **Zown OS / bare metal (M17)** is still ahead.
+10. **Bare metal (M17)** — `zownc bare` boots a print program in QEMU and
+    writes the VGA text buffer. A microkernel is not implemented.
 
 The whole vision — the "sovereign computing substrate" — is in
 [`docs/DESIGN.md`](docs/DESIGN.md); the high-level phases in

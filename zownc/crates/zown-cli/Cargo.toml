@@ -19,3 +19,4 @@ zown-vm = { path = "../zown-vm" }
 zown-wasm = { path = "../zown-wasm" }
 zown-check = { path = "../zown-check" }
 zown-codegen = { path = "../zown-codegen" }
+zown-bare = { path = "../zown-bare" }

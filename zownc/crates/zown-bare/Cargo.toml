@@ -1,0 +1,11 @@
+[package]
+name = "zown-bare"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Real-mode boot image for a Zown print program."
+
+[dependencies]
+zown-ast = { path = "../zown-ast" }
+zown-parser = { path = "../zown-parser" }

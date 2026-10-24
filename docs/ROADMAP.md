@@ -209,10 +209,11 @@ local inference.
 
 ## Phase 11 — Zown OS / bare metal
 
-Prove "build anything," including kernels: `--target=bare`
-(`x86_64-unknown-none`), MMIO + a bootable image, a minimal interrupt handler, and
-ultimately a **microkernel in Zown** whose only trusted core is hardware
-abstraction + capability enforcement + isolation — everything else a Zown module.
+- [x] `zownc bare` writes a 512-byte real-mode boot sector (SPEC §29).
+      String prints land in the VGA text buffer. `int 0x20` stores `0xB1`
+      at `0x8000`. QEMU reads both back.
+- [ ] Long mode, a hardware IRQ, and a microkernel.
+      Not started. The sector halts after the one software interrupt.
 
 ---
 

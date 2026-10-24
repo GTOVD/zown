@@ -28,6 +28,10 @@ COMMANDS:
     wat <file.zn>     Compile to WebAssembly text (.wat) and print it
     build <file.zn>   Compile to WebAssembly (-o <path>; .wasm = binary, else .wat)
     native [-O] <file.zn>  Compile with Cranelift and run in-process (-O optimizes)
+    bare <file.zn> -o boot.bin
+                      A 512-byte real-mode boot sector. The program may only
+                      print string literals. The sector writes the VGA text
+                      buffer and then runs int 0x20
     llvm <file.zn> -o exe  Compile via LLVM IR with clang -O2
                       -o <path.exe> writes a standalone executable instead
     version           Print version
@@ -76,7 +80,7 @@ fn main() -> ExitCode {
 
     // shorthand: `zownc file.zn` == `zownc run file.zn`
     let known = [
-        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "llvm", "version", "help",
+        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "bare", "llvm", "version", "help",
     ];
     if let Some(first) = args.first() {
         if !first.starts_with('-') && !known.contains(&first.as_str()) {
@@ -147,6 +151,22 @@ fn main() -> ExitCode {
             Some(path) => cmd_native(path, zerr, unchecked, fast, out_path.as_deref()),
             None => {
                 eprintln!("zownc native: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "bare" => match args.get(1) {
+            Some(path) => {
+                let out = match out_path {
+                    Some(p) => p,
+                    None => {
+                        eprintln!("zownc bare: -o <boot.bin> is required\n\n{USAGE}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                cmd_bare(path, unchecked, &out)
+            }
+            None => {
+                eprintln!("zownc bare: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -223,6 +243,49 @@ fn cmd_run(path: &str, zerr: bool, unchecked: bool) -> ExitCode {
             } else {
                 eprintln!("{}", d.render_human(Some(path)));
             }
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_bare(path: &str, unchecked: bool, out: &str) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if !unchecked {
+        match check_src(&src, Some(path)) {
+            Err(e) => {
+                eprintln!(
+                    "zerr[{}] {path}:{}:{} ({}): {}",
+                    e.code, e.pos.line, e.pos.col, e.kind, e.msg
+                );
+                return ExitCode::FAILURE;
+            }
+            Ok(diags) if !diags.is_empty() => {
+                eprint!("{}", render_lines(&diags));
+                eprintln!(
+                    "rejected: {path} — {} issue(s) found by the static checker; not booted (--unchecked overrides)",
+                    diags.len()
+                );
+                return ExitCode::from(2);
+            }
+            Ok(_) => {}
+        }
+    }
+    match zown_bare::image(&src) {
+        Ok(bytes) => match std::fs::write(out, bytes) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("zownc bare: cannot write {out:?}: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Err(msg) => {
+            eprintln!("zownc bare: {msg}");
             ExitCode::FAILURE
         }
     }
