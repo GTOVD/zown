@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M13: typed layout tree and a PPM picture).
+Last updated: 2026-10-24 (M14: in-memory graph and a BLAKE3-sealed bundle).
 
 ---
 
@@ -66,7 +66,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M11 | Batteries stdlib + `std` in Zown | ✅ | `mx` `mn` `cl` are Zown; `zown test` and `zown fmt` ship. Crypto, files, LSP, and collections are SPEC §23 and are not stubbed |
 | M12 | ZownNet — decentralized mesh | ✅ | BLAKE3 `h3`, `~p`/`~f`, `zown mesh` on `[::1]`. QUIC, DHT, Ed25519, and ChaCha are not implemented |
 | M13 | Native UI + ZownGPU + audio + input | ✅ | layout tree `co tx bt rw cm ly` and `zown draw` PPM. GPU, audio, and input delivery are not implemented |
-| M14 | Embedded store + distribution | ⬜ | mmap graph+columnar, CRDT, version chain, transparency log, semantic patch protocol, signed sync |
+| M14 | Embedded store + distribution | ✅ | in-memory graph `gv ge » → «` and `zown keep` (fsynced BLAKE3 bundle). mmap, CRDT, Ed25519, and hot-swap are not implemented |
 | M15 | AI control plane + rolling execution | ⬜ | telemetry/tracing, declarative intent, hot-swap, self-healing loop, on-device ML |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
 | M17 | Zown OS / bare metal | ⬜ | `--target=bare`, microkernel demo |
@@ -354,7 +354,7 @@ separate so the Rust `zownc` parity runners stay green until M8d implements v0.2
 - [x] **M7b — manifest v2.** `zown/manifest.py` emits the v2 shape: per user
       symbol `caps` (discovered from the bound block's body + merged with authored
       ones), `sec`/`tele`/`i18n` (scaffolded), and a module provenance block
-      (crypto fields null until M14). Builtins keep the lean v1 shape.
+      (crypto fields still null; M14 seals a graph bundle, not this block). Builtins keep the lean v1 shape.
 - [x] **M7c — numeric model.** _M7c-i:_ fixed-width integer tags (`i8…i128
       u8…u128`, each a `WidthTag`) + policy words `wr`/`st`/`ck` make overflow
       explicit (new `OVERFLOW` code). _M7c-ii:_ fixed-lane SIMD vectors (`f4 d2
@@ -593,14 +593,11 @@ in this slice. `native_parity` is 74/74.
 (see `DESIGN.md` §6–§7).
 
 **Tasks**
-- [ ] mmap graph + columnar stores; lazy schema evolution; CRDT sync types.
-- [ ] Token-dense query pipeline (`» « →`).
-- [ ] Signed module-version chain; distributed transparency log + inclusion proofs.
-- [ ] Semantic patch protocol + four-tier trust hierarchy; signed `SyncBundle`
-      (USB/GitHub export/import); conflict resolution.
+- [x] **M14a.** An in-memory graph. `gv` ensures a vertex, `ge` an edge. Names are one word. Duplicates do not reorder. `gs` / `gl` are the canonical snapshot. `»` opens a cursor, `→` follows one label, `«` joins the names. Both VMs match (`cases_v2/graph`).
+- [x] **M14b.** `sb` seals the snapshot as `zown-sync 1` plus a BLAKE3 trailer. `so` replaces the graph only when the digest matches, and pushes the new head. A mismatch is `INTEGRITY_FAIL` (kind `sec`). `zown keep export` fsyncs the bundle; `zown keep verify` opens it in a fresh VM. A changed byte is rejected (`errors_v2/bundle_bad`).
+- [ ] **M14c.** mmap, columnar storage, CRDTs, Ed25519, a transparency log, inclusion proofs, and a signed patch that hot-swaps code. Not implemented. The oracle cannot show those honestly, so they stay design-only (§26).
 
-**Acceptance:** an app and its history survive a crash; a tampered SyncBundle is
-rejected; a signed patch hot-swaps only after independent verification.
+**Acceptance:** an app's graph survives a process restart through the fsynced bundle; a tampered bundle is rejected. Met by `zown keep` and `cases_v2/graph`. A signed patch does not hot-swap anything in this slice. `native_parity` is 76/76.
 
 ---
 
@@ -681,6 +678,7 @@ memory type.)*
 | D10 | Std words are Zown blocks registered with `wd` (2026-10-24). `mx`, `mn`, and `cl` live in `std/core.zn`. `ab` stays a host word because `<` cannot see `-0.0`. Crypto and files are named in §23 and not stubbed | SPEC §7, §23; M11 |
 | D11 | The mesh slice is **BLAKE3 plus IPv6 UDP**, not QUIC (2026-10-24). `h3`/`~p`/`~f` are the content address. The node id is not an Ed25519 key. `zown mesh` exchanges one bundle on `[::1]` | SPEC §24; M12 |
 | D12 | UI in the oracle is a **layout tree and a PPM**, not a GPU (2026-10-24). `co tx bt rw cm ly` build it. Contrast is integer luma. `zown draw` paints rectangles | SPEC §25; M13 |
+| D13 | The store slice is an **in-memory graph and an fsynced BLAKE3 bundle**, not mmap or a signature (2026-10-24). `gv ge gs gl gh sb so` and `» « →` are the surface. Integrity is `INTEGRITY_FAIL`. Ed25519, CRDTs, and hot-swap stay design-only | SPEC §26; M14 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -733,8 +731,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M14 — store.** The graph, the query tokens, and signed bundles. Layout is
-   SPEC §25; GPU and audio are still §15.
+1. **M15 — control plane.** Telemetry, intent, and the self-healing loop. The
+   graph is SPEC §26; signatures and hot-swap are still design-only there.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

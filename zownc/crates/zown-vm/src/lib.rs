@@ -12,6 +12,7 @@ mod lanes;
 mod mesh;
 mod native;
 mod stdwords;
+mod store;
 mod ui;
 mod value;
 
@@ -106,6 +107,8 @@ pub struct Vm {
     /// BLAKE3 hex -> bundle text. `~p` writes it, `~f` reads it.
     bundles: HashMap<String, String>,
     node_id: [u8; 32],
+    /// In-memory graph. The durable copy is a sealed bundle (SPEC §26).
+    graph: store::Graph,
 }
 
 enum Bin {
@@ -177,6 +180,7 @@ impl Vm {
             words: HashMap::new(),
             bundles: HashMap::new(),
             node_id: mesh::node_id(),
+            graph: store::Graph::default(),
         };
         vm.load_std();
         vm
@@ -459,6 +463,9 @@ impl Vm {
             "??" => self.op_match(),
             "|" => self.op_pipe(),
             "^" => self.op_spawn(),
+            "»" => self.op_graph_open(),
+            "«" => self.op_graph_close(),
+            "→" => self.op_graph_follow(),
             "~p" => self.op_publish(),
             "~f" => self.op_fetch(),
             other if other.starts_with('~') && other.len() > 1 => self.op_lane(&other[1..]),
@@ -876,6 +883,13 @@ impl Vm {
             "rw" => self.b_box(true),
             "cm" => self.b_box(false),
             "ly" => self.b_ly(),
+            "gv" => self.b_gv(),
+            "ge" => self.b_ge(),
+            "gs" => self.b_gs(),
+            "gl" => self.b_gl(),
+            "gh" => self.b_gh(),
+            "sb" => self.b_sb(),
+            "so" => self.b_so(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1684,6 +1698,13 @@ pub fn is_builtin(name: &str) -> bool {
             | "rw"
             | "cm"
             | "ly"
+            | "gv"
+            | "ge"
+            | "gs"
+            | "gl"
+            | "gh"
+            | "sb"
+            | "so"
     )
 }
 
@@ -1700,6 +1721,7 @@ fn is_type_pattern(s: &str) -> bool {
             | "res"
             | "color"
             | "node"
+            | "cur"
     )
 }
 

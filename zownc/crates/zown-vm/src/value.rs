@@ -102,6 +102,8 @@ pub enum Value {
     Color(Rgb),
     /// A layout node: `tx`, `bt`, `rw`, or `cm`.
     Ui(UiNode),
+    /// A graph query cursor. Names are the vertices it currently sits on.
+    Cur(Vec<String>),
 }
 
 /// An sRGB color. The layout contrast test uses these channels linearly.
@@ -159,6 +161,7 @@ impl Value {
             Value::Block(b) => !b.is_empty(),
             Value::Func { nodes, .. } => *nodes != 0,
             Value::Cap(_) | Value::Width(_) | Value::Color(_) | Value::Ui(_) => true,
+            Value::Cur(names) => !names.is_empty(),
             Value::Vec(v) => !v.lanes.is_empty(),
             Value::Res(r) => r.ok,
         }
@@ -177,6 +180,7 @@ impl Value {
             Value::Res(_) => "res",
             Value::Color(_) => "color",
             Value::Ui(_) => "node",
+            Value::Cur(_) => "cur",
         }
     }
 
@@ -208,6 +212,7 @@ impl Value {
                     format!("{}({})", n.kind, n.children.len())
                 }
             }
+            Value::Cur(names) => format!("cur({})", names.len()),
         }
     }
 
@@ -241,6 +246,7 @@ impl Value {
             )),
             Value::Color(c) => json_str(&format!("co:{} {} {}", c.r, c.g, c.b)),
             Value::Ui(n) => json_str(&format!("{}:{}", n.kind, n.children.len())),
+            Value::Cur(names) => json_str(&format!("cur:{}", names.len())),
         }
     }
 
@@ -265,6 +271,7 @@ impl Value {
             (Value::Res(a), Value::Res(b)) => a.ok == b.ok && a.val.zown_eq(&b.val),
             (Value::Color(a), Value::Color(b)) => a == b,
             (Value::Ui(a), Value::Ui(b)) => ui_eq(a, b),
+            (Value::Cur(a), Value::Cur(b)) => a == b,
             _ => matches!(num_partial_cmp(self, other), Some(Ordering::Equal)),
         }
     }

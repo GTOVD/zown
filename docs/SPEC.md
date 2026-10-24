@@ -548,10 +548,10 @@ fast non-secure PRNG), and capability-level rate limiting.
 ## 13. Crypto & identity types — *design-only (M14)*
 
 > Frozen here, **not** in the oracle: faithful `Key`/`Sig`/`NodeID` need real
-> Ed25519/X25519/BLAKE3, which a pure stack interpreter cannot exhibit honestly
-> (a stand-in would mislead on a security-critical surface). These land with the
-> network/security phase (M14); the *semantics* are fixed now so M8's type system
-> can reserve them.
+> Ed25519/X25519, which a pure stack interpreter cannot exhibit honestly
+> (a stand-in would mislead on a security-critical surface). BLAKE3 itself is
+> the word `h3` (M12). M14 seals a graph bundle with that hash (§26). `Key`,
+> `Sig`, and Ed25519 are still not implemented.
 
 First-class types the type system understands (not raw byte arrays):
 
@@ -707,7 +707,7 @@ Part I §5 keeps `( )`, `{ }`, and `#` open. Part II claims:
 | `'` | move sigil (§20) — **implemented** |
 | `"` | reserved for a future *mutable reference* sigil once heap values exist (§20) |
 | `~x` words | `~m` and `~n` are lanes (§22). Every other `~name` is still a network word (§14) and traps `UNSUPPORTED` |
-| `» « →` | embedded graph DB query pipeline (`DESIGN.md` §6) |
+| `» « →` | graph query (§26) — **implemented**. `»` opens a cursor, `→` follows one label, `«` joins the names |
 | `??` | pattern-match dispatch (§16). `?` stays select; `??` is not a second meaning of `?` |
 
 Unclaimed symbols remain lex errors so they stay open for future density wins.
@@ -777,6 +777,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `~` name other than `~m` or `~n` | trap `UNSUPPORTED` | `errors_v2/lane_unknown` |
 | a queued compute job skips a real-time lane | **impossible** — each tick runs every registered lane, then at most one job | `cases_v2/lanes` |
 | `ts` / `pp` body leaves a false value | trap `TEST_FAIL` | `errors_v2/test_fail` |
+| a graph name that is empty or contains whitespace | trap `TYPE_MISMATCH` | (unit test) |
+| `so` on a bundle whose BLAKE3 trailer does not match the bytes | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/bundle_bad` |
+| `so` on text that is not a `zown-sync` bundle | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
@@ -1022,3 +1025,46 @@ rectangles, not a GPU, a font, or an audio graph. Those stay design-only (§15).
 `ly` walks preorder. A box line is `rw|cm x y w h`. A leaf line is `tx|bt x y w h ok|low text`. Indentation is two spaces per level. Coordinates are the top-left of the root. `ok` means the leaf's color against its parent box (or black, if it is the root) passes the contrast test; `low` means it does not. Luma is linear Rec. 709, `(2126*r + 7152*g + 722*b) // 1000`. It passes when `(hi+128)*10 >= (lo+128)*45`.
 
 `zown draw file.zn` runs the program and paints the one node it leaves. The root must have area. The file is a binary `P6` PPM: boxes fill their rectangle with their color, then children paint over them; a leaf fills its rectangle with its own color. Animation, input delivery, shaders, and audio are not in this picture.
+
+## 26. The graph — **implemented (M14, oracle + Rust VM)**
+
+The store that runs is an in-memory graph plus a text bundle. Vertices and edges are single words: no whitespace, not empty. A duplicate vertex or edge is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes. This is not a memory map, not a column store, and not a CRDT. Those, and a signed patch that hot-swaps code, stay design-only (`DESIGN.md` §6–§7).
+
+| Word or op | Stack | Result |
+|------------|--------|--------|
+| `gv` | `name gv` | ensure a vertex. Pushes nothing |
+| `ge` | `src label dst ge` | ensure the edge `src -label→ dst`, and both vertices |
+| `gs` | `gs` | push the snapshot text |
+| `gl` | `snapshot gl` | replace the graph with that snapshot |
+| `gh` | `gh` | push BLAKE3 of the snapshot's UTF-8, 64 lowercase hex digits |
+| `»` | `name »` | push a cursor. It holds `name` if that vertex exists, else it is empty. A missing name is not an error |
+| `→` | `cursor label →` | follow `label` from each name in the cursor. Edge order is insertion order. A destination is kept once, the first time it is seen |
+| `«` | `cursor «` | pop the cursor and push its names joined by one space. An empty cursor pushes `""` |
+| `sb` | `sb` | push the sealed bundle |
+| `so` | `bundle so` | check the seal, replace the graph, push the new `gh` |
+
+A name that is not a string, or a string that is empty or contains whitespace, is `TYPE_MISMATCH`. `→` and `«` on a value that is not a cursor are `TYPE_MISMATCH`. The cursor's type name is `cur`. It is truthy when it holds at least one name. It prints as `cur(n)`, where `n` is how many names it holds.
+
+The snapshot is one line per vertex, then one line per edge, in insertion order:
+
+```
+v a
+v b
+e a knows b
+```
+
+Each line ends with `\n`. An empty graph is the empty string. `gh` of that empty graph is BLAKE3 of zero bytes: `af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262`.
+
+The bundle is the snapshot with a header and a trailer. The header is the line `zown-sync 1`. The trailer is the line `blake3` plus the BLAKE3 of every byte before it, including the newline that ends the body:
+
+```
+zown-sync 1
+v a
+blake3 <64 hex digits>
+```
+
+`so` finds the last line that starts with `blake3 `, hashes the bytes before that line, and compares. A trailer that is not 64 hex digits, a missing header, or a snapshot line the parser cannot read is `TYPE_MISMATCH`. A trailer that does not match the bytes is `INTEGRITY_FAIL` with kind `sec`. The graph is left unchanged. The check is a hash, not a signature. `SIG_INVALID` is still not produced, because nothing here is signed.
+
+`zown keep export file.zn -o out.sync` checks the program, runs it, and writes the bundle. It fsyncs the file and the directory that holds it. A crash after that command returns still has those bytes. A crash in the middle of the write can leave a short file; `verify` then rejects it. `zown keep verify out.sync` opens the bundle in a fresh VM and prints `ok` and the head. It does not apply a patch to running code.
+
+`cases_v2/graph` is the two-hop query and its head. `errors_v2/bundle_bad` is a trailer of 64 zeros.

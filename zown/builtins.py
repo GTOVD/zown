@@ -20,6 +20,7 @@ from .errors import (
 from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
+from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
 
 
@@ -631,6 +632,13 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "rw": (b_rw, "row", "color gap pad [nodes] rw -> a row box, children start-aligned"),
     "cm": (b_cm, "column", "color gap pad [nodes] cm -> a column box, children start-aligned"),
     "ly": (b_ly, "layout", "node ly -> the preorder layout dump"),
+    "gv": (b_gv, "graph_vert", "name gv -> ensure a vertex; a duplicate is a no-op"),
+    "ge": (b_ge, "graph_edge", "src label dst ge -> ensure an edge (and its vertices)"),
+    "gs": (b_gs, "graph_snap", "push the canonical snapshot text"),
+    "gl": (b_gl, "graph_load", "snapshot gl -> replace the graph from that text"),
+    "gh": (b_gh, "graph_head", "push BLAKE3 of the snapshot bytes"),
+    "sb": (b_sb, "sync_bundle", "push the graph sealed as a zown-sync bundle"),
+    "so": (b_so, "sync_open", "bundle so -> verify the seal, replace the graph, push the head"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

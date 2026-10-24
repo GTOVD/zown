@@ -118,6 +118,7 @@ class ZownError(Exception):
 
 def _snap(v: Any) -> Any:
     """Compact, JSON-safe snapshot of a stack value."""
+    from .store import Cursor
     from .vm import Big, Block, Cap, Res, WidthTag, Vec  # local import to avoid a cycle
 
     if isinstance(v, Block):
@@ -132,6 +133,8 @@ def _snap(v: Any) -> Any:
         return v.name
     if isinstance(v, Vec):
         return f"{v.name}[{len(v.lanes)}]"
+    if isinstance(v, Cursor):
+        return f"cur:{len(v.names)}"
     if isinstance(v, (int, float, str, bool)) or v is None:
         return v
     return repr(v)

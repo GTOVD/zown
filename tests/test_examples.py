@@ -18,6 +18,10 @@ EXPECTED = {
     ),
     "lanes.zn": "mncmnmn\n7\n9\n",
     "ui.zn": "cm 0 0 20 24\n  tx 2 2 16 8 ok Hi\n  bt 2 14 16 8 ok Go\n",
+    "graph.zn": (
+        "b\nc\n\n"
+        "cb8d08bdb86a701fd4e9f1d104d1748e82d14c78702aab2b87c407da8061de82\n"
+    ),
 }
 
 

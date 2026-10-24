@@ -36,7 +36,8 @@ T_EOF = "EOF"
 # Two-character operators (checked before single-char).
 TWO_CHAR_OPS = {"==", "!=", "<=", ">=", "&&", "||", "??"}
 # Single-character operators. `||` is checked first, so `|` is the lane pipe.
-ONE_CHAR_OPS = set("@.,=\\&+-*/%<>!?;_|^")
+# `»` `«` `→` are the graph query (SPEC §26). Each is one code point.
+ONE_CHAR_OPS = set("@.,=\\&+-*/%<>!?;_|^»«→")
 
 _IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 _IDENT_CONT = _IDENT_START | set("0123456789")

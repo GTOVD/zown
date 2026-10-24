@@ -43,6 +43,7 @@ from .errors import (
     ZownError,
 )
 from .lanes import Lanes, op_pipe, op_spawn, op_tilde
+from .store import Cursor, Graph, op_close, op_follow, op_open
 from .ui import Color, UiNode
 from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
@@ -188,6 +189,8 @@ def truthy(v: Any) -> bool:
         return len(v) > 0
     if isinstance(v, (Cap, WidthTag, Color, UiNode)):
         return True  # a token, a color, or a node is a present value
+    if isinstance(v, Cursor):
+        return len(v.names) > 0
     if isinstance(v, Vec):
         return len(v.lanes) > 0
     if isinstance(v, Big):
@@ -229,6 +232,8 @@ class VM:
         self.bundles: dict[str, str] = {}
         material = os.environ.get("ZOWN_NODE") or None
         self.node_id: bytes = node_id_from_material(material)
+        # In-memory graph. The durable copy is a sealed bundle, not this object.
+        self.graph = Graph()
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
@@ -406,6 +411,8 @@ def type_name(v: Any) -> str:
         return "color"
     if isinstance(v, UiNode):
         return "node"
+    if isinstance(v, Cursor):
+        return "cur"
     if isinstance(v, Big):
         return "big"
     if isinstance(v, Res):
@@ -614,7 +621,7 @@ def op_while(vm: VM, pos: Pos) -> None:
 # result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
 # The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node"}
+_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur"}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -687,6 +694,7 @@ _OPS: dict[str, Callable[[VM, Pos], None]] = {
     ".": op_print, "@": op_invoke, "?": op_select, ";": op_while,
     "??": op_match,
     "|": op_pipe, "^": op_spawn,
+    "»": op_open, "«": op_close, "→": op_follow,
 }
 
 
@@ -717,6 +725,8 @@ def _as_str(v: Any) -> str:
         if v.kind in ("tx", "bt"):
             return f"{v.kind}({v.text})"
         return f"{v.kind}({len(v.children)})"
+    if isinstance(v, Cursor):
+        return f"cur({len(v.names)})"
     return str(v)
 
 

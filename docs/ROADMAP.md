@@ -167,11 +167,13 @@ is SPEC §25: a typed tree and a PPM of its rectangles.
 Drop the external DB; make the mesh the version-control system (see `DESIGN.md`
 §6–§7).
 
-- Memory-mapped **graph + columnar** stores; lazy schema evolution; CRDTs for sync.
-- Token-dense query pipeline (`» « →`).
-- Signed **module-version chain**, distributed **transparency log**, **semantic
-  patch protocol** with the four-tier trust hierarchy, signed **SyncBundles**
-  (USB/GitHub), conflict resolution without a central authority.
+- [x] In-memory graph and the query tokens `»` `«` `→` (SPEC §26). `gv` `ge`
+      `gs` `gl` `gh` `sb` `so`. `zown keep` fsyncs a BLAKE3 bundle and rejects
+      a changed one.
+- [ ] Memory-mapped graph and columnar stores; lazy schema evolution; CRDTs.
+- [ ] Signed module-version chain, transparency log, inclusion proofs.
+- [ ] Semantic patch protocol, four-tier trust, signed bundles, hot-swap.
+      Not started. The seal that runs is a hash, not a signature.
 
 Hard problems: mmap crash-consistency; transparency-log scaling.
 

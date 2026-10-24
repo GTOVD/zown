@@ -60,6 +60,10 @@ python3 bin/zown mesh
 # the layout tree, then the same scene as a PPM picture
 python3 bin/zown examples/ui.zn
 python3 bin/zown draw examples/paint.zn > ui.ppm
+
+# seal a program's graph, then refuse a bundle whose bytes changed
+python3 bin/zown keep export examples/graph.zn -o graph.sync
+python3 bin/zown keep verify graph.sync
 ```
 
 Install the `zown` command for real:
@@ -187,8 +191,9 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
    DHT+gossip mesh, content addressing, offline mesh — every device a peer.
 6. **Native UI + GPU (M13)** — a typed declarative layout tree (no HTML/CSS),
    ZownGPU, audio, input, accessibility, i18n.
-7. **Store + distribution (M14)** — embedded graph/columnar DB, a signed
-   transparency log, and a semantic-patch protocol for verified AI updates.
+7. **Store + distribution (M14)** — the running slice is an in-memory graph
+   (`gv`, `ge`, `»`, `→`, `«`) and `zown keep` (an fsynced BLAKE3 bundle).
+   mmap, CRDTs, Ed25519, and hot-swap are not implemented.
 8. **AI control plane (M15)** — telemetry, declarative intent, hot-swap, the
    self-healing loop, on-device ML.
 9. **Self-hosting (M16)** and a **Zown OS / bare metal (M17)** endgame.

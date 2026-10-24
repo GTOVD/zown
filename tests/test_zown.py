@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
-    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED, TEST_FAIL,
+    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED, TEST_FAIL, INTEGRITY_FAIL,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
 from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
@@ -1205,6 +1205,91 @@ bg 4 2 [ $Hi$ 8 fg tx ] cm
         sys.stdout = old
     assert code == 0
     assert out.buffer.getvalue().startswith(b"P6\n20 12\n255\n")
+
+
+# --- graph store (M14) ---------------------------------------------------------
+def test_graph_query_snapshot_and_errors():
+    from zown.blake3 import blake3_hex
+    out, vm = run("""
+$a$ gv
+$b$ gv
+$c$ gv
+$a$ $knows$ $b$ ge
+$b$ $knows$ $c$ ge
+$a$ $knows$ $b$ ge
+$a$ » $knows$ → « .
+$a$ » $knows$ → $knows$ → « .
+$a$ » $missing$ → « .
+gh .
+""")
+    snap = "v a\nv b\nv c\ne a knows b\ne b knows c\n"
+    head = blake3_hex(snap.encode("utf-8"))
+    assert out == f"b\nc\n\n{head}\n"
+    assert vm.graph.snapshot() == snap
+    assert vm.graph.head() == head
+    empty, _ = run("gh .")
+    assert empty == "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\n"
+    _, kept = run("$a$ gv sb :bundle $b$ gv bundle so , gs")
+    assert kept.stack[-1] == "v a\n"
+    e = _fails("$a b$ gv", TYPE_MISMATCH, "gv")
+    assert e.kind == "run"
+    bad = _fails(
+        "$zown-sync 1\\nblake3 0000000000000000000000000000000000000000000000000000000000000000\\n$ so",
+        INTEGRITY_FAIL, "so",
+    )
+    assert bad.kind == "sec"
+    _fails("$not a bundle$ so", TYPE_MISMATCH, "so")
+    _fails("1 »", TYPE_MISMATCH, "»")
+
+
+def test_keep_fsync_roundtrip_and_tamper():
+    from zown.cli import main
+    d = tempfile.mkdtemp()
+    src_path = os.path.join(d, "g.zn")
+    bundle = os.path.join(d, "g.sync")
+    src = "$a$ gv\n$b$ gv\n$a$ $to$ $b$ ge\n$a$ » $to$ → « .\n"
+    with open(src_path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+    try:
+        code = main(["keep", "export", src_path, "-o", bundle])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0
+    raw = open(bundle, "rb").read()
+    assert raw.startswith(b"zown-sync 1\n")
+    text = raw.decode("utf-8")
+    # A new VM, the same bytes, the same query.
+    opened, fresh = run(
+        f"${text.replace(chr(10), '\\n')}$ so ,\n$a$ » $to$ → « .\n"
+    )
+    assert opened == "b\n"
+    out, err = io.StringIO(), io.StringIO()
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["keep", "verify", bundle])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0
+    lines = out.getvalue().splitlines()
+    assert lines[0] == "ok"
+    assert lines[1] == fresh.graph.head()
+    flipped = bytearray(raw)
+    flipped[flipped.index(ord("a"))] = ord("c")
+    with open(bundle, "wb") as fh:
+        fh.write(flipped)
+    err = io.StringIO()
+    sys.stdout, sys.stderr = io.StringIO(), err
+    try:
+        code = main(["--zerr", "keep", "verify", bundle])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 1
+    packet = json.loads(err.getvalue())
+    assert packet["code"] == "INTEGRITY_FAIL"
+    assert packet["kind"] == "sec"
+    assert packet["op"] == "so"
 
 
 # --- runner --------------------------------------------------------------------

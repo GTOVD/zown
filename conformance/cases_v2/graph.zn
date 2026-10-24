@@ -1,0 +1,9 @@
+$a$ gv
+$b$ gv
+$c$ gv
+$a$ $knows$ $b$ ge
+$b$ $knows$ $c$ ge
+$a$ » $knows$ → « .
+$a$ » $knows$ → $knows$ → « .
+$a$ » $nope$ → « .
+gh .

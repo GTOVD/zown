@@ -81,8 +81,9 @@ automatically vs. what you (or an AI) fill in:
   keep the compact v1 shape, since their semantics live in the stdlib, not per
   program.
 - **Never fabricated:** the `module` block's crypto fields (`content`, `author`,
-  `sig`, …) stay `null` until the M14 distribution layer computes a real BLAKE3
-  hash and Ed25519 signature.
+  `sig`, …) stay `null`. A graph bundle's BLAKE3 is `gh` and `zown keep`
+  (SPEC §26). That hash is not written into this block, and nothing here is
+  signed.
 
 ### Per-symbol additions
 

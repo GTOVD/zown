@@ -60,7 +60,8 @@ pub const OVERFLOW: &str = "OVERFLOW";
 
 const TWO_CHAR_OPS: [&str; 7] = ["==", "!=", "<=", ">=", "&&", "||", "??"];
 // `|` is the lane pipe. `||` is matched first, so a lone pipe is not `or`.
-const ONE_CHAR_OPS: &str = "@.,=\\&+-*/%<>!?;_|^";
+// `»` `«` `→` are the graph query (SPEC §26). Each is one code point.
+const ONE_CHAR_OPS: &str = "@.,=\\&+-*/%<>!?;_|^»«→";
 
 fn is_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic()

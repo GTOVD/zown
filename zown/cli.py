@@ -12,6 +12,10 @@ Usage:
     zown test [path]          run .zn programs (default tests/zn)
     zown mesh [port]          two IPv6 peers exchange a content-addressed bundle
     zown draw <file.zn>       paint the node left on the stack as a PPM
+    zown keep export <file> -o <out.sync>
+                              run a program and fsync its graph as a sealed bundle
+    zown keep verify <out.sync>
+                              open a bundle; a changed byte is INTEGRITY_FAIL
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -251,6 +255,63 @@ def cmd_test(args) -> int:
     return run_tests(args.path)
 
 
+def cmd_keep(args) -> int:
+    if args.keep_cmd == "export":
+        return _keep_export(args)
+    return _keep_verify(args)
+
+
+def _keep_export(args) -> int:
+    from .store import seal, write_fsync
+    src = _read(args.file)
+    if not getattr(args, "unchecked", False):
+        diags, code = _static_check(src, args)
+        if code is not None:
+            return code
+        if diags:
+            _emit_diags(diags, args,
+                        f"rejected: {args.file} — {len(diags)} issue(s) found by the "
+                        f"static checker; not sealed (--unchecked overrides)")
+            return EXIT_REJECTED
+    vm = VM(file=args.file)
+    try:
+        vm.run_src(src)
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    write_fsync(args.output, seal(vm.graph))
+    return EXIT_OK
+
+
+def _keep_verify(args) -> int:
+    from .errors import INTEGRITY_FAIL, Pos
+    from .store import b_so
+    try:
+        text = open(args.file, "rb").read().decode("utf-8")
+    except UnicodeDecodeError:
+        _emit_error(ZownError(
+            code=INTEGRITY_FAIL,
+            msg="`so` bundle is not the UTF-8 text that was sealed",
+            kind="sec", op="so", file=args.file,
+            hint="the bundle was changed after it was sealed",
+        ), args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    except OSError as exc:
+        sys.stderr.write(f"keep: {exc}\n")
+        return EXIT_ERROR
+    vm = VM(file=args.file)
+    vm.push(text)
+    try:
+        b_so(vm, Pos(1, 1, 0))
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    sys.stdout.write(f"ok\n{vm.stack[-1]}\n")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zown", description="Zown language toolchain (reference build)")
     p.add_argument("--zerr", action="store_true", help="emit errors as JSON .zerr packets")
@@ -303,6 +364,16 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("file")
     pd.set_defaults(func=cmd_draw)
 
+    pk = sub.add_parser("keep", help="seal a graph into a bundle, or open one")
+    ks = pk.add_subparsers(dest="keep_cmd", required=True)
+    ke = ks.add_parser("export", help="run a program and fsync its graph")
+    ke.add_argument("file")
+    ke.add_argument("-o", "--output", required=True, help="bundle path to write")
+    ke.set_defaults(func=cmd_keep)
+    kv = ks.add_parser("verify", help="open a bundle and print its head")
+    kv.add_argument("file")
+    kv.set_defaults(func=cmd_keep)
+
     return p
 
 
@@ -311,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

@@ -22,6 +22,7 @@ pub const BAD_PATTERN: &str = "BAD_PATTERN";
 pub const STACK_OVERFLOW: &str = "STACK_OVERFLOW";
 pub const CAP_DENIED: &str = "CAP_DENIED";
 pub const TEST_FAIL: &str = "TEST_FAIL";
+pub const INTEGRITY_FAIL: &str = "INTEGRITY_FAIL";
 
 #[derive(Debug, Clone)]
 pub struct RunError {
@@ -33,7 +34,7 @@ pub struct RunError {
     pub stack: Vec<String>,
     pub file: Option<String>,
     pub pos: Option<Pos>,
-    /// `run` for ordinary faults, `sec` for capability denials.
+    /// `run` for ordinary faults, `sec` for capability denials and integrity failures.
     pub kind: &'static str,
     /// Set on security packets only; omitted from the JSON otherwise.
     pub cap: Option<String>,
