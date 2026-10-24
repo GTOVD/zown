@@ -215,6 +215,10 @@ local inference.
 - [ ] Long mode, a hardware IRQ, and a microkernel.
       Not started. The sector halts after the one software interrupt.
 
+The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md). `buf`
+(M18) and a parser written in Zown (M19) start that map. The byte-identical
+stage-2 compiler is M23.
+
 ---
 
 ## Cross-cutting principles

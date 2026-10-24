@@ -167,8 +167,9 @@ checks its token dump against the host, including on its own source.
 not produced. **M17 ✅** — `zownc bare` writes a 512-byte real-mode boot
 sector. QEMU reads `Zown` from the VGA text buffer, and `int 0x20` stores
 `0xB1` at `0x8000`. A microkernel is not implemented. `native_parity` is
-80/80. The numbered milestones each have a running slice. What remains is
-the design-only tail (a stage-2 compiler binary, a microkernel, CI).
+80/80. M0–M17 have a running slice. The remainder is **M18–M32** in
+`docs/PLAN.md`: `buf` (M18) and a parser in Zown (M19) are next. The
+byte-identical stage-2 compiler is M23.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

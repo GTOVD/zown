@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M17: a boot sector that prints to VGA).
+Last updated: 2026-10-24 (remainder map: M18–M32, everything still design-only).
 
 ---
 
@@ -70,6 +70,21 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M15 | AI control plane + rolling execution | ✅ | logical log: spans, intent, faults (`ch vr td sp se nt wn ob df rm lg`, `zown watch`). No clock. Hot-swap, a fleet, and on-device ML are not implemented |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ✅ | `zown/std/lex.zn` matches the host token dump, including on its own source. Native runs it (`stage_parity`). A stage-2 compiler binary is not produced |
 | M17 | Zown OS / bare metal | ✅ | `zownc bare` writes a 512-byte real-mode sector. QEMU shows the text at `0xB8000`. `int 0x20` stores `0xB1` at `0x8000`. Not a microkernel |
+| M18 | Memory (`buf`) | ⏳ | §21. `bf` `bg` `bp`, exclusive owner and borrow. Keystone for files, collections, and a compiler that emits bytes |
+| M19 | Parser in Zown | ⏳ | Stage-2 frontend. Same kind of fixed point as `lex.zn`. No `buf` required |
+| M20 | Host I/O | ⬜ | Files, clock, args, env, each behind a capability. Needs M18. Words named in SPEC before code |
+| M21 | Crypto | ⬜ | `ae` `ad` `es` `ev` `xk`. Real algorithms. Needs M18. `h3` already exists |
+| M22 | WASM v0.2 | ⬜ | Emit tags 4–8, `??`, `ty`, moves. Overflow is a `.zerr`. Shortest float format. Parallel with M18 |
+| M23 | Stage-2 compiler binary | ⬜ | Lowering in Zown, then `stage1 == stage2` bytes. Needs M18, M19, and a byte emitter |
+| M24 | Signed distribution | ⬜ | Ed25519 on the sync bundle, transparency log, inclusion proofs. Needs M21 |
+| M25 | Streams and mesh | ⬜ | `~o` `~s` `~r`, then QUIC, DHT, `~c` `~l` `~w`. Needs M20 and M21 |
+| M26 | Store engine | ⬜ | mmap, columnar data, CRDT sync. Needs M18 and M24 |
+| M27 | UI completion | ⬜ | Font, input, animation, then GPU and shaders. Needs M18 |
+| M28 | Collections and remaining numbers | ⬜ | One collection on `buf`, then the rest. `iz` `uz` `dc` `cx`. Needs M18 |
+| M29 | Control plane completion | ⬜ | Hot-swap of a verified block, a trace that crosses a socket, fleet intent. Needs M23 and M25 |
+| M30 | Tooling | ⬜ | CI, LSP, doc generator, package manifest. CI does not wait on the rest |
+| M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
+| M32 | Kernel | ⬜ | Long mode, one hardware IRQ, then a microkernel with capability isolation. Needs M23 |
 
 > M7–M17 were expanded from the original M7–M15 to fold in the full
 > sovereign-substrate vision (`DESIGN.md`). The key change: a **design-freeze
@@ -628,7 +643,7 @@ in this slice. `native_parity` is 74/74.
 **Tasks**
 - [x] **M16a.** `hd` and `tl` split a string at the first code point. Both VMs (`cases_v2/head`). Empty `hd` is `BOUNDS`.
 - [x] **M16b.** `zown/std/lex.zn` is the lexer. `lx` prints `KIND lexeme` lines. `zown stage file.zn` runs it and requires the host dump to match. The fixed point is `zown stage zown/std/lex.zn`. `conformance/stage_parity.py` runs the same program with `zownc native` on the lexer, `hello.zn`, `graph.zn`, and `intent.zn`.
-- [ ] **M16c.** A parser and a lowering written in Zown, and a stage-2 compiler binary that is byte-identical to stage-1. Not implemented. The language has no buffer to emit an object file from Zown (§21).
+- [ ] **M16c.** Continued as **M19** (parser in Zown) and **M23** (byte-identical compiler). The binary waits on `buf` (§21).
 
 **Prereqs:** M4 (semantics), M9 (a backend that can emit the compiler binary), M8
 (memory model strong enough to write a compiler), M11 (stdlib in Zown).
@@ -646,6 +661,198 @@ in this slice. `native_parity` is 74/74.
 - [ ] **M17c.** Long mode, a hardware IRQ, and a microkernel whose trusted core is hardware abstraction plus capability isolation. Not implemented. This sector is real mode and halts.
 
 **Acceptance:** `examples/bare.zn` boots in QEMU and the VGA cells are `Zown`. Met by `bare_boot.py`. A microkernel is not this slice.
+
+---
+
+## Remainder map (M18–M32)
+
+M0–M17 each shipped a slice the oracle can exhibit. Everything else the SPEC and DESIGN still name is below, in dependency order. A slice is done only when both VMs agree, a conformance golden exists, and SPEC says what was left design-only. Do not stub a cipher, a signature, a GPU, a file, or a kernel.
+
+Rules that stay in force: one token, one meaning; a new prebuilt word is at most three characters and must be unused; the Python oracle is the semantics; a backend that disagrees is a bug. No calendar estimate belongs on a slice.
+
+Two tracks start together. **M18** is the keystone. Almost every later milestone needs a `buf`. **M19** is the stage-2 frontend and does not need a `buf`. **M23** is the byte-identical compiler, and it waits on both.
+
+```
+M18 buf ──┬── M20 I/O ──┬── M25 mesh ──┬── M29 fleet / hot-swap
+          │             │              │
+          ├── M21 crypto ┴── M24 signed log ── M26 store engine
+          │
+          ├── M28 collections, iz/uz/dc/cx
+          ├── M27 UI / GPU
+          └── M23 stage-2 binary ◄── M19 parser in Zown
+                    │
+                    └── M32 kernel
+
+M22 WASM v0.2 and M30 CI can proceed beside M18.
+M31 media waits on bytes, files, and a stream.
+```
+
+### M18 — Memory (`buf`)
+**Depends on:** nothing new. SPEC §21 is already the contract.
+**Goal:** the first heap value. Exclusive owner, borrow, drop.
+
+- [ ] **M18a.** `n bf` allocates `n` zero bytes. `ln` on a `buf` is its length. `bg` reads a byte. `bp` writes a byte. An index outside `0 .. length` is `BOUNDS`.
+- [ ] **M18b.** `=` on a `buf` pushes a borrow and leaves the exclusive value. A borrow may `bg` and `ln`. It may not `bp`. `,` on the exclusive value frees the bytes. A use after that free is `BOUNDS`.
+- [ ] **M18c.** `'name` moves the exclusive value. `"` stays reserved and is not a word.
+
+**Acceptance:** a program allocates, writes, reads, borrows, and frees. A dangling borrow is `BOUNDS` in both VMs. No integer address is visible.
+**Not this slice:** mmap, shared memory across processes, a garbage collector.
+
+### M19 — Parser in Zown
+**Depends on:** nothing new. This is the next piece of the stage-2 compiler.
+**Goal:** the same fixed point the lexer has, for syntax trees.
+
+- [ ] **M19a.** `zown/std/parse.zn` reads a token dump (the text `lex.zn` prints) and prints a canonical AST. The host parser prints the same text.
+- [ ] **M19b.** `zown stage` grows a parse mode, or a sibling command, that checks the dump. The fixed point is the parser's own source.
+- [ ] **M19c.** `zownc native` runs that program (`stage_parity` or its successor).
+
+**Acceptance:** the parser written in Zown accepts its own source and matches the host AST. It does not emit an executable.
+**Not this slice:** lowering, a stage-2 binary, error recovery beyond what the host parser already reports.
+
+### M20 — Host I/O
+**Depends on:** M18. SPEC §23.
+**Goal:** the program can touch the machine through capabilities, not ambient authority.
+
+- [ ] **M20a.** A file word pair, named in SPEC before code, reads and writes bytes in a `buf`. The path is granted with a capability. A path outside the grant is `CAP_DENIED`.
+- [ ] **M20b.** Args and env. One word pushes the argument count and another reads one argument. Env is a granted lookup, not a dump of the whole process environment.
+- [ ] **M20c.** A clock word. `` `c `` is already the capability. The word pushes a monotonic tick the tests can pin, plus a wall time when the capability is granted. Goldens use the pinned tick.
+
+**Acceptance:** a program reads a fixture file and writes it back under a grant. A missing grant is `CAP_DENIED`. Both VMs agree.
+**Not this slice:** a subprocess API, signals, or a network socket.
+
+### M21 — Crypto
+**Depends on:** M18. Words are already reserved in SPEC §23: `ae` `ad` `es` `ev` `xk`. `h3` stays the hash.
+**Goal:** one real algorithm per job. Keys live in a `buf`.
+
+- [ ] **M21a.** `ae` seals and `ad` opens with ChaCha20-Poly1305. A wrong tag is `INTEGRITY_FAIL`. Test vectors, not a toy XOR.
+- [ ] **M21b.** `es` signs and `ev` verifies with Ed25519. A bad signature is `SIG_INVALID`. The node id may then be a public key. Until this slice, `ni` stays the BLAKE3 id from §24.
+- [ ] **M21c.** `xk` is X25519. The shared secret is a `buf`.
+
+**Acceptance:** official or well-known test vectors pass in both VMs. A forged tag or signature is rejected.
+**Not this slice:** TLS, a certificate authority, or a second hash.
+
+### M22 — WASM v0.2
+**Depends on:** nothing new. Carry-over from M9. Can run beside M18.
+**Goal:** the web backend stops refusing the v0.2 values.
+
+- [ ] **M22a.** Emit tags 4–8 (big, cap, width, vec, res) and the `Move` / `??` / `ty` forms. D8 already assigned the numbers.
+- [ ] **M22b.** Checked `int` overflow is a `.zerr`, not `unreachable`.
+- [ ] **M22c.** Shortest float format (`inf`, `-inf`, `nan`, `1e+30`) matches §11.
+
+**Acceptance:** `wasm_parity` covers the v0.2 corpus that wasmtime can run, or records an explicit skip with the missing host. A v0.2 value is not silently dropped.
+**Not this slice:** SIMD in the browser beyond what the VM already does through calls.
+
+### M23 — Stage-2 compiler binary
+**Depends on:** M18 and M19.
+**Goal:** the fixed point in the M16 strategy. Stage-0 compiles a Zown compiler. That binary compiles the same sources. The bytes match.
+
+- [ ] **M23a.** Lowering in Zown. The parser's tree becomes the IR text `zownc ir` already prints. Fixed point on the lowering's own source.
+- [ ] **M23b.** A byte emitter. The compiler writes a `buf` that is a loadable image for one target the repo already links (the Cranelift object format, or the boot sector for the print subset).
+- [ ] **M23c.** `stage1` is that compiler built by `zownc`. `stage2` is `stage1` compiling the same sources. `stage1` and `stage2` are byte-identical, and `stage2` passes the conformance suite those sources claim.
+
+**Acceptance:** the byte comparison is the test. A compiler that prints a hash of its input and stops is not this milestone.
+**Not this slice:** every backend. One target is enough for the fixed point. Rust `zownc` stays as stage-0 and as the differential oracle.
+
+### M24 — Signed distribution
+**Depends on:** M21. SPEC §13 and §26, DESIGN §7.
+**Goal:** a bundle can be signed, and a log can prove inclusion.
+
+- [ ] **M24a.** `so` accepts an Ed25519 trailer in addition to the BLAKE3 seal. A bad signature is `SIG_INVALID`. The BLAKE3-only bundle from M14 still opens.
+- [ ] **M24b.** An append-only transparency log. A bundle carries an inclusion proof the opener checks. A proof that does not match the log is `INTEGRITY_FAIL`.
+- [ ] **M24c.** The manifest `module` block's `content` and `sig` are filled from those bytes. They stay null until the signature is real.
+
+**Acceptance:** a tampered signed bundle is rejected. A valid proof opens. An absent proof does not pretend to be valid.
+**Not this slice:** four-tier auto-apply, or hot-swap of running code.
+
+### M25 — Streams and mesh
+**Depends on:** M20 and M21. SPEC §14, DESIGN §3.
+**Goal:** two peers move bytes, then the mesh finds peers.
+
+- [ ] **M25a.** `~o` opens a stream, `~s` sends, `~r` receives. Each requires the matching capability. The first host is TCP on `[::1]`, tested the way `zown mesh` is tested. QUIC replaces TCP only when the packets are real QUIC.
+- [ ] **M25b.** `~c` connects to a named interface. Two local peers register the same name. A missing name is `BOUNDS`.
+- [ ] **M25c.** A DHT on the node id, gossip of bundle addresses, and `~l` for same-machine handoff. `~w` is the relay, last.
+- [ ] **M25d.** Protocol compatibility is a static check when the two protocol shapes are literals, and a runtime `TYPE_MISMATCH` otherwise. Do not invent a second pattern syntax if `??` can carry it.
+
+**Acceptance:** two local peers exchange bytes with `~s`/`~r`. A grant is required. The internet is not required for the golden.
+**Not this slice:** HTTP/3, a browser, or NAT traversal as the tested path.
+
+### M26 — Store engine
+**Depends on:** M18 and M24. SPEC §26, DESIGN §6.
+**Goal:** the graph survives in a mapped file, and two replicas converge.
+
+- [ ] **M26a.** The graph snapshot is a file of bytes a `buf` can map. Reopen after process exit matches `gs`. Crash in the middle of a write still fails `so` or the map's open.
+- [ ] **M26b.** A columnar table: named columns, append a row, scan a column. The query tokens `»` `→` `«` stay the graph query. A table scan gets its own word, named in SPEC first.
+- [ ] **M26c.** A CRDT whose merge is deterministic. Two logs merge to one snapshot both VMs print identically. Conflicts keep both parents.
+
+**Acceptance:** kill the process after a synced write, reopen, and query the same graph. Merge is order-independent for the operations the CRDT claims.
+**Not this slice:** a SQL front end.
+
+### M27 — UI completion
+**Depends on:** M18. SPEC §15, DESIGN §4–§5.
+**Goal:** the layout tree becomes something a person can read and point at, then a GPU.
+
+- [ ] **M27a.** A bitmap font. `tx` cells in `zown draw` use it. The PPM shows glyph pixels, not only rectangles. Contrast from §25 still applies.
+- [ ] **M27b.** Input. A test injects a pointer and a key. A `bt` with a handler block runs when the event hits its rectangle. No handler means the event is dropped.
+- [ ] **M27c.** One animation clock tied to the M20 tick. A property changes over N ticks. Goldens pin the tick.
+- [ ] **M27d.** GPU. A buffer and a pipeline the test can read back. Shaders are a Zown subset. A wrong shader is a `.zerr`, not a silent blank image.
+
+**Acceptance:** `zown draw` renders the word `Hi` as glyphs. A clicked button runs its block. The GPU slice's readback matches the CPU picture for one triangle or one rectangle.
+**Not this slice:** a PDF exporter, a full widget set, or a browser engine.
+
+### M28 — Collections and remaining numbers
+**Depends on:** M18. SPEC §11 and §23.
+**Goal:** one collection, then the number types still marked design-only.
+
+- [ ] **M28a.** One ordered collection in a `buf` (a list). Push, pop, index. Out of range is `BOUNDS`. The word is named in SPEC first and is not a second meaning of `at` or `bf`.
+- [ ] **M28b.** Map, then the rest of the DESIGN §10 list (set, queue, ring, btree, trie, bloom, priority queue, bit vector) one golden each. Skip a structure that cannot be tested deterministically.
+- [ ] **M28c.** `iz` and `uz` are pointer-sized widths. `dc` is decimal. `cx` is complex. Each gets the overflow rule of §11.
+
+**Acceptance:** the list golden matches in both VMs. `dc` and `cx` do not share a word with `float` or `b`.
+**Not this slice:** a collection that is only a block of values. A block stays code.
+
+### M29 — Control plane completion
+**Depends on:** M23 and M25. SPEC §27, DESIGN §8.
+**Goal:** a verified replacement of a running block, and intent that crosses one socket.
+
+- [ ] **M29a.** Hot-swap. A signed block (M24) replaces a word registered with `wd` only after `ev` succeeds and a `ts` block the program supplied passes. A failed test leaves the old word.
+- [ ] **M29b.** Two processes. A trace id set with `td` is sent with `~s` and appears in the other peer's `lg`. The golden pins both logs.
+- [ ] **M29c.** Fleet intent. One peer `wn`s a value. The other `ob`s it. `df` on each side reports the same drift or `ok`.
+
+**Acceptance:** a bad signature does not swap. A good signature swaps only after the test block passes. The two logs name the same trace id.
+**Not this slice:** an on-device model, a learning loop, or more than two peers.
+
+### M30 — Tooling
+**Depends on:** CI depends on nothing else. LSP wants the checker. The package manifest wants M24.
+**Goal:** a push runs the suite, and an editor can ask the checker.
+
+- [ ] **M30a.** CI. One workflow runs the five oracle commands, `cargo test`, `native_parity`, `stage_parity`, and `bare_boot` when QEMU is present. `bare_boot` skips with a visible reason when QEMU is absent, and does not skip when it is present.
+- [ ] **M30b.** LSP over stdio: diagnostics from `zown check`, go to definition for a user binding, format via `zown fmt`. No speculative fixes.
+- [ ] **M30c.** Doc generator. It prints the manifest fields that exist. It does not invent `sig`.
+- [ ] **M30d.** A package file that names a dependency by the M24 content hash. Fetch uses `~f` once M25 can carry it. Before that, the golden is a local file.
+
+**Acceptance:** CI fails when a golden fails. The LSP returns the same diagnostic text as `zown check`.
+**Not this slice:** a hosted registry.
+
+### M31 — Media
+**Depends on:** M18, M20, and M25. DESIGN §10.
+**Goal:** one audio codec, then one video codec. Decode a fixture. Do not claim a player.
+
+- [ ] **M31a.** Opus decode of a checked-in fixture into a `buf` of PCM. The golden is a hash of that PCM.
+- [ ] **M31b.** AV1 decode of one frame into a `buf`. The golden is a hash. Encode is a later slice of this milestone.
+
+**Acceptance:** the hash matches in both VMs. A truncated fixture is `INTEGRITY_FAIL` or `BOUNDS`, and the code is in §19.
+**Not this slice:** a camera, a microphone graph, or DRM.
+
+### M32 — Kernel
+**Depends on:** M23 if the kernel source is Zown. The long-mode stub can be stage-0 until then. SPEC §29, DESIGN §11.
+**Goal:** the machine boots in long mode, takes one hardware interrupt, then isolates a module.
+
+- [ ] **M32a.** Long mode. A QEMU image prints one line the way M17 does, from 64-bit code. Paging is on. There is no BIOS `int`.
+- [ ] **M32b.** One hardware IRQ (the timer). A pinned number of ticks changes one VGA cell. The test reads that cell.
+- [ ] **M32c.** A module runs in a ring or a page table the kernel owns. A load outside its pages is a trap the kernel reports. The trap is not a silent reset.
+
+**Acceptance:** QEMU shows the line, the tick cell, and the faulting module's trap. The M17 real-mode sector still builds.
+**Not this slice:** a driver zoo, SMP, or a user shell.
 
 ---
 
@@ -690,19 +897,19 @@ the milestone noted.
 
 | Debt | Where | Attach to |
 |------|-------|-----------|
-| WASM has no tags for cap/width/vec/big/res; those programs are `UNSUPPORTED` (not a silent wrong answer). Checked `int` traps with `unreachable`, not a `.zerr` | `zown-wasm` | rest of **M9** |
-| WASM still does not *emit* tags 4–8, `Move`, `??`, or `ty` (the numbers are D8). Checked `int` overflow in WASM is `unreachable`, not a `.zerr` | `zown-wasm` | after **M9**, before mesh/UI need those values on the web |
+| WASM has no tags for cap/width/vec/big/res; those programs are `UNSUPPORTED` (not a silent wrong answer). Checked `int` traps with `unreachable`, not a `.zerr` | `zown-wasm` | **M22** |
+| WASM still does not *emit* tags 4–8, `Move`, `??`, or `ty` (the numbers are D8). Checked `int` overflow in WASM is `unreachable`, not a `.zerr` | `zown-wasm` | **M22** |
 | `vm` of a `vu` vector is not a Cranelift `imul.i8x16` (the x86 backend has no such instruction); it runs on the VM | `zown-codegen` | only if a future Cranelift grows the op |
 | `zownc llvm` needs `libzown_rt.a` (`cargo rustc -p zown-rt --crate-type staticlib`) and `clang` | `zown-codegen` | document in the README if the llvm path is used in CI |
 | Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
 | `zownc check` gates `run`; IR has `Match`/`Attempt`. WASM still refuses v0.2 values | `zown-wasm` | **M9** |
-| `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | M8d-iv / M9 |
-| No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | add a GitHub Actions workflow: Python 3.10+ matrix running the five oracle commands; a Rust job once M8d lands |
+| `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | **M22** |
+| No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | **M30a** |
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
 | WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
-| The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `ty`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | M9/M15 (telemetry budget) |
+| The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `ty`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | **M29** (a pinned budget on the log) |
 | `Res` err payload is the code string only. M15 records the code and op on the log; the message and position stay in the host `.zerr` | `zown/vm.py` | SPEC §27 |
-| `tele.errors` in the manifest could be auto-discovered from `ty`/`rq`/`??` usage | `zown/manifest.py` | M11 |
+| `tele.errors` in the manifest could be auto-discovered from `ty`/`rq`/`??` usage | `zown/manifest.py` | **M30c** |
 
 ---
 
@@ -731,9 +938,10 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **What is still design-only.** A stage-2 compiler binary (M16c), a
-   microkernel (M17c), and the earlier carry-overs: CI, Ryu/Grisu
-   `$fmt_f64`, WASM tags 4–8.
+1. **M18 and M19 together.** `buf` is the keystone (§21). The parser in
+   Zown is the stage-2 frontend and does not wait on `buf`. The
+   byte-identical compiler is M23 and waits on both. The map is the
+   remainder section above.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.
