@@ -1,0 +1,13 @@
+$hello$ h3 ch
+$1$ vr
+$req$ td
+$fetch$ sp
+se
+$nodes$ $2$ wn
+$nodes$ $1$ ob
+df .
+$nodes$ $2$ ob
+df .
+$DIV_ZERO$ $guard$ rm
+[ 1 0 / ] ty ,
+lg .

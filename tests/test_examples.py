@@ -22,6 +22,17 @@ EXPECTED = {
         "b\nc\n\n"
         "cb8d08bdb86a701fd4e9f1d104d1748e82d14c78702aab2b87c407da8061de82\n"
     ),
+    "intent.zn": (
+        "nodes 2 1\nok\n"
+        "1 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req open fetch\n"
+        "2 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req close fetch\n"
+        "3 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req want nodes 2\n"
+        "4 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req obs nodes 1\n"
+        "5 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req drift nodes 2 1\n"
+        "6 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req obs nodes 2\n"
+        "7 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req meet nodes\n"
+        "8 ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f 1 req fault DIV_ZERO / guard\n"
+    ),
 }
 
 

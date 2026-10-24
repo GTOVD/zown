@@ -183,13 +183,13 @@ Hard problems: mmap crash-consistency; transparency-log scaling.
 
 The "living software" + "AI manages every instance" layer (see `DESIGN.md` §8).
 
-- Continuous **telemetry** in the manifest format; distributed tracing; structured
-  metrics/logs tagged with module version + content hash.
-- **Declarative intent** API (desired state, never imperative commands).
-- Zero-downtime **hot-swap**; the **self-healing loop** (`.zerr` → AI → semantic
-  patch → verify → swap → confirm → record); broadcast verified fixes across the mesh.
-- **On-device ML inference** (ONNX, tensors, quantized local LLMs) so the managing
-  AI runs locally; federated-learning hooks.
+- [x] Logical log (SPEC §27): spans, notes, and every `.zerr`, tagged with a
+      content hash, a version, and a trace id. `wn` / `ob` / `df` are the
+      declared want. `rm` remembers a note for a fault code. `zown watch`
+      prints the log.
+- [ ] A fleet, traces that cross a network, hot-swap, semantic patches.
+- [ ] On-device ML inference and federated updates.
+      Not started. The note on a fault is not a patch.
 
 Hard problems: safe live state migration; sandboxing remediation; trustworthy
 local inference.

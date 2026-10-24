@@ -1292,6 +1292,65 @@ def test_keep_fsync_roundtrip_and_tamper():
     assert packet["op"] == "so"
 
 
+# --- control plane (M15) -------------------------------------------------------
+def test_intent_drift_meet_and_fault():
+    out, vm = run("""
+$hello$ h3 ch
+$1$ vr
+$req$ td
+$fetch$ sp
+$read$ sp
+se
+se
+$nodes$ $2$ wn
+$nodes$ $1$ ob
+df .
+$nodes$ $2$ ob
+df .
+$DIV_ZERO$ $guard$ rm
+[ 1 0 / ] ty ,
+lg .
+""")
+    lines = out.splitlines()
+    assert lines[0] == "nodes 2 1"
+    assert lines[1] == "ok"
+    log = "\n".join(lines[2:])
+    assert " open fetch" in log
+    assert " open read" in log
+    assert log.index(" open read") < log.index(" close read") < log.index(" close fetch")
+    assert " drift nodes 2 1" in log
+    assert " meet nodes" in log
+    assert " fault DIV_ZERO / guard" in log
+    assert vm.tele.drift() == "ok"
+    _fails("se", TYPE_MISMATCH, "se")
+    _fails("$zz$ ch", TYPE_MISMATCH, "ch")
+    _fails("$a\\nb$ nt", TYPE_MISMATCH, "nt")
+    # A want that is set twice keeps its place. The new value is what df sees.
+    out, _ = run("$a$ $1$ wn $b$ $1$ wn $a$ $2$ wn $a$ $2$ ob $b$ $0$ ob df .")
+    assert out == "b 1 0\n"
+
+
+def test_watch_prints_the_log_after_a_fault():
+    from zown.cli import main
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "w.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("$hello$ h3 ch\n1 0 /\n")
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["watch", path])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 1
+    assert "DIV_ZERO" in err.getvalue()
+    assert out.getvalue().strip().endswith("fault DIV_ZERO / -")
+    assert out.getvalue().split()[1] == (
+        "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f"
+    )
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

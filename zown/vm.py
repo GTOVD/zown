@@ -44,6 +44,7 @@ from .errors import (
 )
 from .lanes import Lanes, op_pipe, op_spawn, op_tilde
 from .store import Cursor, Graph, op_close, op_follow, op_open
+from .tele import Telemetry
 from .ui import Color, UiNode
 from .lexer import INT_MAX, INT_MIN
 from .parser import Node, parse
@@ -234,6 +235,8 @@ class VM:
         self.node_id: bytes = node_id_from_material(material)
         # In-memory graph. The durable copy is a sealed bundle, not this object.
         self.graph = Graph()
+        # Logical control-plane log. `err` appends each fault as it is raised.
+        self.tele = Telemetry()
         self.file = file
         self.out = out if out is not None else sys.stdout
         # builtins are wired up lazily to avoid an import cycle
@@ -307,6 +310,7 @@ class VM:
 
     def err(self, code: str, msg: str, op: str | None = None, pos: Pos | None = None,
             hint: str = "", kind: str = "run", cap: str | None = None) -> ZownError:
+        self.tele.fault(code, op)
         return ZownError(code=code, msg=msg, kind=kind, op=op, pos=pos,
                          stack=list(self.stack), hint=hint, file=self.file, cap=cap)
 

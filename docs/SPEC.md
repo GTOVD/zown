@@ -780,6 +780,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | a graph name that is empty or contains whitespace | trap `TYPE_MISMATCH` | (unit test) |
 | `so` on a bundle whose BLAKE3 trailer does not match the bytes | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/bundle_bad` |
 | `so` on text that is not a `zown-sync` bundle | trap `TYPE_MISMATCH` | (unit test) |
+| `se` when no span is open | trap `TYPE_MISMATCH` | `errors_v2/span_empty` |
+| `ch` given a string that is not 64 hex digits | trap `TYPE_MISMATCH` | (unit test) |
+| `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
@@ -1068,3 +1071,35 @@ blake3 <64 hex digits>
 `zown keep export file.zn -o out.sync` checks the program, runs it, and writes the bundle. It fsyncs the file and the directory that holds it. A crash after that command returns still has those bytes. A crash in the middle of the write can leave a short file; `verify` then rejects it. `zown keep verify out.sync` opens the bundle in a fresh VM and prints `ok` and the head. It does not apply a patch to running code.
 
 `cases_v2/graph` is the two-hop query and its head. `errors_v2/bundle_bad` is a trailer of 64 zeros.
+
+## 27. The control plane — **implemented (M15, oracle + Rust VM)**
+
+What runs is one VM's log. Events are numbered from 1 in the order the program causes them. There is no clock and no second machine, so the text is the same on every run. A fleet, a trace that crosses a network, a hot-swap, and on-device inference stay design-only (`DESIGN.md` §8).
+
+Each line is:
+
+```
+seq content version trace kind rest
+```
+
+Until the program sets them, content, version, and trace are `-`. `ch` sets the content tag from 64 hex digits (lowercase when stored; hash a string with `h3` first). `vr` sets the version and `td` sets the trace id. Both are one word. Tags apply to later lines. They do not rewrite earlier ones.
+
+| Word | Stack | Result |
+|------|--------|--------|
+| `ch` | `$hex$ ch` | set the content tag. Not 64 hex digits is `TYPE_MISMATCH` |
+| `vr` | `$word$ vr` | set the version tag |
+| `td` | `$word$ td` | set the trace id |
+| `sp` | `$name$ sp` | open a span. The log kind is `open` |
+| `se` | `se` | close the innermost span. The log kind is `close`. No open span is `TYPE_MISMATCH` |
+| `nt` | `$text$ nt` | append a note. The text may contain spaces. A newline or an empty string is `TYPE_MISMATCH` |
+| `wn` | `$name$ $value$ wn` | declare what `name` should be. Both are one word. Setting it again keeps its place and changes the value |
+| `ob` | `$name$ $value$ ob` | record the actual word. The log kind is `obs`. If a want exists and matches, the next line is `meet`. If it differs, the next line is `drift` |
+| `df` | `df` | push the drift report. One line `name want have` for each want that is unmet, in the order they were declared. A missing observation is `-`. Every want met, or no wants, pushes `ok` |
+| `rm` | `$code$ $note$ rm` | remember a one-word note for a fault code. It is not run |
+| `lg` | `lg` | push the log. Empty is `""` |
+
+Every runtime fault is a log line `fault CODE op note`, written when the fault is raised. `op` is `-` when the fault has none. `note` is the `rm` note for that code, or `-`. A fault caught by `ty` is still in the log; `ty` itself still pushes `err(CODE)` and nothing else. The note is a record of a known response. It does not replace the running program.
+
+`zown watch file.zn` checks the program, runs it, and then prints the log. The program's own output comes first. A fault still prints the log, including that fault's line, and the process exits 1.
+
+`cases_v2/intent` declares a want, watches it drift and then meet, and records a `DIV_ZERO` whose note was set with `rm`. `errors_v2/span_empty` is a bare `se`.

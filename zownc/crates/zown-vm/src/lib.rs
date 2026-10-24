@@ -13,9 +13,11 @@ mod mesh;
 mod native;
 mod stdwords;
 mod store;
+mod tele;
 mod ui;
 mod value;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -109,6 +111,8 @@ pub struct Vm {
     node_id: [u8; 32],
     /// In-memory graph. The durable copy is a sealed bundle (SPEC §26).
     graph: store::Graph,
+    /// Logical control-plane log (SPEC §27). `err` appends faults through it.
+    tele: RefCell<tele::Telemetry>,
 }
 
 enum Bin {
@@ -181,6 +185,7 @@ impl Vm {
             bundles: HashMap::new(),
             node_id: mesh::node_id(),
             graph: store::Graph::default(),
+            tele: RefCell::new(tele::Telemetry::default()),
         };
         vm.load_std();
         vm
@@ -293,6 +298,7 @@ impl Vm {
         op: Option<String>,
         hint: &'static str,
     ) -> RunError {
+        self.tele.borrow_mut().fault(code, op.as_deref());
         RunError {
             code,
             msg,
@@ -890,6 +896,17 @@ impl Vm {
             "gh" => self.b_gh(),
             "sb" => self.b_sb(),
             "so" => self.b_so(),
+            "ch" => self.b_ch(),
+            "vr" => self.b_vr(),
+            "td" => self.b_td(),
+            "sp" => self.b_sp(),
+            "se" => self.b_se(),
+            "nt" => self.b_nt(),
+            "wn" => self.b_wn(),
+            "ob" => self.b_ob(),
+            "df" => self.b_df(),
+            "rm" => self.b_rm(),
+            "lg" => self.b_lg(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1705,6 +1722,17 @@ pub fn is_builtin(name: &str) -> bool {
             | "gh"
             | "sb"
             | "so"
+            | "ch"
+            | "vr"
+            | "td"
+            | "sp"
+            | "se"
+            | "nt"
+            | "wn"
+            | "ob"
+            | "df"
+            | "rm"
+            | "lg"
     )
 }
 

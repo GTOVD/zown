@@ -16,6 +16,7 @@ Usage:
                               run a program and fsync its graph as a sealed bundle
     zown keep verify <out.sync>
                               open a bundle; a changed byte is INTEGRITY_FAIL
+    zown watch <file.zn>      run a program, then print its telemetry log
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -255,6 +256,33 @@ def cmd_test(args) -> int:
     return run_tests(args.path)
 
 
+def cmd_watch(args) -> int:
+    src = _read(args.file)
+    if not getattr(args, "unchecked", False):
+        diags, code = _static_check(src, args)
+        if code is not None:
+            return code
+        if diags:
+            _emit_diags(diags, args,
+                        f"rejected: {args.file} — {len(diags)} issue(s) found by the "
+                        f"static checker; not watched (--unchecked overrides)")
+            return EXIT_REJECTED
+    vm = VM(file=args.file)
+    code = EXIT_OK
+    try:
+        vm.run_src(src)
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        code = EXIT_ERROR
+    text = vm.tele.text()
+    if text:
+        sys.stdout.write(text)
+        if not text.endswith("\n"):
+            sys.stdout.write("\n")
+    return code
+
+
 def cmd_keep(args) -> int:
     if args.keep_cmd == "export":
         return _keep_export(args)
@@ -364,6 +392,10 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("file")
     pd.set_defaults(func=cmd_draw)
 
+    pw = sub.add_parser("watch", help="run a program, then print its telemetry log")
+    pw.add_argument("file")
+    pw.set_defaults(func=cmd_watch)
+
     pk = sub.add_parser("keep", help="seal a graph into a bundle, or open one")
     ks = pk.add_subparsers(dest="keep_cmd", required=True)
     ke = ks.add_parser("export", help="run a program and fsync its graph")
@@ -382,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep", "watch"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

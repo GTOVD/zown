@@ -21,6 +21,7 @@ from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
 from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
+from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
 
 
@@ -639,6 +640,17 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "gh": (b_gh, "graph_head", "push BLAKE3 of the snapshot bytes"),
     "sb": (b_sb, "sync_bundle", "push the graph sealed as a zown-sync bundle"),
     "so": (b_so, "sync_open", "bundle so -> verify the seal, replace the graph, push the head"),
+    "ch": (b_ch, "content", "64-hex ch -> tag later log lines with that content hash"),
+    "vr": (b_vr, "version", "word vr -> tag later log lines with that version"),
+    "td": (b_td, "trace", "word td -> tag later log lines with that trace id"),
+    "sp": (b_sp, "span", "name sp -> open a span"),
+    "se": (b_se, "span_end", "se -> close the innermost span"),
+    "nt": (b_nt, "note", "text nt -> append a one-line note"),
+    "wn": (b_wn, "want", "name value wn -> declare the desired word for name"),
+    "ob": (b_ob, "observe", "name value ob -> record the actual word; log meet or drift"),
+    "df": (b_df, "drift", "push the current drift report (ok when every want is met)"),
+    "rm": (b_rm, "remedy", "code note rm -> remember a note for the next fault with that code"),
+    "lg": (b_lg, "log", "push the telemetry log"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

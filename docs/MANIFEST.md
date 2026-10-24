@@ -110,7 +110,7 @@ automatically vs. what you (or an AI) fill in:
 |--------|---------|
 | `caps` | capability codes this symbol requires (`SPEC.md` §12). Zero authority by default; this is the **only** place authority is declared. |
 | `sec`  | security flags: `ct` (must be constant-time), `secret` (handles `Secret[T]`; never logged). |
-| `tele` | telemetry the runtime emits for this symbol: latency tracking, the `.zerr` codes it can raise — consumed by the AI control plane (`DESIGN.md` §8). |
+| `tele` | authored hint for the control plane (`DESIGN.md` §8). The log the runtime actually writes is SPEC §27; this field is not filled from that log. |
 | `i18n` | translation keys referenced by this symbol (BiDi/CLDR resolution at runtime). |
 
 ### Module-level provenance block (planned)

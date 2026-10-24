@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M14: in-memory graph and a BLAKE3-sealed bundle).
+Last updated: 2026-10-24 (M15: a logical control-plane log).
 
 ---
 
@@ -67,7 +67,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M12 | ZownNet — decentralized mesh | ✅ | BLAKE3 `h3`, `~p`/`~f`, `zown mesh` on `[::1]`. QUIC, DHT, Ed25519, and ChaCha are not implemented |
 | M13 | Native UI + ZownGPU + audio + input | ✅ | layout tree `co tx bt rw cm ly` and `zown draw` PPM. GPU, audio, and input delivery are not implemented |
 | M14 | Embedded store + distribution | ✅ | in-memory graph `gv ge » → «` and `zown keep` (fsynced BLAKE3 bundle). mmap, CRDT, Ed25519, and hot-swap are not implemented |
-| M15 | AI control plane + rolling execution | ⬜ | telemetry/tracing, declarative intent, hot-swap, self-healing loop, on-device ML |
+| M15 | AI control plane + rolling execution | ✅ | logical log: spans, intent, faults (`ch vr td sp se nt wn ob df rm lg`, `zown watch`). No clock. Hot-swap, a fleet, and on-device ML are not implemented |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
 | M17 | Zown OS / bare metal | ⬜ | `--target=bare`, microkernel demo |
 
@@ -605,16 +605,11 @@ in this slice. `native_parity` is 74/74.
 **Goal:** an AI manages every instance in real time (see `DESIGN.md` §8).
 
 **Tasks**
-- [ ] Continuous telemetry in the manifest format; distributed tracing; structured
-      metrics/logs tagged with module version + content hash.
-- [ ] Declarative intent API (desired state); runtime converges via hot-swap +
-      mesh routing.
-- [ ] Zero-downtime hot-swap; self-healing loop (`.zerr` → semantic patch → verify
-      → swap → confirm → record); broadcast verified fixes.
-- [ ] On-device ML inference (ONNX, tensors, quantized local LLM); federated hooks.
+- [x] **M15a.** A logical log. `sp` / `se` are nested spans, `nt` is a note, and every raised `.zerr` is a `fault` line. `ch`, `vr`, and `td` tag later lines with a content hash, a version word, and a trace id. There is no clock. Both VMs match (`cases_v2/intent`).
+- [x] **M15b.** Intent is a declared word. `wn` sets it, `ob` records the actual word and logs `meet` or `drift`, and `df` pushes the current gap. `rm` stores a one-word note that the next matching fault includes. The note is not executed. `zown watch` prints the log after a run, including a fault that escaped.
+- [ ] **M15c.** A fleet, distributed tracing across machines, hot-swap, semantic patches, and on-device ML. Not implemented. The oracle cannot show those honestly, so they stay design-only (§27).
 
-**Acceptance:** a fleet converges to declared intent; an injected bug is detected,
-patched, verified, and hot-swapped with no downtime.
+**Acceptance:** a declared want is observed as drift and then as met, and an injected `DIV_ZERO` is in the log with its remediation note. Met by `examples/intent.zn` and `zown watch`. Nothing is hot-swapped. `native_parity` is 78/78.
 
 ---
 
@@ -679,6 +674,7 @@ memory type.)*
 | D11 | The mesh slice is **BLAKE3 plus IPv6 UDP**, not QUIC (2026-10-24). `h3`/`~p`/`~f` are the content address. The node id is not an Ed25519 key. `zown mesh` exchanges one bundle on `[::1]` | SPEC §24; M12 |
 | D12 | UI in the oracle is a **layout tree and a PPM**, not a GPU (2026-10-24). `co tx bt rw cm ly` build it. Contrast is integer luma. `zown draw` paints rectangles | SPEC §25; M13 |
 | D13 | The store slice is an **in-memory graph and an fsynced BLAKE3 bundle**, not mmap or a signature (2026-10-24). `gv ge gs gl gh sb so` and `» « →` are the surface. Integrity is `INTEGRITY_FAIL`. Ed25519, CRDTs, and hot-swap stay design-only | SPEC §26; M14 |
+| D14 | The control plane in the oracle is a **logical log** (2026-10-24). Spans, intent, and faults share one numbered trace tagged with a content hash, a version, and a trace id. No clock. `rm` records a note; it does not run code. Hot-swap, a fleet, and on-device ML stay design-only | SPEC §27; M15 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -701,7 +697,7 @@ the milestone noted.
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
 | WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
 | The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `ty`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | M9/M15 (telemetry budget) |
-| `Res` err payload is the code string only; the full packet (op/pos/cap/msg) is not reachable from inside the language yet — the self-healing loop (M15) will want it | `zown/vm.py` | M11 (`std`) |
+| `Res` err payload is the code string only. M15 records the code and op on the log; the message and position stay in the host `.zerr` | `zown/vm.py` | SPEC §27 |
 | `tele.errors` in the manifest could be auto-discovered from `ty`/`rq`/`??` usage | `zown/manifest.py` | M11 |
 
 ---
@@ -731,8 +727,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M15 — control plane.** Telemetry, intent, and the self-healing loop. The
-   graph is SPEC §26; signatures and hot-swap are still design-only there.
+1. **M16 — self-hosting.** The Zown compiler written in Zown, stage-1 equal to
+   stage-2. The control plane is SPEC §27; hot-swap is still design-only there.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

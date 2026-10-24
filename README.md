@@ -64,6 +64,9 @@ python3 bin/zown draw examples/paint.zn > ui.ppm
 # seal a program's graph, then refuse a bundle whose bytes changed
 python3 bin/zown keep export examples/graph.zn -o graph.sync
 python3 bin/zown keep verify graph.sync
+
+# declared intent, then the log of a fault and its note
+python3 bin/zown examples/intent.zn
 ```
 
 Install the `zown` command for real:
@@ -194,8 +197,9 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
 7. **Store + distribution (M14)** — the running slice is an in-memory graph
    (`gv`, `ge`, `»`, `→`, `«`) and `zown keep` (an fsynced BLAKE3 bundle).
    mmap, CRDTs, Ed25519, and hot-swap are not implemented.
-8. **AI control plane (M15)** — telemetry, declarative intent, hot-swap, the
-   self-healing loop, on-device ML.
+8. **AI control plane (M15)** — the running slice is a logical log (spans,
+   declared intent, and faults) and `zown watch`. A fleet, hot-swap, and
+   on-device ML are not implemented.
 9. **Self-hosting (M16)** and a **Zown OS / bare metal (M17)** endgame.
 
 The whole vision — the "sovereign computing substrate" — is in
