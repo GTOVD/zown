@@ -616,6 +616,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zown-bare"
+version = "0.1.0"
+dependencies = [
+ "zown-ast",
+ "zown-parser",
+]
+
+[[package]]
 name = "zown-check"
 version = "0.1.0"
 dependencies = [
@@ -629,6 +637,7 @@ name = "zown-cli"
 version = "0.1.0"
 dependencies = [
  "zown-ast",
+ "zown-bare",
  "zown-check",
  "zown-codegen",
  "zown-ir",
