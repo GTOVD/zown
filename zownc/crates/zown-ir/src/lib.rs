@@ -40,6 +40,12 @@ pub enum Instr {
     Select,
     /// `;` — while: `[cond] [body] ;`.
     While,
+    /// `??` — pattern match. Backends must not treat this as a value operator.
+    Match,
+    /// The name `at` (the result constructor). Unlowers to a name, so a binding
+    /// of `at` still round-trips; a backend that runs it as the builtin must
+    /// honor shadowing itself.
+    Attempt,
 }
 
 /// A flat instruction sequence (a lowered block / quotation).
@@ -65,6 +71,7 @@ impl Builder {
                 NodeKind::Int(v) => instrs.push(Instr::ConstInt(*v)),
                 NodeKind::Float(v) => instrs.push(Instr::ConstFloat(*v)),
                 NodeKind::Str(s) => instrs.push(Instr::ConstStr(s.clone())),
+                NodeKind::Name(s) if s == "at" => instrs.push(Instr::Attempt),
                 NodeKind::Name(s) => instrs.push(Instr::Load(s.clone())),
                 NodeKind::Bind(s) => instrs.push(Instr::Bind(s.clone())),
                 NodeKind::Move(s) => instrs.push(Instr::Move(s.clone())),
@@ -73,6 +80,7 @@ impl Builder {
                     "@" => Instr::Invoke,
                     "?" => Instr::Select,
                     ";" => Instr::While,
+                    "??" => Instr::Match,
                     _ => Instr::Op(s.clone()),
                 }),
                 NodeKind::Blk(inner) => {
@@ -90,7 +98,10 @@ impl Builder {
 pub fn lower(program: &[Node]) -> IrProgram {
     let mut b = Builder { blocks: Vec::new() };
     let main = b.lower_seq(program);
-    IrProgram { blocks: b.blocks, main }
+    IrProgram {
+        blocks: b.blocks,
+        main,
+    }
 }
 
 /// Rebuild the AST from IR (the exact inverse of `lower`). Used to prove lowering
@@ -117,6 +128,8 @@ fn unlower_block(prog: &IrProgram, id: usize) -> Vec<Node> {
                 Instr::Invoke => NodeKind::Op("@".into()),
                 Instr::Select => NodeKind::Op("?".into()),
                 Instr::While => NodeKind::Op(";".into()),
+                Instr::Match => NodeKind::Op("??".into()),
+                Instr::Attempt => NodeKind::Name("at".into()),
             };
             Node::new(kind, Pos::default())
         })
@@ -125,7 +138,11 @@ fn unlower_block(prog: &IrProgram, id: usize) -> Vec<Node> {
 
 /// Human-readable IR dump (`zownc ir`).
 pub fn pretty(prog: &IrProgram) -> String {
-    let mut out = format!("; zown ir  ({} blocks)\nmain = b{}\n\n", prog.blocks.len(), prog.main);
+    let mut out = format!(
+        "; zown ir  ({} blocks)\nmain = b{}\n\n",
+        prog.blocks.len(),
+        prog.main
+    );
     for (i, blk) in prog.blocks.iter().enumerate() {
         out.push_str(&format!("b{i}:\n"));
         if blk.0.is_empty() {
@@ -155,6 +172,8 @@ fn instr_str(instr: &Instr) -> String {
         Instr::Invoke => "invoke".into(),
         Instr::Select => "select".into(),
         Instr::While => "while".into(),
+        Instr::Match => "match".into(),
+        Instr::Attempt => "attempt".into(),
     }
 }
 
@@ -188,6 +207,14 @@ mod tests {
             let a = ast(src);
             let ir = lower(&a);
             assert_eq!(unlower(&ir), a, "roundtrip failed for {src:?}");
+        }
+    }
+
+    #[test]
+    fn roundtrip_match_and_attempt() {
+        for src in ["1 [ [int] [ . ] [_] [ , ] ] ??", "[ 1 ] at .", "5 :x 'x ."] {
+            let a = ast(src);
+            assert_eq!(unlower(&lower(&a)), a, "roundtrip failed for {src:?}");
         }
     }
 

@@ -28,15 +28,21 @@ IrBlock(Vec<Instr>)
 | `ConstStr`      | `$...$`            | push a string                             |
 | `ConstBlock(id)`| `[ ... ]`          | push a reference to block `id`            |
 | `Bind(name)`    | `:name`            | pop and bind `name`                       |
+| `Move(name)`    | `'name`            | push the binding and unbind it            |
+| `ConstCap(name)`| `` `name ``        | push a capability token                   |
 | `Load(name)`    | `name`             | resolve name: user binding, else builtin  |
 | `Op(sym)`       | value operators    | `+ - * / % _ == != < > <= >= && \|\| ! = , \ & .` |
 | `Invoke`        | `@`                | pop a block and run it                     |
 | `Select`        | `?`                | choose a block by a condition              |
 | `While`         | `;`                | `[cond] [body] ;`                          |
+| `Match`         | `??`               | pattern-match; not a value operator        |
+| `Attempt`       | the name `at`      | result constructor (unlowers to the name)  |
 
-The three control words (`@ ? ;`) get dedicated instructions because backends
-must treat them specially (calls, branches, loops); all other operators are
-uniform `Op(sym)`.
+`@ ? ; ??` are dedicated instructions because backends must treat them specially
+(calls, branches, loops, matching). `at` lowers to `Attempt` so a backend can
+see the result constructor without scanning names; unlower turns it back into
+the name `at`, so a binding of that name still round-trips. Every other
+operator is a uniform `Op(sym)`.
 
 ## Example
 

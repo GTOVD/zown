@@ -117,19 +117,22 @@ dyadic values — the only fractional float the suite prints is `2.5` — but is
 the shortest round-tripping representation for values like `0.1`. A Ryu/Grisu
 formatter is future work.
 
+**Checked `int` (M8d-iv).** Integer `+ - * _`, `ab` on an int, and the integer
+`pw` fast path call `$iadd` / `$isub` / `$imul` / `$ineg`. A result outside
+`i64` traps the module (`unreachable`) instead of wrapping. That trap is not
+yet a `.zerr` packet — the v0.1 suite never overflows, so `wasm_parity` is
+unchanged. v0.2 values (`ConstCap`, `Move`, `Match`, `Attempt`, and the v0.2
+words) are a structured `UNSUPPORTED` that names M9. They do not compile to a
+silently different program.
+
 **Binary `.wasm`.** `emit_wasm` assembles the `.wat` and encodes it with the
 `wat` crate. `zownc build -o x.wasm` writes a binary module (`\0asm` …); any other
 extension writes `.wat`. Both run identically under wasmtime, verified by
 `conformance/wasm_parity.py` (each case is checked in both formats).
 
-## Next: M8d (v0.2 in the Rust toolchain), then M9 — native backend
+## Next: v0.2 tags in this backend
 
-The backend covers **v0.1** only. The v0.2 surface (capability tokens, width
-tags, SIMD vectors, `??`) exists in the oracle and must reach the Rust frontend,
-VM, and IR first (PLAN M8d); this backend then either lowers those values (new
-tags after `3`) or fails with a structured `UNSUPPORTED` naming the milestone —
-never a silent divergence.
-
-M9 then adds real desktop binaries via Cranelift (then LLVM). The IR and the
-tagged-value model carry over; the operand-stack/heap/string-runtime design is
-reused with a native calling convention instead of WASI.
+M8d landed the v0.2 values in the Rust VM, and M9b runs them through Cranelift
+(`zownc native`). This backend still emits a structured `UNSUPPORTED` for
+capability tokens, width tags, SIMD vectors, `??`, and `at` (no silent
+divergence). Giving them WASM tags is the remaining work here.

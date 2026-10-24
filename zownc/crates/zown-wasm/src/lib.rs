@@ -69,7 +69,11 @@ pub fn emit_wat(prog: &IrProgram) -> Result<String, String> {
 
     let mut data = String::new();
     for s in &lit_order {
-        data.push_str(&format!("  (data (i32.const {}) \"{}\")\n", lits[s], encode_str(s)));
+        data.push_str(&format!(
+            "  (data (i32.const {}) \"{}\")\n",
+            lits[s],
+            encode_str(s)
+        ));
     }
 
     let mut var_globals = String::new();
@@ -160,12 +164,12 @@ fn emit_instr(
 ) -> Result<(), String> {
     match instr {
         Instr::ConstInt(v) => push_val(body, "(i64.const 0)", &format!("(i64.const {v})")),
-        Instr::ConstFloat(v) => {
-            push_val(body, "(i64.const 1)", &format!("(i64.const {})", v.to_bits() as i64))
-        }
-        Instr::ConstStr(s) => {
-            push_val(body, "(i64.const 2)", &format!("(i64.const {})", lits[s]))
-        }
+        Instr::ConstFloat(v) => push_val(
+            body,
+            "(i64.const 1)",
+            &format!("(i64.const {})", v.to_bits() as i64),
+        ),
+        Instr::ConstStr(s) => push_val(body, "(i64.const 2)", &format!("(i64.const {})", lits[s])),
         Instr::ConstBlock(bid) => push_val(body, "(i64.const 3)", &format!("(i64.const {bid})")),
         Instr::Bind(name) => {
             let idx = vars[name];
@@ -204,9 +208,9 @@ fn emit_instr(
                  \x20     (br $loop{k})))\n"
             ));
         }
-        Instr::ConstCap(_) | Instr::Move(_) => {
+        Instr::ConstCap(_) | Instr::Move(_) | Instr::Match | Instr::Attempt => {
             return Err(
-                "UNSUPPORTED: v0.2 capability/move values are not in the WASM backend yet (PLAN M8d-iv)"
+                "UNSUPPORTED: v0.2 caps, moves, `??`, and `at` are not in the WASM backend (PLAN M9)"
                     .into(),
             );
         }
@@ -278,7 +282,7 @@ fn emit_load(name: &str, vars: &HashMap<String, usize>, body: &mut String) -> Re
                  \x20     (then (call $push (i64.const 1) (i64.reinterpret_f64 \
                               (f64.abs (f64.reinterpret_i64 (local.get $ap))))))\n\
                  \x20     (else (call $push (i64.const 0) (select \
-                              (i64.sub (i64.const 0) (local.get $ap)) (local.get $ap) \
+                              (call $ineg (local.get $ap)) (local.get $ap) \
                               (i64.lt_s (local.get $ap) (i64.const 0))))))\n",
             );
         }
@@ -336,7 +340,9 @@ fn emit_load(name: &str, vars: &HashMap<String, usize>, body: &mut String) -> Re
             body.push_str("    (call $print_raw (local.get $at) (local.get $ap))\n");
         }
         other => {
-            return Err(format!("wasm: word `{other}` is not a known builtin"))
+            return Err(format!(
+                "UNSUPPORTED: word `{other}` is not in the WASM backend (PLAN M9)"
+            ))
         }
     }
     Ok(())
@@ -360,7 +366,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
                                       (f64.add (call $to_f (local.get $at) (local.get $ap)) \
                                                (call $to_f (local.get $bt) (local.get $bp))))))\n\
                  \x20             (else (call $push (i64.const 0) \
-                                      (i64.add (local.get $ap) (local.get $bp)))))))\n",
+                                      (call $iadd (local.get $ap) (local.get $bp)))))))\n",
             );
         }
         "*" => {
@@ -377,7 +383,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
                                       (f64.mul (call $to_f (local.get $at) (local.get $ap)) \
                                                (call $to_f (local.get $bt) (local.get $bp))))))\n\
                  \x20             (else (call $push (i64.const 0) \
-                                      (i64.mul (local.get $ap) (local.get $bp)))))))\n",
+                                      (call $imul (local.get $ap) (local.get $bp)))))))\n",
             );
         }
         "-" => {
@@ -390,7 +396,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
                               (f64.sub (call $to_f (local.get $at) (local.get $ap)) \
                                        (call $to_f (local.get $bt) (local.get $bp))))))\n\
                  \x20     (else (call $push (i64.const 0) \
-                              (i64.sub (local.get $ap) (local.get $bp)))))\n",
+                              (call $isub (local.get $ap) (local.get $bp)))))\n",
             );
         }
         "/" => {
@@ -422,7 +428,7 @@ fn emit_op(op: &str, body: &mut String) -> Result<(), String> {
                  \x20     (then (call $push (i64.const 1) (i64.reinterpret_f64 \
                               (f64.neg (f64.reinterpret_i64 (local.get $ap))))))\n\
                  \x20     (else (call $push (i64.const 0) \
-                              (i64.sub (i64.const 0) (local.get $ap)))))\n",
+                              (call $ineg (local.get $ap)))))\n",
             );
         }
         "<" | ">" | "<=" | ">=" => {
@@ -604,12 +610,55 @@ fn module(
     (f64.sub (local.get $a)
       (f64.mul (f64.floor (f64.div (local.get $a) (local.get $b))) (local.get $b))))
 
+  ;; Checked int arithmetic (SPEC §11). Overflow traps the module (`unreachable`)
+  ;; rather than wrapping. v0.1 programs stay in range, so this does not change
+  ;; their output; a `.zerr` packet for the trap is M9.
+  (func $iadd (param $a i64) (param $b i64) (result i64)
+    (local $r i64)
+    (local.set $r (i64.add (local.get $a) (local.get $b)))
+    (if (i32.and
+          (i64.eq (i64.shr_s (local.get $a) (i64.const 63))
+                  (i64.shr_s (local.get $b) (i64.const 63)))
+          (i64.ne (i64.shr_s (local.get $r) (i64.const 63))
+                  (i64.shr_s (local.get $a) (i64.const 63))))
+      (then unreachable))
+    (local.get $r))
+  (func $isub (param $a i64) (param $b i64) (result i64)
+    (local $r i64)
+    (local.set $r (i64.sub (local.get $a) (local.get $b)))
+    (if (i32.and
+          (i64.ne (i64.shr_s (local.get $a) (i64.const 63))
+                  (i64.shr_s (local.get $b) (i64.const 63)))
+          (i64.ne (i64.shr_s (local.get $r) (i64.const 63))
+                  (i64.shr_s (local.get $a) (i64.const 63))))
+      (then unreachable))
+    (local.get $r))
+  (func $ineg (param $a i64) (result i64)
+    (if (i64.eq (local.get $a) (i64.const 0x8000000000000000))
+      (then unreachable))
+    (i64.sub (i64.const 0) (local.get $a)))
+  (func $imul (param $a i64) (param $b i64) (result i64)
+    (local $r i64)
+    (if (i32.or (i64.eq (local.get $a) (i64.const 0))
+                (i64.eq (local.get $b) (i64.const 0)))
+      (then (return (i64.const 0))))
+    (if (i32.or
+          (i32.and (i64.eq (local.get $a) (i64.const 0x8000000000000000))
+                   (i64.eq (local.get $b) (i64.const -1)))
+          (i32.and (i64.eq (local.get $b) (i64.const 0x8000000000000000))
+                   (i64.eq (local.get $a) (i64.const -1))))
+      (then unreachable))
+    (local.set $r (i64.mul (local.get $a) (local.get $b)))
+    (if (i64.ne (local.get $a) (i64.div_s (local.get $r) (local.get $b)))
+      (then unreachable))
+    (local.get $r))
+
   (func $ipow (param $b i64) (param $e i64) (result i64)
     (local $r i64) (local $i i64)
     (local.set $r (i64.const 1))
     (block $d (loop $l
       (br_if $d (i64.ge_s (local.get $i) (local.get $e)))
-      (local.set $r (i64.mul (local.get $r) (local.get $b)))
+      (local.set $r (call $imul (local.get $r) (local.get $b)))
       (local.set $i (i64.add (local.get $i) (i64.const 1)))
       (br $l)))
     (local.get $r))
@@ -927,7 +976,10 @@ mod tests {
     use zown_ir::IrBlock;
 
     fn prog(instrs: Vec<Instr>) -> IrProgram {
-        IrProgram { blocks: vec![IrBlock(instrs)], main: 0 }
+        IrProgram {
+            blocks: vec![IrBlock(instrs)],
+            main: 0,
+        }
     }
 
     #[test]
@@ -947,7 +999,11 @@ mod tests {
     fn emits_float_literal() {
         // 2.7 -> tag 1 with the f64 bit pattern
         let bits = 2.7f64.to_bits() as i64;
-        let wat = emit_wat(&prog(vec![Instr::ConstFloat(2.7), Instr::Load("fl".into())])).unwrap();
+        let wat = emit_wat(&prog(vec![
+            Instr::ConstFloat(2.7),
+            Instr::Load("fl".into()),
+        ]))
+        .unwrap();
         assert!(wat.contains(&format!("(i64.const {bits})")));
         assert!(wat.contains("f64.floor"));
     }

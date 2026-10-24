@@ -316,7 +316,9 @@ Two principles carry over from Part I and govern every addition:
 
 ## 11. Numeric model
 
-Three scalar kinds, one rule: **overflow is never silent.**
+Three scalar kinds, one rule: **overflow is never silent.** The Rust VM
+implements this section, including `b`, width policy, and vectors
+(M8d-ii/iii). WASM `int` arithmetic still wraps; that is M8d-iv.
 
 | Kind | Representation | Overflow behavior |
 |------|----------------|-------------------|

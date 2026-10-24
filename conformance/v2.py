@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Zown v0.2 conformance runner (oracle-only).
 
-Part II of the language (capabilities, and later: full numerics, SIMD/tensor
-types, pattern matching) is being frozen in the SPEC and validated in the Python
-reference *before* the native compiler is built (the "design before the compiler"
-principle, DESIGN.md §1, PLAN.md M7). These cases therefore run against the
-Python oracle only — the Rust `zownc` toolchain does not implement v0.2 yet, so
-its parity runners deliberately ignore this corpus (they scan `cases/`/`errors/`).
+Part II of the language is frozen in the SPEC and in the Python oracle. This
+runner stays oracle-only (it calls `VM.run_src` directly, so it is not gated by
+`zown check`). The Rust VM is held to the same goldens by `vm_parity.py`, which
+scans this corpus as well as v0.1.
 
 Layout mirrors run.py but in v2 directories:
   cases_v2/<name>.zn   -> cases_v2/<name>.out    (expected stdout)

@@ -19,6 +19,7 @@ ast_parity.py     diff Python AST vs `zownc ast`                (needs cargo bui
 vm_parity.py      run cases/ + errors/ through `zownc run`      (needs cargo build)
 ir_roundtrip.py   assert `zownc irast` == `zownc ast`           (needs cargo build)
 wasm_parity.py    build + run cases/ under wasmtime, .wat/.wasm (needs cargo build + wasmtime)
+native_parity.py  `zownc native` vs cases/ + errors/ (and the v0.2 programs it can run)
 ```
 
 ## Commands
@@ -37,6 +38,7 @@ python3 conformance/ast_parity.py
 python3 conformance/vm_parity.py
 python3 conformance/ir_roundtrip.py
 python3 conformance/wasm_parity.py      # also requires wasmtime on PATH
+python3 conformance/native_parity.py    # Cranelift JIT (`zownc native`)
 ```
 
 ## Adding a case
@@ -65,6 +67,5 @@ python3 conformance/wasm_parity.py      # also requires wasmtime on PATH
   sound-silence cases (dynamic extent, escaped blocks, inline consumers, faults
   inside `at`, rebinding, the `;` body).
 
-The Rust parity runners scan `cases/`+`errors/` only: `zownc` does not implement
-v0.2 or the checker yet (PLAN M8d). When it does, `v2.py`'s and `check.py`'s
-corpora become its targets too.
+`vm_parity.py`, `check_parity.py`, and `native_parity.py` cover v0.1 and v0.2.
+`native_parity.py` fails if a program is skipped or the matching set shrinks.

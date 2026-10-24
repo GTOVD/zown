@@ -30,8 +30,9 @@ checker faults** (exit 2); there is no undefined behavior (SPEC §19).
 
 1. **`zown/` — the Python reference interpreter. It is the oracle.** Its
    observable behavior *is* the semantics.
-2. **`zownc/` — the Rust toolchain** (lexer, parser, IR, VM, WASM backend).
-   Differentially tested against the oracle. Currently implements **v0.1 only**.
+2. **`zownc/` — the Rust toolchain** (lexer, parser, IR, VM, checker, WASM,
+   Cranelift). Differentially tested against the oracle. The VM and checker
+   implement v0.2. Cranelift runs v0.2. WASM still refuses `??`, `at`, `gr`, and vectors.
 3. **The conformance corpus (`conformance/`)** — language-agnostic goldens that
    both must satisfy.
 
@@ -62,7 +63,8 @@ python3 conformance/v2.py           # v0.2 goldens (oracle-only)
 python3 conformance/check.py        # static-checker goldens (oracle-only)
 # with Rust built (cd zownc && cargo build && cargo test):
 python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
-  && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py
+  && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py \
+  && python3 conformance/check_parity.py && python3 conformance/native_parity.py
 ```
 
 All five oracle commands must end in `0 failed` (as of M8c: 98 unit tests, 20 +
@@ -112,8 +114,9 @@ checklist is in `PLAN.md` → "How a slice is done"; the short form:
 - **Reserved symbols stay reserved** (`| ~ ^ ( ) { }`, `» « →`) — see SPEC §5/§17.
 - **Never fabricate provenance/crypto.** Manifest `module` crypto fields stay
   `null` until M14 computes real hashes/signatures.
-- **Don't touch Rust parity accidentally.** Until M8d, the Rust runners scan the
-  v0.1 corpus only; a v0.2 change must not alter any v0.1 golden.
+- **Don't touch Rust parity accidentally.** `vm_parity.py` scans v0.1 and v0.2
+  (59). `ast_parity.py` / `ir_roundtrip.py` scan v0.2 as well. `wasm_parity.py`
+  is still the 13 v0.1 cases — a v0.2 change must not alter a v0.1 golden.
 
 ## Layout cheat-sheet
 
@@ -134,10 +137,17 @@ sound). Runtime value kinds: `int float str Block Big Res Cap WidthTag Vec`
 
 ## Current position (keep in sync with PLAN.md)
 
-M0–M7 done. **M8 (safety core) in progress:** M8a name resolution + match shape
+M0–M8 done. M8a name resolution + match shape
 ✅, M8b static capability flow ✅, **M8c ✅** (check-before-run gate, checked
 `int` + `big`, result values `at`, no-UB catalogue §19, `'x` moves). **M8d-i ✅** (Rust frontend: Cap/`'x`/`??`/checked int literals, AST spans,
-`zownc ast` 45/45). **Next: M8d-ii** — checked-int VM + `big` in `zown-vm`.
+`zownc ast` 45/45). **M8d-ii/iii ✅** (checked `int`, `big`, widths, vectors,
+`??`, `at`, caps; `vm_parity` 59/59). **M8d-iv/v ✅** (`Match`/`Attempt`, checked
+WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13).
+**M9a–M9b ✅** — Cranelift: `zownc native` (in-process) and `zownc native -o exe`.
+v0.1 and v0.2 conformance pass (`native_parity` 59/59), including `??`, `at`,
+`gr`, and the vector constructors. WASM still answers `UNSUPPORTED` for v0.2
+values. Still open in M9: inline arithmetic, deterministic exes, SIMD lowering,
+and the `buf` spec.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

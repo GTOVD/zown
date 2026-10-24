@@ -7,6 +7,9 @@ members = [
     "crates/zown-ir",
     "crates/zown-vm",
     "crates/zown-wasm",
+    "crates/zown-check",
+    "crates/zown-rt",
+    "crates/zown-codegen",
     "crates/zown-cli",
 ]
 
