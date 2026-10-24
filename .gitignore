@@ -18,6 +18,8 @@ venv/
 # Rust (commit Cargo.lock for the binary workspace; ignore build output)
 /zownc/target/
 **/target/
+# rustc incremental cache if a link step is run from a crate directory
+zownc/**/off/
 
 # Generated WASM build artifacts
 *.wat

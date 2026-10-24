@@ -776,8 +776,6 @@ fn link_exe(object: &[u8], out: &Path, ir: &IrProgram, file: &str) -> Result<(),
         .arg("-C")
         .arg("strip=symbols")
         .arg("-C")
-        .arg("incremental=off")
-        .arg("-C")
         .arg("codegen-units=1")
         .arg("-C")
         .arg("link-arg=-Wl,--build-id=none")
