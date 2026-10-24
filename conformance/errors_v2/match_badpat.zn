@@ -1,0 +1,2 @@
+# An unrecognized pattern token -> BAD_PATTERN (not a type name, literal, or _).
+1 [ [ foo ] [ , $x$ . ] ] ??

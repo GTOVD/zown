@@ -1,0 +1,10 @@
+# v0.2 numeric model (D1): the int range is [-2**63, 2**63-1]; results that fit
+# are exact, and the type of a width-policy result is decided by the width.
+9223372036854775807 .             # INT_MAX literal fits
+9223372036854775807 _ 1 - .       # INT_MIN, reached by arithmetic (no negative literals)
+2 62 pw .                         # 4611686018427387904 fits
+300 u8 wr .                       # 44   -> int   (u8's range fits int)
+5 u64 ck .                        # 5    -> big   (u64's range exceeds int; same digits)
+1 _ u64 wr .                      # 18446744073709551615 -> big
+5 u64 ck [ [big] [ , $u64 is big$ . ] [_] [ , $?$ . ] ] ??
+300 u8 wr [ [int] [ , $u8 is int$ . ] [_] [ , $?$ . ] ] ??

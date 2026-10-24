@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zown-lexer",
+    "crates/zown-ast",
+    "crates/zown-parser",
+    "crates/zown-ir",
+    "crates/zown-vm",
+    "crates/zown-wasm",
+    "crates/zown-check",
+    "crates/zown-rt",
+    "crates/zown-codegen",
+    "crates/zown-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Zown"]
+repository = "https://github.com/GTOVD/zown"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

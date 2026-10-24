@@ -1,0 +1,15 @@
+[package]
+name = "zown-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Zown static checker: names, match shape, capability flow, results, moves."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+zown-ast = { path = "../zown-ast" }
+zown-parser = { path = "../zown-parser" }
+zown-vm = { path = "../zown-vm" }

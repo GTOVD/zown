@@ -1,0 +1,11 @@
+# SPEC §19 — operations that are undefined or implementation-defined elsewhere
+# have one defined outcome in Zown. The value rows (the trap rows live in
+# errors_v2/: recursion, float_divzero, vec_oob, float_*_to_int, sqrt_negative,
+# *_overflow).
+7 _ 3 % .            # 2    modulo takes the sign of the divisor
+7 3 _ % .            # -2
+7.5 2 % .            # 1.5  ...for floats as well
+$ab$ 2 _ * ln .      # 0    string repeat with a count <= 0 is the empty string
+$ab$ 0 * ln .        # 0
+0 :n [ n 300 < ] [ n 1 + :n ] ; n .   # 300  loops do not consume invocation depth
+[ f @ ] :f [ f @ ] at .               # err(STACK_OVERFLOW) — even a depth trap is a value

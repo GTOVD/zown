@@ -1,0 +1,5 @@
+# Fixed-width checked: in-range values pass through unchanged.
+127 i8 ck .       # 127
+128 _ i8 ck .     # -128
+255 u8 ck .       # 255
+0 u8 ck .         # 0

@@ -1,0 +1,10 @@
+# v0.2 numeric model: float is IEEE-754 binary64. Overflow to infinity is a
+# defined value (printed `inf`/`-inf`), as is nan; only converting a non-finite
+# float to an integer traps (see errors_v2/float_*). Whole floats print as ints
+# only while they fit int; beyond that they keep float notation.
+10.5 400 pw .                     # inf
+10.5 400 pw _ .                   # -inf
+10.5 400 pw = - .                 # nan   (inf - inf)
+10.0 30 pw .                      # 1e+30 (whole, but beyond the int range)
+7.0 .                             # 7     (whole and in range)
+$inf$ n .                         # inf   (IEEE spellings parse)

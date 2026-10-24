@@ -1,0 +1,12 @@
+# v0.2 numeric model (D1): `int` is a checked 64-bit integer; `b` opts into the
+# exact, unbounded `big`. Anything touching a big stays big (and exact).
+5 b 3 + .                         # 8        big + int -> big
+2 b 100 pw .                      # 2**100   exact
+$99999999999999999999$ b 1 + .    # a literal beyond int is written as a digit string
+10 b 5 / .                        # 2        exact quotient stays integral
+10 b 4 / .                        # 2.5      inexact quotient -> float
+7 b 3 % .                         # 1
+9 b sq .                          # 3        perfect square stays big
+5 b 5 == .                        # 1        compares by value
+5 b [ [big] [ , $big$ . ] [int] [ , $int$ . ] ] ??     # a big is not an int
+5 b [ [5] [ , $five$ . ] [_] [ , $other$ . ] ] ??      # literal patterns compare by value

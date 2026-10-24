@@ -1,0 +1,4 @@
+# M8a — literal `??` arms are validated for shape; patterns are introspected, never
+# resolved as names (so `int` below is not an unresolved name).
+1 [ [int] [ , ] [ foo ] [ , ] ] ??
+1 [ [int] ] ??

@@ -1,0 +1,2 @@
+# Converting nan to an integer is undefined in C; Zown traps it (UB_TRAP).
+10.5 400 pw = - fl

@@ -1,0 +1,7 @@
+# M8b — inline consumers inherit top-level (zero) authority, so each `rq` below
+# is a definite denial. Diagnostics are reported in source order; dead branches
+# are still checked (the checker asks "what if this runs", not "does it run").
+[ `s rq ] @
+0 [ `s rq ] [ ] ? @
+[ `d hv ] [ `d rq ] ;
+1 [ [int] [ , `k rq ] [_] [ , ] ] ??

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Zown
+# generated error packets
+*.zerr
+# generated manifests live next to source as <file>.zn.json — commit those you
+# curate; ignore throwaway ones under tmp/
+/tmp/
+
+# Rust (commit Cargo.lock for the binary workspace; ignore build output)
+/zownc/target/
+**/target/
+
+# Generated WASM build artifacts
+*.wat
+*.wasm
+
+# OS / editor
+.DS_Store
+
+# Local-only context scratchpad (chat transcripts the maintainer keeps to refresh
+# an agent's context across sessions). Intentionally untracked.
+PAST.md

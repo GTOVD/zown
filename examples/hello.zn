@@ -1,0 +1,3 @@
+# Hello World in Zown.
+# [ ... ] makes a block, :h binds it to the name h, h pushes it, @ invokes it.
+[$Hello, World!$.]:h h@

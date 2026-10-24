@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zown"
+version = "0.1.0"
+description = "Zown: an AI-native, token-dense, stack-based programming language (reference build)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Zown" }]
+keywords = ["language", "compiler", "stack", "ai", "token-efficient", "wasm"]
+
+[project.scripts]
+zown = "zown.cli:main"
+
+[tool.setuptools]
+packages = ["zown"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

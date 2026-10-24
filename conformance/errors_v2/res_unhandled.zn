@@ -1,0 +1,4 @@
+# An err result reaching a `??` with no [err]/[_] arm is NO_MATCH at run time
+# (and the static checker rejects this shape before it runs: check/res_exhaustive).
+1 :x 0 :y
+[ x y / ] at [ [ok] [ . ] ] ??

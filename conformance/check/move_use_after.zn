@@ -1,0 +1,9 @@
+# M8c-iv — use after move on a straight-line path is a definite NAME_UNRESOLVED:
+# a bare `x` after 'x, a second 'x, and uses inside blocks that run immediately
+# at that position (inline `@`, the `;` condition, a `? @` branch).
+5 :x 'x , x
+5 :x 'x , 'x
+5 :x 'x , [ x ] @
+5 :x 'x , [ x ] [ ] ;
+5 :x 'x , 1 [ x ] [ ] ? @
+'zz

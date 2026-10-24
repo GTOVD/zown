@@ -1,0 +1,6 @@
+# Pattern matching by type: first matching arm runs; [_] is the default.
+42   [ [int]   [ , $int$ . ]   [str] [ , $str$ . ]   [_] [ , $?$ . ] ] ??
+$hi$ [ [int]   [ , $int$ . ]   [str] [ , $str$ . ]   [_] [ , $?$ . ] ] ??
+3.5  [ [float] [ , $float$ . ] [_]   [ , $?$ . ] ] ??
+[ ]  [ [block] [ , $block$ . ] [_]   [ , $?$ . ] ] ??
+`s   [ [cap]   [ , $cap$ . ]   [_]   [ , $?$ . ] ] ??

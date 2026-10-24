@@ -1,0 +1,5 @@
+# Integer lanes wrap to their width, just like scalar fixed-width ints.
+[ 250 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16
+[ 10 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ] b16 vadd
+= 0 vat .      # lane 0: 250 + 10 = 260 -> wraps to 4 (u8)
+1 vat .        # lane 1: 5 + 250 = 255 (fits)

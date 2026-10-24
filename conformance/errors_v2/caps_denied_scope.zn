@@ -1,0 +1,2 @@
+# Holding one capability does not grant another: still CAP_DENIED.
+`r [ `s rq ] gr

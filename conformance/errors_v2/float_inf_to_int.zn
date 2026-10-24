@@ -1,0 +1,2 @@
+# Converting an infinite float to an integer is an OVERFLOW, never a garbage int.
+10.5 400 pw fl

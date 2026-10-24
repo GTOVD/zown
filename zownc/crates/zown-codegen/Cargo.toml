@@ -1,0 +1,22 @@
+[package]
+name = "zown-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Cranelift backend: Zown IR to native code."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+cranelift-codegen = "0.122.0"
+cranelift-frontend = "0.122.0"
+cranelift-jit = "0.122.0"
+cranelift-module = "0.122.0"
+cranelift-native = "0.122.0"
+cranelift-object = "0.122.0"
+zown-ir = { path = "../zown-ir" }
+zown-parser = { path = "../zown-parser" }
+zown-rt = { path = "../zown-rt" }
+zown-vm = { path = "../zown-vm" }

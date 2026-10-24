@@ -1,0 +1,2 @@
+# `rq` needs a capability token, not a plain value -> TYPE_MISMATCH.
+5 rq

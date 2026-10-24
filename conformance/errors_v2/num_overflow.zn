@@ -1,0 +1,2 @@
+# A checked value that does not fit is a structured OVERFLOW (never silent).
+256 u8 ck

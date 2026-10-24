@@ -1,0 +1,6 @@
+# SIMD vectors: construct from a block, elementwise ops, reduce, lane extract.
+[ 1 2 3 4 ] i4 [ 10 20 30 40 ] i4 vadd .       # i4(11 22 33 44)
+[ 5 5 5 5 ] i4 [ 1 2 3 4 ] i4 vsub .           # i4(4 3 2 1)
+[ 1.0 2.0 3.0 4.0 ] f4 [ 2 2 2 2 ] f4 vmul .   # f4(2 4 6 8)
+[ 1 2 3 4 ] i4 vsum .                           # 10  (horizontal sum)
+[ 7 8 9 10 ] i4 2 vat .                         # 9   (lane 2)

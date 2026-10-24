@@ -1,0 +1,4 @@
+# M8a — a name bound nowhere and not a builtin is a static NAME_UNRESOLVED.
+# `x` is bound (later in the file — bindings are global) so it is fine; `zz` is not.
+x . 5 :x
+zz

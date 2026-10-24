@@ -1,0 +1,10 @@
+# First 10 Fibonacci numbers, printed one per line.
+# a,b are the rolling pair; loop body runs while the counter c < 10.
+0:a 1:b 0:c
+[ c 10 < ] [
+  a .                 # print current
+  a b + :t            # t = a+b
+  b :a                # a = b
+  t :b                # b = t
+  c 1 + :c            # c = c+1
+] ;

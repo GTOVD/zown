@@ -1,0 +1,14 @@
+[package]
+name = "zown-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Zown parser (Rust): token stream -> AST, ported from the Python reference."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+zown-lexer = { path = "../zown-lexer" }
+zown-ast = { path = "../zown-ast" }

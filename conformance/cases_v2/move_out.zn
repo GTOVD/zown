@@ -1,0 +1,8 @@
+# v0.2 ownership (D4): a bare `name` is a borrow (a copy on the stack); 'name is
+# the one ownership sigil — it MOVES the value out and unbinds the name.
+5 :x
+x x + .              # 10   borrows: x is still bound
+'x .                 # 5    moved out; x is now unbound
+7 :x x .             # 7    rebinding makes it live again
+[ 1 2 + ] :f 'f @ .  # 3    a block moves out and runs; f is gone
+$hi$ :s 's up .      # HI   after the move, `s` would fall back to the builtin to_str

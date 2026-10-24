@@ -1,0 +1,6 @@
+# Fixed-width saturate: out-of-range clamps to the nearest representable value.
+300 u8 st .       # 255
+1 _ u8 st .       # 0
+200 _ i8 st .     # -128
+200 i8 st .       # 127
+50 i8 st .        # 50

@@ -1,0 +1,6 @@
+# Fixed-width wrap (two's complement): overflow is defined, never silent.
+300 u8 wr .       # 44     (300 mod 256)
+1 _ u8 wr .       # 255    (-1 wraps to the top of u8)
+128 i8 wr .       # -128   (128 wraps to i8 min)
+65536 u16 wr .    # 0
+65535 u16 wr .    # 65535
