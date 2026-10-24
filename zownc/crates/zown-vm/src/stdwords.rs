@@ -12,6 +12,14 @@ use super::{RunError, Value, Vm};
 
 const STD_SRC: &str = include_str!("../../../../zown/std/core.zn");
 
+/// A word defined with `wd`. Std words are AST. A word defined by a native
+/// program is a compiled function; `zown-rt` calls it.
+#[derive(Clone)]
+pub(super) enum WordBody {
+    Ast(Rc<Vec<Node>>),
+    Func(u32),
+}
+
 fn is_word_name(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {
@@ -53,7 +61,32 @@ impl Vm {
             }
         };
         let body = self.pop_block("wd")?;
-        self.words.insert(name, body);
+        self.words.insert(name, WordBody::Ast(body));
+        Ok(())
+    }
+
+    /// The native id of a word defined by compiled code, if it has one.
+    pub fn func_word(&self, name: &str) -> Option<u32> {
+        match self.words.get(name) {
+            Some(WordBody::Func(id)) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// `[body] $name$ wd` when `body` was compiled to a native function.
+    pub fn register_func_word(&mut self, name: Value, id: u32) -> Result<(), RunError> {
+        let name = match name {
+            Value::Str(s) if is_word_name(&s) => s,
+            _ => {
+                return Err(self.err(
+                    TYPE_MISMATCH,
+                    "`wd` expected a word name (a letter, then letters or digits)".into(),
+                    Some("wd".into()),
+                    "write the name as a string: [ ... ] $mx$ wd",
+                ))
+            }
+        };
+        self.words.insert(name, WordBody::Func(id));
         Ok(())
     }
 

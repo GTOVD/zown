@@ -17,6 +17,7 @@ Usage:
     zown keep verify <out.sync>
                               open a bundle; a changed byte is INTEGRITY_FAIL
     zown watch <file.zn>      run a program, then print its telemetry log
+    zown stage <file.zn>      token-dump a file with the Zown lexer; it must match the host
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -256,6 +257,20 @@ def cmd_test(args) -> int:
     return run_tests(args.path)
 
 
+def cmd_stage(args) -> int:
+    from .stage import StageMismatch, stage_file
+    try:
+        sys.stdout.write(stage_file(args.file))
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return EXIT_ERROR
+    except StageMismatch as e:
+        sys.stderr.write(f"stage: {args.file}\n{e.msg}\n")
+        return EXIT_ERROR
+    return EXIT_OK
+
+
 def cmd_watch(args) -> int:
     src = _read(args.file)
     if not getattr(args, "unchecked", False):
@@ -392,6 +407,10 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("file")
     pd.set_defaults(func=cmd_draw)
 
+    ps = sub.add_parser("stage", help="token-dump a file with the Zown lexer")
+    ps.add_argument("file")
+    ps.set_defaults(func=cmd_stage)
+
     pw = sub.add_parser("watch", help="run a program, then print its telemetry log")
     pw.add_argument("file")
     pw.set_defaults(func=cmd_watch)
@@ -414,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep", "watch"}
+    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep", "watch", "stage"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

@@ -1351,6 +1351,34 @@ def test_watch_prints_the_log_after_a_fault():
     )
 
 
+# --- self-hosting frontend (M16) ----------------------------------------------
+def test_zown_lexer_matches_the_host():
+    import glob
+    from zown.lexer import token_dump
+    from zown.stage import quote, zown_dump
+    lex_src = open(os.path.join("zown", "std", "lex.zn"), encoding="utf-8").read()
+    buf = io.StringIO()
+    vm = VM(out=buf)
+    vm.run_src(quote(lex_src) + " :z z pr")
+    assert buf.getvalue() == lex_src
+    files = []
+    for pat in ("conformance/cases/*.zn", "conformance/cases_v2/*.zn",
+                "conformance/errors/*.zn", "conformance/errors_v2/*.zn",
+                "conformance/check/*.zn", "examples/*.zn", "zown/std/*.zn"):
+        files.extend(glob.glob(pat))
+    saw_self = False
+    for path in files:
+        text = open(path, encoding="utf-8").read()
+        try:
+            host = token_dump(text)
+        except ZownError:
+            continue
+        assert zown_dump(text) == host, path
+        if path.endswith("lex.zn"):
+            saw_self = True
+    assert saw_self
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

@@ -284,7 +284,11 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
             "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
             "vu" => return vec_ctor(rt, "vu", 16, false, false, 8),
+            "wd" => return exec_wd(rt),
             _ => {}
+        }
+        if let Some(id) = (*rt).vm.func_word(&name) {
+            return call_word(rt, id, &name);
         }
     }
     match (*rt).vm.apply_name(&name) {
@@ -547,6 +551,33 @@ pub unsafe extern "C" fn rt_match(rt: *mut Rt) -> i32 {
     }
     let e = (*rt).vm.unmatched(&subject);
     fail(&mut *rt, e)
+}
+
+/// `[body] $name$ wd` for a compiled body. The name is on top of the function.
+unsafe fn exec_wd(rt: *mut Rt) -> i32 {
+    let name = match (*rt).vm.pop_value("wd") {
+        Ok(v) => v,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let id = match (*rt).vm.pop_func_id("wd") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    match (*rt).vm.register_func_word(name, id) {
+        Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
+    }
+}
+
+/// Run a word whose body was compiled. A trap is reported as the word.
+unsafe fn call_word(rt: *mut Rt, id: u32, name: &str) -> i32 {
+    let code = call_block(rt, id, name);
+    if code != 0 {
+        if let Some(err) = (*rt).err.as_mut() {
+            err.op = Some(name.to_string());
+        }
+    }
+    code
 }
 
 unsafe fn call_block(rt: *mut Rt, id: u32, op: &str) -> i32 {

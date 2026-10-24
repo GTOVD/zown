@@ -104,8 +104,9 @@ pub struct Vm {
     pub file: Option<String>,
     pos: Option<Pos>,
     lanes: lanes::LaneState,
-    /// Auto-running words from `std/core.zn`. A user binding shadows one.
-    words: HashMap<String, Rc<Vec<Node>>>,
+    /// Auto-running words from `std/core.zn`, plus any `wd` in the program.
+    /// A user binding shadows one.
+    words: HashMap<String, stdwords::WordBody>,
     /// BLAKE3 hex -> bundle text. `~p` writes it, `~f` reads it.
     bundles: HashMap<String, String>,
     node_id: [u8; 32],
@@ -433,7 +434,15 @@ impl Vm {
             return Ok(());
         }
         if let Some(body) = self.words.get(name).cloned() {
-            return self.run_word(name, body);
+            return match body {
+                stdwords::WordBody::Ast(nodes) => self.run_word(name, nodes),
+                stdwords::WordBody::Func(_) => Err(self.err(
+                    UNSUPPORTED,
+                    format!("`{name}` was compiled to native code"),
+                    Some(name.to_string()),
+                    "",
+                )),
+            };
         }
         if let Some(res) = self.try_builtin(name) {
             return res;
@@ -857,6 +866,8 @@ impl Vm {
     // --- builtins --------------------------------------------------------------
     fn try_builtin(&mut self, name: &str) -> Option<Result<(), RunError>> {
         Some(match name {
+            "hd" => self.b_hd(),
+            "tl" => self.b_tl(),
             "ln" => self.b_len(),
             "tr" => self.b_str_map("tr", |s| s.trim().to_string()),
             "up" => self.b_str_map("up", |s| s.to_uppercase()),
@@ -944,6 +955,52 @@ impl Vm {
             "sg" => self.b_sg(),
             _ => return None,
         })
+    }
+
+    fn b_hd(&mut self) -> Result<(), RunError> {
+        match self.pop("hd")? {
+            Value::Str(s) => match s.chars().next() {
+                Some(c) => {
+                    self.push(Value::Str(c.to_string()));
+                    Ok(())
+                }
+                None => Err(self.err(
+                    BOUNDS,
+                    "`hd` needs a character but the string is empty".into(),
+                    Some("hd".into()),
+                    "check the length with ln first",
+                )),
+            },
+            other => {
+                let tn = other.type_name();
+                Err(self.err(
+                    TYPE_MISMATCH,
+                    format!("`hd` expected a string, got {tn}"),
+                    Some("hd".into()),
+                    "",
+                ))
+            }
+        }
+    }
+
+    fn b_tl(&mut self) -> Result<(), RunError> {
+        match self.pop("tl")? {
+            Value::Str(s) => {
+                let mut cs = s.chars();
+                cs.next();
+                self.push(Value::Str(cs.collect()));
+                Ok(())
+            }
+            other => {
+                let tn = other.type_name();
+                Err(self.err(
+                    TYPE_MISMATCH,
+                    format!("`tl` expected a string, got {tn}"),
+                    Some("tl".into()),
+                    "",
+                ))
+            }
+        }
     }
 
     fn b_len(&mut self) -> Result<(), RunError> {
@@ -1649,7 +1706,9 @@ impl Vm {
 pub fn is_builtin(name: &str) -> bool {
     matches!(
         name,
-        "ln" | "tr"
+        "hd" | "tl"
+            | "ln"
+            | "tr"
             | "up"
             | "lo"
             | "rv"

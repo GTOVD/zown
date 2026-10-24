@@ -1,0 +1,106 @@
+# Stage-1 lexer (SPEC §28). A string is bound to z. `lx` prints one
+# `KIND lexeme` line per token, the same text the host lexer dumps.
+# Comments are skipped. String lexemes keep their quotes and escapes.
+
+[ \ pr $ $ pr pr $\n$ pr ] $tk$ wd
+[ z tl :z ] $sk$ wd
+
+[ c $a$ >= c $z$ <= && c $A$ >= c $Z$ <= && || ] $lt$ wd
+[ c $0$ >= c $9$ <= && ] $dg$ wd
+[ lt c $0$ >= c $9$ <= && || ] $al$ wd
+
+[ [ z ln 0 > [ z hd :c al ] [ 0 ] ? @ ] [ u z hd ct :u sk ] ; ] $nm$ wd
+
+[ sk
+  [ z ln 0 > [ z hd $\n$ != ] [ 0 ] ? @ ] [ sk ] ;
+] $kl$ wd
+
+[ $LBRACK$ $[$ tk sk ] $lb$ wd
+[ $RBRACK$ $]$ tk sk ] $rb$ wd
+
+[ $$ :u
+  u z hd ct :u
+  sk
+  1 :q
+  [ q ] [
+    z ln 0 > [
+      z hd $\\$ == [
+        u z hd ct :u
+        sk
+        z ln 0 > [ u z hd ct :u sk ] [ ] ? @
+      ] [
+        z hd $\$$ == [
+          u z hd ct :u
+          sk
+          0 :q
+        ] [
+          u z hd ct :u
+          sk
+        ] ? @
+      ] ? @
+    ] [ 0 :q ] ? @
+  ] ;
+  $STR$ u tk
+] $rs$ wd
+
+[ $$ :u u z hd ct :u sk nm $IDENT$ u tk ] $id$ wd
+[ $$ :u u z hd ct :u sk nm $BIND$ u tk ] $bd$ wd
+[ $$ :u u z hd ct :u sk nm $MOVE$ u tk ] $mv$ wd
+[ $$ :u u z hd ct :u sk nm $CAP$ u tk ] $cp$ wd
+[ $$ :u u z hd ct :u sk nm $OP$ u tk ] $lz$ wd
+
+[ $$ :u
+  0 :q
+  [ z ln 0 > [ z hd :c dg ] [ 0 ] ? @ ] [ u z hd ct :u sk ] ;
+  z ln 2 >= [
+    z hd $.$ == [
+      z tl hd :c
+      dg [
+        1 :q
+        u z hd ct :u
+        sk
+        [ z ln 0 > [ z hd :c dg ] [ 0 ] ? @ ] [ u z hd ct :u sk ] ;
+      ] [ ] ? @
+    ] [ ] ? @
+  ] [ ] ? @
+  q [ $FLOAT$ ] [ $INT$ ] ? @
+  u tk
+] $nu$ wd
+
+[ p $==$ == p $!=$ == || p $<=$ == || p $>=$ == || p $&&$ == || p $||$ == || p $??$ == || ] $tw$ wd
+
+[ c $@$ == c $.$ == || c $,$ == || c $=$ == || c $\\$ == || c $&$ == || c $+$ == || c $-$ == || c $*$ == || c $/$ == || c $%$ == || c $<$ == || c $>$ == || c $!$ == || c $?$ == || c $;$ == || c $_$ == || c $|$ == || c $^$ == || c $»$ == || c $«$ == || c $→$ == || ] $on$ wd
+
+[ lt [ id ] [
+    dg [ nu ] [
+      z ln 2 >= [
+        z hd z tl hd ct :p
+        tw [ sk sk $OP$ p tk ] [
+          on [ sk $OP$ c tk ] [ sk $BAD$ c tk ] ? @
+        ] ? @
+      ] [
+        on [ sk $OP$ c tk ] [ sk $BAD$ c tk ] ? @
+      ] ? @
+    ] ? @
+  ] ? @
+] $oz$ wd
+
+[ z hd :c
+  c [
+    [ $ $ ] [ , sk ]
+    [ $\n$ ] [ , sk ]
+    [ $\t$ ] [ , sk ]
+    [ $\r$ ] [ , sk ]
+    [ $#$ ] [ , kl ]
+    [ $\$$ ] [ , rs ]
+    [ $[$ ] [ , lb ]
+    [ $]$ ] [ , rb ]
+    [ $:$ ] [ , bd ]
+    [ $'$ ] [ , mv ]
+    [ $`$ ] [ , cp ]
+    [ $~$ ] [ , lz ]
+    [ any ] [ :c oz ]
+  ] ??
+] $gx$ wd
+
+[ [ z ln 0 > ] [ gx ] ; ] $lx$ wd

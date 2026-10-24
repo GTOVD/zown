@@ -64,11 +64,12 @@ python3 conformance/check.py        # static-checker goldens (oracle-only)
 # with Rust built (cd zownc && cargo build && cargo test):
 python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py \
-  && python3 conformance/check_parity.py && python3 conformance/native_parity.py
+  && python3 conformance/check_parity.py && python3 conformance/native_parity.py \
+  && python3 conformance/stage_parity.py
 ```
 
-All five oracle commands must end in `0 failed` (125 unit tests, 20 +
-58 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+All five oracle commands must end in `0 failed` (126 unit tests, 20 +
+60 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
 `--unchecked` to observe the *runtime* packet of a program the checker rejects,
@@ -160,8 +161,10 @@ BLAKE3 bundle, `INTEGRITY_FAIL` on a changed byte). mmap, CRDTs, Ed25519,
 and hot-swap are not implemented. **M15 ✅** — logical control-plane log
 (`ch`, `vr`, `td`, `sp`, `se`, `nt`, `wn`, `ob`, `df`, `rm`, `lg`) and
 `zown watch`. No clock. A fleet, hot-swap, and on-device ML are not
-implemented. `native_parity` is 78/78. Next milestone is M16
-(self-hosting).
+implemented. **M16 ✅** — `zown/std/lex.zn` is the lexer. `zown stage`
+checks its token dump against the host, including on its own source.
+`stage_parity` runs that program natively. A stage-2 compiler binary is
+not produced. `native_parity` is 80/80. Next milestone is M17 (bare metal).
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

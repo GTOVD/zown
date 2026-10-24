@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M15: a logical control-plane log).
+Last updated: 2026-10-24 (M16: a lexer written in Zown).
 
 ---
 
@@ -68,7 +68,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M13 | Native UI + ZownGPU + audio + input | ✅ | layout tree `co tx bt rw cm ly` and `zown draw` PPM. GPU, audio, and input delivery are not implemented |
 | M14 | Embedded store + distribution | ✅ | in-memory graph `gv ge » → «` and `zown keep` (fsynced BLAKE3 bundle). mmap, CRDT, Ed25519, and hot-swap are not implemented |
 | M15 | AI control plane + rolling execution | ✅ | logical log: spans, intent, faults (`ch vr td sp se nt wn ob df rm lg`, `zown watch`). No clock. Hot-swap, a fleet, and on-device ML are not implemented |
-| M16 | **Self-hosting**: compiler rewritten in Zown | ⬜ | the endgame |
+| M16 | **Self-hosting**: compiler rewritten in Zown | ✅ | `zown/std/lex.zn` matches the host token dump, including on its own source. Native runs it (`stage_parity`). A stage-2 compiler binary is not produced |
 | M17 | Zown OS / bare metal | ⬜ | `--target=bare`, microkernel demo |
 
 > M7–M17 were expanded from the original M7–M15 to fold in the full
@@ -625,11 +625,15 @@ in this slice. `native_parity` is 74/74.
    they match, Zown self-hosts.
 5. Rust `zownc` is retained only as a bootstrap + differential oracle.
 
+**Tasks**
+- [x] **M16a.** `hd` and `tl` split a string at the first code point. Both VMs (`cases_v2/head`). Empty `hd` is `BOUNDS`.
+- [x] **M16b.** `zown/std/lex.zn` is the lexer. `lx` prints `KIND lexeme` lines. `zown stage file.zn` runs it and requires the host dump to match. The fixed point is `zown stage zown/std/lex.zn`. `conformance/stage_parity.py` runs the same program with `zownc native` on the lexer, `hello.zn`, `graph.zn`, and `intent.zn`.
+- [ ] **M16c.** A parser and a lowering written in Zown, and a stage-2 compiler binary that is byte-identical to stage-1. Not implemented. The language has no buffer to emit an object file from Zown (§21).
+
 **Prereqs:** M4 (semantics), M9 (a backend that can emit the compiler binary), M8
 (memory model strong enough to write a compiler), M11 (stdlib in Zown).
 
-**Acceptance:** `stage1 == stage2` (byte-identical), and stage-2 passes the full
-conformance suite.
+**Acceptance:** the lexer written in Zown tokenizes its own source the same way the host lexer does, under the oracle and under `zownc native`. Met by `zown stage` and `stage_parity`. A byte-identical stage-2 executable is not this slice. `native_parity` is 80/80.
 
 ---
 
@@ -675,6 +679,7 @@ memory type.)*
 | D12 | UI in the oracle is a **layout tree and a PPM**, not a GPU (2026-10-24). `co tx bt rw cm ly` build it. Contrast is integer luma. `zown draw` paints rectangles | SPEC §25; M13 |
 | D13 | The store slice is an **in-memory graph and an fsynced BLAKE3 bundle**, not mmap or a signature (2026-10-24). `gv ge gs gl gh sb so` and `» « →` are the surface. Integrity is `INTEGRITY_FAIL`. Ed25519, CRDTs, and hot-swap stay design-only | SPEC §26; M14 |
 | D14 | The control plane in the oracle is a **logical log** (2026-10-24). Spans, intent, and faults share one numbered trace tagged with a content hash, a version, and a trace id. No clock. `rm` records a note; it does not run code. Hot-swap, a fleet, and on-device ML stay design-only | SPEC §27; M15 |
+| D15 | Self-hosting starts at the **lexer** (2026-10-24). `std/lex.zn` prints the same `KIND lexeme` lines as the host, including on its own source. Stage-0 executes it. A stage-2 compiler binary is not produced | SPEC §28; M16 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -727,8 +732,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M16 — self-hosting.** The Zown compiler written in Zown, stage-1 equal to
-   stage-2. The control plane is SPEC §27; hot-swap is still design-only there.
+1. **M17 — bare metal.** A freestanding image. The lexer is SPEC §28; a
+   stage-2 compiler binary is still not produced.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

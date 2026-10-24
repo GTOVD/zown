@@ -286,3 +286,20 @@ class Lexer:
 
 def lex(src: str, file: str | None = None) -> list[Token]:
     return Lexer(src, file).tokens()
+
+
+def token_dump(src: str) -> str:
+    """Kind and raw lexeme, one token per line. Comments are omitted.
+
+    The Zown lexer in `std/lex.zn` prints this same text. A string's lexeme
+    includes its `$` quotes; the dump does not unescape it.
+    """
+    lines = []
+    for tok in lex(src):
+        if tok.kind in (T_EOF, T_COMMENT):
+            continue
+        raw = src[tok.span[0]:tok.span[0] + tok.span[1]]
+        lines.append(f"{tok.kind} {raw}")
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"

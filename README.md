@@ -67,6 +67,9 @@ python3 bin/zown keep verify graph.sync
 
 # declared intent, then the log of a fault and its note
 python3 bin/zown examples/intent.zn
+
+# the Zown lexer tokenizes its own source; the dump must match the host
+python3 bin/zown stage zown/std/lex.zn
 ```
 
 Install the `zown` command for real:
@@ -200,7 +203,9 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
 8. **AI control plane (M15)** — the running slice is a logical log (spans,
    declared intent, and faults) and `zown watch`. A fleet, hot-swap, and
    on-device ML are not implemented.
-9. **Self-hosting (M16)** and a **Zown OS / bare metal (M17)** endgame.
+9. **Self-hosting (M16)** — the running slice is a lexer written in Zown
+   (`zown stage`). A parser and a stage-2 compiler binary are not implemented.
+   **Zown OS / bare metal (M17)** is still ahead.
 
 The whole vision — the "sovereign computing substrate" — is in
 [`docs/DESIGN.md`](docs/DESIGN.md); the high-level phases in

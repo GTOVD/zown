@@ -198,10 +198,12 @@ local inference.
 
 ## Phase 10 — Self-hosting (the endgame)
 
-The Zown compiler written in Zown. Bootstrap chain: Rust `zownc` (stage-0) →
-Zown-in-Zown compiled by stage-0 (stage-1) → stage-1 recompiles itself (stage-2);
-**fixed point** when `stage1 == stage2` byte-for-byte. The conformance suite
-guards the whole chain (a "trusting trust" bootstrap).
+- [x] The lexer is Zown (`zown/std/lex.zn`). `zown stage` checks it against
+      the host token dump. The fixed point is the lexer's own source.
+      `zownc native` runs that program too (SPEC §28).
+- [ ] A parser and a lowering written in Zown.
+- [ ] Stage-1 and stage-2 compiler binaries, byte-identical.
+      Not started. Stage-0 still emits every executable.
 
 ---
 

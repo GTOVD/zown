@@ -782,6 +782,7 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `so` on text that is not a `zown-sync` bundle | trap `TYPE_MISMATCH` | (unit test) |
 | `se` when no span is open | trap `TYPE_MISMATCH` | `errors_v2/span_empty` |
 | `ch` given a string that is not 64 hex digits | trap `TYPE_MISMATCH` | (unit test) |
+| `hd` on an empty string | trap `BOUNDS` | `errors_v2/head_empty` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
@@ -1103,3 +1104,13 @@ Every runtime fault is a log line `fault CODE op note`, written when the fault i
 `zown watch file.zn` checks the program, runs it, and then prints the log. The program's own output comes first. A fault still prints the log, including that fault's line, and the process exits 1.
 
 `cases_v2/intent` declares a want, watches it drift and then meet, and records a `DIV_ZERO` whose note was set with `rm`. `errors_v2/span_empty` is a bare `se`.
+
+## 28. The frontend — **implemented (M16, Zown lexer on stage-0)**
+
+Stage-0 is still the Rust toolchain and this Python VM. The lexer is now also a Zown program, `zown/std/lex.zn`. It is not loaded with the other std words. `zown stage file.zn` places the file's text in `z` and runs `lx`.
+
+Two host words make that program possible. `hd` pushes the first character of a string, one code point. An empty string is `BOUNDS`. `tl` pushes the rest. An empty string stays empty. Anything that is not a string is `TYPE_MISMATCH` (`cases_v2/head`).
+
+`lx` prints one line per token: the kind, a space, and the raw lexeme. Comments are not printed. A string's lexeme includes both `$` quotes and the escape characters as they appear in the source. The scanner still reads escapes, so `\$` does not end the string. The host lexer (`token_dump`) prints the same lines for every program it accepts. `zown stage zown/std/lex.zn` is the fixed point: the lexer tokenizes its own source, and the dump matches the host. `conformance/stage_parity.py` runs that same program through `zownc native`.
+
+An integer literal past the `int` range, and a file the host lexer rejects, are unchanged host errors. This slice does not reimplement them. The parser, the lowering, and a compiler binary produced by Zown are not in this slice. A byte-identical stage-2 executable is still the endgame (`PLAN` M16), and it is not claimed here.

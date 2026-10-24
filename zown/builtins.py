@@ -37,6 +37,22 @@ def _need_num(vm, op: str, pos: Pos):
 
 
 # --- string words --------------------------------------------------------------
+def b_head(vm, pos: Pos) -> None:
+    # str hd -> the first character. Empty is BOUNDS. One code point, not a byte.
+    from .errors import BOUNDS
+    text = _need_str(vm, "hd", pos)
+    if text == "":
+        raise vm.err(BOUNDS, "`hd` needs a character but the string is empty",
+                     op="hd", pos=pos, hint="check the length with ln first")
+    vm.push(text[0])
+
+
+def b_tail(vm, pos: Pos) -> None:
+    # str tl -> every character after the first. Empty stays empty.
+    text = _need_str(vm, "tl", pos)
+    vm.push(text[1:])
+
+
 def b_len(vm, pos: Pos) -> None:
     from .vm import Block
     v = vm.pop("ln", pos)
@@ -601,6 +617,8 @@ def b_at(vm, pos: Pos) -> None:
 
 # word -> (handler, alias, description)
 WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
+    "hd": (b_head, "head", "str hd -> the first character (BOUNDS if the string is empty)"),
+    "tl": (b_tail, "tail", "str tl -> the string after the first character (empty stays empty)"),
     "ln": (b_len, "length", "length of a string (chars) or block (nodes)"),
     "tr": (b_trim, "trim", "strip leading/trailing whitespace from a string"),
     "up": (b_upper, "upper", "uppercase a string"),
