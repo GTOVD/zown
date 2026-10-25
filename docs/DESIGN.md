@@ -451,7 +451,7 @@ not the most configurable, the **correct** one, hard to misuse. Selected default
 | Database | embedded graph + columnar store; stack query language (no SQL) |
 | HTTP | HTTP/3 over QUIC native; HTTP/1.1 legacy only; typed RPC over QUIC |
 | Media | Opus (audio), AV1 (video) — open, patent-clear |
-| Numbers | widths `i8 i16 i32 i64 ix` and `u8 u16 u32 u64 ux` (`ix`/`ux` are 128-bit); one `float`; `b` is bigint; `iz`/`uz`/`dc`/`cx` stay design-only. Overflow is explicit, never silent |
+| Numbers | widths `i8 i16 i32 i64 ix` and `u8 u16 u32 u64 ux` (`ix`/`ux` are 128-bit); one `float`; `b` is bigint; `iz`/`uz` are pointer widths; `dc` is decimal; `cx` is complex. Overflow is explicit, never silent |
 | Collections | `List Map Set Queue RingBuf BTree Trie BloomFilter PriorityQ BitVec` |
 | Strings | UTF-8 only; Unicode normalization is a named op, never silent |
 

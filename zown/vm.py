@@ -130,11 +130,14 @@ class WidthTag:
 
     signed: bool
     bits: int
+    pointer: bool = False
 
     @property
     def name(self) -> str:
         # 128-bit widths are `ix`/`ux`: `i128` is four characters, past the
-        # library-word limit. Every other width's suffix is its bit count.
+        # library-word limit. Pointer widths are `iz`/`uz` (64 bits here).
+        if self.pointer:
+            return "iz" if self.signed else "uz"
         if self.bits == 128:
             return "ix" if self.signed else "ux"
         return f"{'i' if self.signed else 'u'}{self.bits}"
@@ -191,6 +194,14 @@ def truthy(v: Any) -> bool:
         return len(v) > 0
     if isinstance(v, (Cap, WidthTag, Color, UiNode)):
         return True  # a token, a color, or a node is a present value
+    from .exact import Cx, Dec
+    if isinstance(v, Dec):
+        return v.coeff != 0
+    if isinstance(v, Cx):
+        return v.re != 0 or v.im != 0
+    from .coll import Coll
+    if isinstance(v, Coll):
+        return v.store.count() > 0
     if isinstance(v, Cursor):
         return len(v.names) > 0
     if isinstance(v, Buf):
@@ -370,7 +381,11 @@ class VM:
                 self.push(v.borrow())
             else:
                 from .stream import Stream
-                self.push(v.borrow() if isinstance(v, Stream) and v.exclusive else v)
+                from .coll import Coll
+                if isinstance(v, (Stream, Coll)) and v.exclusive:
+                    self.push(v.borrow())
+                else:
+                    self.push(v)
             return
         word = self.words.get(name)
         if word is not None:
@@ -441,6 +456,14 @@ def type_name(v: Any) -> str:
         return "stm"
     if isinstance(v, Buf):
         return "buf"
+    from .exact import Cx, Dec
+    if isinstance(v, Dec):
+        return "dc"
+    if isinstance(v, Cx):
+        return "cx"
+    from .coll import Coll
+    if isinstance(v, Coll):
+        return v.store.kind
     if isinstance(v, Big):
         return "big"
     if isinstance(v, Res):
@@ -477,24 +500,64 @@ def _numeric(vm: VM, op: str, pos: Pos, a: Any, b: Any, fn) -> Any:
     return vm.int_result(op, pos, r)
 
 
+def _exact_pair(vm: VM, op: str, pos: Pos):
+    """Pop two arithmetic operands.
+
+    The top value is checked before the one under it is popped, so a type
+    error on the top leaves the other operand on the stack.
+    """
+    from .exact import Cx, Dec
+    b = vm.pop(op, pos)
+    if isinstance(b, (Dec, Cx)):
+        a = vm.pop(op, pos)
+        if type(a) is not type(b):
+            raise vm.err(TYPE_MISMATCH,
+                         f"`{op}` expected two {type_name(b)} values, got {type_name(a)}",
+                         op=op, pos=pos, hint="dc and cx do not mix with int, float, or big")
+        return a, b
+    if not is_num(b):
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a number, got {type_name(b)}",
+                     op=op, pos=pos, hint="this operator only works on numbers")
+    a = vm.pop(op, pos)
+    if isinstance(a, (Dec, Cx)) or not is_num(a):
+        raise vm.err(TYPE_MISMATCH, f"`{op}` expected a number, got {type_name(a)}",
+                     op=op, pos=pos, hint="dc and cx do not mix with int, float, or big")
+    return a, b
+
+
 def op_add(vm: VM, pos: Pos) -> None:
     # `+` adds numbers. String concatenation is the word `ct`.
-    b = vm.pop_num("+", pos)
-    a = vm.pop_num("+", pos)
-    vm.push(_numeric(vm, "+", pos, a, b, lambda x, y: x + y))
+    from .exact import Cx, Dec, cx_add, dec_add
+    a, b = _exact_pair(vm, "+", pos)
+    if isinstance(a, Dec):
+        vm.push(dec_add(vm, "+", pos, a, b, False))
+    elif isinstance(a, Cx):
+        vm.push(cx_add(vm, "+", pos, a, b, False))
+    else:
+        vm.push(_numeric(vm, "+", pos, a, b, lambda x, y: x + y))
 
 
 def op_sub(vm: VM, pos: Pos) -> None:
-    b = vm.pop_num("-", pos)
-    a = vm.pop_num("-", pos)
-    vm.push(_numeric(vm, "-", pos, a, b, lambda x, y: x - y))
+    from .exact import Cx, Dec, cx_add, dec_add
+    a, b = _exact_pair(vm, "-", pos)
+    if isinstance(a, Dec):
+        vm.push(dec_add(vm, "-", pos, a, b, True))
+    elif isinstance(a, Cx):
+        vm.push(cx_add(vm, "-", pos, a, b, True))
+    else:
+        vm.push(_numeric(vm, "-", pos, a, b, lambda x, y: x - y))
 
 
 def op_mul(vm: VM, pos: Pos) -> None:
     # `*` multiplies numbers. String repeat is the word `rp`.
-    b = vm.pop_num("*", pos)
-    a = vm.pop_num("*", pos)
-    vm.push(_numeric(vm, "*", pos, a, b, lambda x, y: x * y))
+    from .exact import Cx, Dec, cx_mul, dec_mul
+    a, b = _exact_pair(vm, "*", pos)
+    if isinstance(a, Dec):
+        vm.push(dec_mul(vm, "*", pos, a, b))
+    elif isinstance(a, Cx):
+        vm.push(cx_mul(vm, "*", pos, a, b))
+    else:
+        vm.push(_numeric(vm, "*", pos, a, b, lambda x, y: x * y))
 
 
 def _is_zero(v: Any) -> bool:
@@ -502,8 +565,22 @@ def _is_zero(v: Any) -> bool:
 
 
 def op_div(vm: VM, pos: Pos) -> None:
-    b = vm.pop_num("/", pos)
-    a = vm.pop_num("/", pos)
+    from .exact import Cx, Dec
+    b = vm.pop("/", pos)
+    if isinstance(b, (Dec, Cx)):
+        vm.pop("/", pos)
+        raise vm.err(TYPE_MISMATCH, "`/` is not defined for dc or cx", op="/", pos=pos,
+                     hint="dc and cx multiply and add; they do not divide")
+    if not is_num(b):
+        raise vm.err(TYPE_MISMATCH, f"`/` expected a number, got {type_name(b)}",
+                     op="/", pos=pos, hint="this operator only works on numbers")
+    a = vm.pop("/", pos)
+    if isinstance(a, (Dec, Cx)):
+        raise vm.err(TYPE_MISMATCH, "`/` is not defined for dc or cx", op="/", pos=pos,
+                     hint="dc and cx multiply and add; they do not divide")
+    if not is_num(a):
+        raise vm.err(TYPE_MISMATCH, f"`/` expected a number, got {type_name(a)}",
+                     op="/", pos=pos, hint="this operator only works on numbers")
     if _is_zero(b):
         raise vm.err(DIV_ZERO, "division by zero", op="/", pos=pos,
                      hint="guard the denominator with `=0 ==` before dividing")
@@ -522,8 +599,20 @@ def op_div(vm: VM, pos: Pos) -> None:
 
 
 def op_mod(vm: VM, pos: Pos) -> None:
-    b = vm.pop_num("%", pos)
-    a = vm.pop_num("%", pos)
+    from .exact import Cx, Dec
+    b = vm.pop("%", pos)
+    if isinstance(b, (Dec, Cx)):
+        vm.pop("%", pos)
+        raise vm.err(TYPE_MISMATCH, "`%` is not defined for dc or cx", op="%", pos=pos)
+    if not is_num(b):
+        raise vm.err(TYPE_MISMATCH, f"`%` expected a number, got {type_name(b)}",
+                     op="%", pos=pos, hint="this operator only works on numbers")
+    a = vm.pop("%", pos)
+    if isinstance(a, (Dec, Cx)):
+        raise vm.err(TYPE_MISMATCH, "`%` is not defined for dc or cx", op="%", pos=pos)
+    if not is_num(a):
+        raise vm.err(TYPE_MISMATCH, f"`%` expected a number, got {type_name(a)}",
+                     op="%", pos=pos, hint="this operator only works on numbers")
     if _is_zero(b):
         raise vm.err(DIV_ZERO, "modulo by zero", op="%", pos=pos)
     # Python semantics: the result takes the sign of the divisor (defined, SPEC §19).
@@ -531,8 +620,29 @@ def op_mod(vm: VM, pos: Pos) -> None:
 
 
 def _cmp(vm: VM, op: str, pos: Pos, fn) -> None:
+    from .exact import Cx, Dec, dec_eq, dec_lt
     b = vm.pop(op, pos)
     a = vm.pop(op, pos)
+    if isinstance(a, Dec) or isinstance(b, Dec):
+        if not isinstance(a, Dec) or not isinstance(b, Dec):
+            raise vm.err(TYPE_MISMATCH, f"`{op}` cannot compare {type_name(a)} and {type_name(b)}",
+                         op=op, pos=pos)
+        if op in ("==", "!="):
+            eq = dec_eq(a, b)
+            vm.push(1 if (eq if op == "==" else not eq) else 0)
+            return
+        lt = dec_lt(a, b)
+        eq = dec_eq(a, b)
+        bit = {">": not lt and not eq, "<": lt, ">=": not lt, "<=": lt or eq}[op]
+        vm.push(1 if bit else 0)
+        return
+    if isinstance(a, Cx) or isinstance(b, Cx):
+        if op not in ("==", "!=") or not isinstance(a, Cx) or not isinstance(b, Cx):
+            raise vm.err(TYPE_MISMATCH, f"`{op}` cannot compare {type_name(a)} and {type_name(b)}",
+                         op=op, pos=pos)
+        eq = a.re == b.re and a.im == b.im
+        vm.push(1 if (eq if op == "==" else not eq) else 0)
+        return
     try:
         vm.push(1 if fn(ival(a), ival(b)) else 0)  # big compares by value
     except TypeError:
@@ -582,7 +692,17 @@ def op_not(vm: VM, pos: Pos) -> None:
 
 
 def op_neg(vm: VM, pos: Pos) -> None:
-    a = vm.pop_num("_", pos)
+    from .exact import Cx, Dec, cx_neg, dec_neg
+    a = vm.pop("_", pos)
+    if isinstance(a, Dec):
+        vm.push(dec_neg(vm, "_", pos, a))
+        return
+    if isinstance(a, Cx):
+        vm.push(cx_neg(vm, "_", pos, a))
+        return
+    if not is_num(a):
+        raise vm.err(TYPE_MISMATCH, f"`_` expected a number, got {type_name(a)}",
+                     op="_", pos=pos, hint="this operator only works on numbers")
     if isinstance(a, Big):
         vm.push(Big(-a.v))
     elif isinstance(a, float):
@@ -596,7 +716,8 @@ def op_dup(vm: VM, pos: Pos) -> None:
         raise vm.err(STACK_UNDERFLOW, "`=` (dup) needs a value", op="=", pos=pos)
     v = vm.stack[-1]
     from .stream import Stream
-    vm.push(v.borrow() if isinstance(v, (Buf, Stream)) else v)
+    from .coll import Coll
+    vm.push(v.borrow() if isinstance(v, (Buf, Stream, Coll)) else v)
 
 
 def op_drop(vm: VM, pos: Pos) -> None:
@@ -615,7 +736,8 @@ def op_over(vm: VM, pos: Pos) -> None:
         raise vm.err(STACK_UNDERFLOW, "`&` (over) needs two values", op="&", pos=pos)
     v = vm.stack[-2]
     from .stream import Stream
-    vm.push(v.borrow() if isinstance(v, (Buf, Stream)) else v)
+    from .coll import Coll
+    vm.push(v.borrow() if isinstance(v, (Buf, Stream, Coll)) else v)
 
 
 def op_print(vm: VM, pos: Pos) -> None:
@@ -654,7 +776,11 @@ def op_while(vm: VM, pos: Pos) -> None:
 # result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
 # The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf", "stm"}
+_PATTERN_TYPES = {
+    "int", "float", "str", "block", "cap", "width", "vec", "big", "res",
+    "color", "node", "cur", "buf", "stm", "dc", "cx",
+    "ls", "mp", "sc", "qu", "rg", "te", "ti", "bm", "pq", "bv",
+}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -764,6 +890,12 @@ def _as_str(v: Any) -> str:
     if isinstance(v, Stream):
         return "stm"
     if isinstance(v, Buf):
+        return v.text()
+    from .exact import Cx, Dec
+    if isinstance(v, (Dec, Cx)):
+        return v.text()
+    from .coll import Coll
+    if isinstance(v, Coll):
         return v.text()
     return str(v)
 

@@ -21,9 +21,16 @@ impl Vm {
         if let Value::Stm {
             conn,
             exclusive: true,
-        } = v
+        } = &v
         {
             conn.close();
+        }
+        if let Value::Coll {
+            store,
+            exclusive: true,
+        } = &v
+        {
+            store.borrow_mut().freed = true;
         }
     }
 

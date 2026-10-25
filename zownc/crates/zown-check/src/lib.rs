@@ -19,6 +19,7 @@ const TYPE_MISMATCH: &str = "TYPE_MISMATCH";
 
 const PATTERN_TYPES: &[&str] = &[
     "int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf", "stm",
+    "dc", "cx", "ls", "mp", "sc", "qu", "rg", "te", "ti", "bm", "pq", "bv",
 ];
 const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];

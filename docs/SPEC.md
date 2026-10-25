@@ -388,9 +388,9 @@ notation (`1e+30`); `inf`, `-inf`, `nan` print as such and `n` parses them.
 |-------|-------|
 | signed int | `i8 i16 i32 i64 ix` — the suffix is the bit width; `ix` is 128 because `i128` is four characters |
 | unsigned int | `u8 u16 u32 u64 ux` — `ux` is unsigned 128 |
-| pointer-size | `iz` `uz` (*design-only*; the source words, not `isize` / `usize`) |
+| pointer-size | `iz` `uz` — signed and unsigned pointer width. This oracle is 64 bits, so `iz` has the range of `i64` and `uz` has the range of `u64`. The words are not `i64` and `u64` |
 | float | one kind, `float` (binary64). A narrower float, if it is ever added, will not be spelled `f32` — that digit shape belongs to widths, and `vf` is already the f32×4 vector |
-| exact | `dc` (decimal, design-only), `big` (arbitrary precision — **implemented**, the `b` word), `cx` (complex, design-only) |
+| exact | `dc` (checked decimal), `big` (arbitrary precision — the `b` word), `cx` (a Gaussian integer, two checked components) |
 
 #### Fixed-width arithmetic — **implemented (M7c-i, oracle)**
 
@@ -413,8 +413,19 @@ n width ck   # check  — pass through, or raise OVERFLOW if it won't fit
 Policy words are integer-only (a fractional float is a `TYPE_MISMATCH`); a `big`
 input is reduced like any integer. **The result's type is decided by the width,
 not the value:** widths whose entire range fits `int` (`i8…i64`, `u8…u32`) yield
-an `int`; the others (`u64`, `ix`, `ux`) yield a `big` — so `5 u64 ck` is
-`5 b`, and the type is static. `dec` and `cx` remain design-only.
+an `int`; the others (`u64`, `ix`, `ux`, `uz`) yield a `big` — so `5 u64 ck` is
+`5 b`, and the type is static. `iz` fits in `int`, the same rule as `i64`.
+`5 uz ck` is a `big`. `5 iz ck` is an `int`.
+
+#### Decimal and complex — **implemented (M28, oracle + Rust VM)**
+
+`dc` and `cx` are their own words. They are not `float` and they are not `b`.
+
+`v dc` accepts an `int`, a `big` whose coefficient fits `int`, or a decimal string (`$1.50$`, `$-2$`). A digit is required on both sides of a dot. The scale is the number of digits after the dot, and it is at most 18. A larger scale, or a coefficient outside `int`, is `OVERFLOW`. A `float` is `TYPE_MISMATCH`. The value prints with exactly `scale` digits after the dot, so `$1.50$ dc` prints `1.50` and `5 dc` prints `5`. `1.50` and `1.5` compare equal.
+
+`re im cx` builds a Gaussian integer. Each component is an `int`. It prints as `cx(re im)`.
+
+`+`, `-`, `*`, and `_` on two decimals or two complexes stay inside that type. A coefficient or component that does not fit `int` is `OVERFLOW`. A decimal product whose scale exceeds 18 is `OVERFLOW`. Mixing a decimal or a complex with an `int`, a `float`, or a `big` is `TYPE_MISMATCH`. `<` orders decimals by value. A complex has no order. `/` and `%` are not defined for either type.
 
 ### Vector / SIMD types — **implemented (M7c-ii, oracle)**
 
@@ -755,7 +766,7 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `int` result outside `[-2^63, 2^63-1]` (`+ - * _ ab pw fl ce rd n`) | trap `OVERFLOW` | `errors_v2/int_overflow`, `pw_overflow`, `n_overflow` |
 | integer literal beyond `int` | lex trap `OVERFLOW` | `errors_v2/lit_overflow` |
 | `big` arithmetic | exact, unbounded (value) | `cases_v2/big_arith` |
-| width policy result (`wr st ck`) | `int` for widths inside `int`, `big` for `u64 ix ux` | `cases_v2/int_checked` |
+| width policy result (`wr st ck`) | `int` for widths inside `int` (including `iz`), `big` for `u64 ix ux uz` | `cases_v2/int_checked`, `ptr` |
 | division / modulo by zero — int, big, **and float** | trap `DIV_ZERO` | `errors/divzero`, `errors_v2/float_divzero` |
 | zero to a negative power | trap `DIV_ZERO` | (unit test) |
 | float overflow (`* + pw`) | `±inf` (value) | `cases_v2/float_ieee` |
@@ -815,6 +826,10 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `gp` width or height below 1, or a picture above the buffer budget | trap `BOUNDS` | (unit test) |
 | `an` tick count below 0 | trap `BOUNDS` | (unit test) |
 | `an` width does not fit `int` | trap `OVERFLOW` | (unit test) |
+| `dc` or `cx` arithmetic outside `int`, or a decimal scale above 18 | trap `OVERFLOW` | `errors_v2/dec_overflow`, `cx_overflow` |
+| `iz` value outside the signed pointer range | trap `OVERFLOW` | `errors_v2/iz_overflow` |
+| list index outside the collection, or `po` on an empty list | trap `BOUNDS` | `errors_v2/list_oob` |
+| `ps` on a borrowed collection | trap `TYPE_MISMATCH` | `errors_v2/list_borrow` |
 | `pk` or `ky` on a value that is not a node | trap `TYPE_MISMATCH` | (unit test) |
 | a pointer or key misses, or the button has no handler | the event is dropped | `cases_v2/click` |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
@@ -878,7 +893,7 @@ is `BOUNDS`. mmap and sharing across processes are not this value.
 | Word | Effect |
 |------|--------|
 | `bf` | `n bf` allocates `n` zero bytes and pushes an **exclusive** `buf`. `n` is an `int` `≥ 0`, else `TYPE_MISMATCH`. A length the runtime will not grant is `BOUNDS` (an implementation-defined budget, not UB). |
-| `ln` | `buf ln` pushes the byte length. `ln` keeps its one meaning, length, and also accepts a string or a block. |
+| `ln` | `buf ln` pushes the byte length. `ln` keeps its one meaning, length, and also accepts a string, a block, or a collection. |
 | `bg` | `buf idx bg` pushes the byte at `idx` as an `int` in `0..255`. |
 | `bp` | `buf idx byte bp` stores `byte` (`int`) at `idx`. |
 
@@ -905,6 +920,33 @@ It prints as `bf(n)` when exclusive and `bf&(n)` when borrowed. A freed buffer p
 
 `"` stays reserved for a future mutable reference that is not exclusive
 ownership (§17, §20). It is not a word.
+
+### Collections — **implemented (M28, oracle + Rust VM)**
+
+A collection is a fat pointer with the same ownership as a `buf`. It is not a block, and it is not a `buf` the program can `bg`. The element budget is 1048576, the same limit as `bf`. Elements are an `int` or a string with no newline. A map key, a tree key, and a trie key are one word: a non-empty string with no whitespace. `=` and a bare name push a borrow. `ps`, `po`, and `pt` need the exclusive value. A borrow is `TYPE_MISMATCH`. A use after the exclusive owner was dropped is `BOUNDS`.
+
+| Word | Stack | Result |
+|------|--------|--------|
+| `ls` | `ls` | an empty list. `ps` appends, `po` pops the last, `gt` indexes from 0 |
+| `mp` | `mp` | an empty map. `key val pt` inserts. `key gt` reads. A missing key is `BOUNDS`. Scan order is insertion order |
+| `sc` | `sc` | an empty set. `ps` adds. `hs` pushes 1 or 0. Scan order is ints, then strings |
+| `qu` | `qu` | an empty queue. `ps` enqueues, `po` dequeues the front |
+| `rg` | `n rg` | a ring of capacity `n` (`n` ≥ 1). A push past capacity drops the oldest |
+| `te` | `te` | an empty B-tree of minimum degree 2. `key val pt` inserts. Scan order is sorted by key |
+| `ti` | `ti` | an empty character trie. `key pt` inserts. `prefix px` pushes the keys with that prefix. An empty prefix lists every key |
+| `bm` | `n bm` | a bloom filter of `n` bits, one hash. `ps` sets the bit. `hs` reads it |
+| `pq` | `pq` | an empty min-heap of ints. Equal values pop in insertion order |
+| `bv` | `n bv` | `n` zero bits. `idx gt` reads a bit. `idx bit pt` writes 0 or 1 |
+| `sk` | `coll sk` | the canonical text, and the collection stays. A bloom filter has no scan |
+| `ln` | `coll ln` | the element count, or the bit length for `bm` and `bv`. Consuming the exclusive value frees it |
+
+An empty pop, an index outside the collection, a missing map or tree key, a ring or bit count below 1, and a bit that is not 0 or 1 are `BOUNDS`. `gt` is not `at`. None of these words is `bf`.
+
+The list, queue, and ring scan is one element per line. A map or tree scan is `key value` on each line. A set scan is one element per line. A trie scan is one key per line, in lexicographic order. A priority queue scan is the pop order, and it does not remove the values. A bit vector scan is a string of `0` and `1`, index 0 on the left. An empty scan is `""`.
+
+The bloom hash is FNV-1a, 32 bits, one bit: start at 2166136261, then for each UTF-8 byte `h = (h xor byte) * 16777619` modulo 2^32. The bit is `h` modulo `n`.
+
+A collection prints as `ls(n)` when exclusive and `ls&(n)` when borrowed. A freed one prints `ls(-)`. The other kinds use their own word in place of `ls`. The number is the element count, or the bit length for `bm` and `bv`. The type name for `??` is that word. It is truthy when the count is greater than 0.
 
 ## 22. Concurrency — fast lanes — **implemented (M10, oracle + Rust VM)**
 
@@ -1046,9 +1088,8 @@ The key is 32 bytes and the nonce is 12. The seed, the public key, the scalar, a
 
 This is RFC 8439 for the seal, RFC 8032 for the signature, and RFC 7748 for the exchange. `cases_v2/crypt` runs those three test vectors. The arithmetic is not constant-time. There is no second hash, no certificate, and no TLS. `h3` stays BLAKE3. `ni` stays the BLAKE3 node id; an Ed25519 public key is a `buf` the program holds.
 
-Collections (`List`, `Map`, …) are not a second kind of block. A block is code.
-A value collection waits on the fat pointer (§21). LSP, a doc generator, and a
-mesh REPL are the same toolchain story and are not commands yet.
+Collections are the fat pointers in §21. A block stays code. LSP, a doc
+generator, and a mesh REPL are the same toolchain story and are not commands yet.
 
 `zown fmt` rewrites whitespace only: one space between tokens, source line
 breaks kept, blank lines removed, a trailing newline. It is idempotent.

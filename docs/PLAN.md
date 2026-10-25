@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M27: bitmap glyphs, button hits, one animation tick, GPU readback).
+Last updated: 2026-10-25 (M28: collections on a fat pointer, iz/uz, decimal, complex).
 
 ---
 
@@ -80,7 +80,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M25 | Streams and mesh | ✅ | `~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. A grant is required. `zown mesh` announces the bundle hash before the fetch. QUIC is not this transport |
 | M26 | Store engine | ✅ | `mm` `mo` `ml` reopen a snapshot file. `tc` `tu` `tq` are the column table. `mg` unions two snapshots and keeps both parents |
 | M27 | UI completion | ✅ | Bitmap glyphs, `pk`/`ky` on `bh`, `an` adds ticks to the width, `gp` readback. |
-| M28 | Collections and remaining numbers | ⬜ | One collection on `buf`, then the rest. `iz` `uz` `dc` `cx`. Needs M18 |
+| M28 | Collections and remaining numbers | ✅ | List, map, set, queue, ring, B-tree, trie, bloom, heap, bit vector. `iz` `uz` `dc` `cx`. |
 | M29 | Control plane completion | ⬜ | Hot-swap of a verified block, a trace that crosses a socket, fleet intent. Needs M23 and M25 |
 | M30 | Tooling | ⬜ | CI, LSP, doc generator, package manifest. CI does not wait on the rest |
 | M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
@@ -803,9 +803,9 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18. SPEC §11 and §23.
 **Goal:** one collection, then the number types still marked design-only.
 
-- [ ] **M28a.** One ordered collection in a `buf` (a list). Push, pop, index. Out of range is `BOUNDS`. The word is named in SPEC first and is not a second meaning of `at` or `bf`.
-- [ ] **M28b.** Map, then the rest of the DESIGN §10 list (set, queue, ring, btree, trie, bloom, priority queue, bit vector) one golden each. Skip a structure that cannot be tested deterministically.
-- [ ] **M28c.** `iz` and `uz` are pointer-sized widths. `dc` is decimal. `cx` is complex. Each gets the overflow rule of §11.
+- [x] **M28a.** One ordered collection in a `buf` (a list). Push, pop, index. Out of range is `BOUNDS`. The word is named in SPEC first and is not a second meaning of `at` or `bf`.
+- [x] **M28b.** Map, then the rest of the DESIGN §10 list (set, queue, ring, btree, trie, bloom, priority queue, bit vector) one golden each. Skip a structure that cannot be tested deterministically.
+- [x] **M28c.** `iz` and `uz` are pointer-sized widths. `dc` is decimal. `cx` is complex. Each gets the overflow rule of §11.
 
 **Acceptance:** the list golden matches in both VMs. `dc` and `cx` do not share a word with `float` or `b`.
 **Not this slice:** a collection that is only a block of values. A block stays code.
@@ -894,6 +894,7 @@ memory type.)*
 | D22 | M25 streams are **TCP on `[::1]`** (2026-10-25). `~o` connects, `~l` accepts and registers a name, `~c` dials that name, `~s`/`~r` move one UTF-8 frame, `~w` relays one frame each way. `` `t `` sends, `` `r `` receives. QUIC is not this transport | SPEC §14; M25 |
 | D23 | The M26 map is **a `buf` of a snapshot file** (2026-10-25). `mm` fsyncs `gs`. `mo` and `ml` reject a short file. `tq` scans a column. `mg` is a sorted set-union that keeps both parents. No SQL, and no integer address | SPEC §26; M26 |
 | D24 | M27 UI is a **bitmap, a hit, a tick, and a software pipeline** (2026-10-25). `zown draw` paints 5×7 glyphs. `bh` stores a handler on a `bt`. `pk` and `ky` run it, or drop the event. `an` adds the tick count to the width of the shared node. `gp` fills a rectangle from a shader that must leave one color; a wrong shader is `TYPE_MISMATCH` and pushes nothing. Readback matches the CPU rectangle. A hardware device, a PDF exporter, and a widget set stay later | SPEC §25; M27 |
+| D25 | M28 collections are **fat pointers, and the remaining numbers stay checked** (2026-10-25). `ls` is the list. `gt` indexes it. `mp` `sc` `qu` `rg` `te` `ti` `bm` `pq` `bv` are the other DESIGN §10 structures, each with one golden. `iz` and `uz` are 64-bit pointer widths here. `dc` is a checked decimal. `cx` is a Gaussian integer. Neither shares a word with `float` or `b`. A block stays code | SPEC §11, §21; M28 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -943,9 +944,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M28 — collections and the remaining numbers.** One ordered collection
-   in a `buf`, named in SPEC first, then `iz` `uz` `dc` `cx` under the
-   overflow rule of §11.
+1. **M29 — control plane completion.** A signed block replaces a `wd` word
+   only after `ev` and the program's `ts` block both pass. A trace id set
+   with `td` crosses one `~s`. Two peers `wn` and `ob`, and `df` agrees.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

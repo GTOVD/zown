@@ -9,8 +9,10 @@ mod bigint;
 mod blake3;
 mod buf;
 mod chacha;
+mod coll;
 mod crypt;
 mod curve;
+mod exact;
 mod error;
 mod hostio;
 mod sha512;
@@ -460,6 +462,10 @@ impl Vm {
                     conn: conn.clone(),
                     exclusive: false,
                 },
+                Value::Coll { store, .. } => Value::Coll {
+                    store: store.clone(),
+                    exclusive: false,
+                },
                 other => other.clone(),
             };
             self.push(v);
@@ -532,32 +538,121 @@ impl Vm {
     }
 
     // --- arithmetic (SPEC §11: overflow is never silent) -----------------------
+    fn reject_exact_mix(&self, op: &str, a: &Value, b: &Value) -> Result<(), RunError> {
+        let exact = |v: &Value| matches!(v, Value::Dec(_) | Value::Cx { .. });
+        if exact(a) || exact(b) {
+            if std::mem::discriminant(a) != std::mem::discriminant(b) {
+                return Err(self.err(
+                    TYPE_MISMATCH,
+                    format!(
+                        "`{op}` expected two {} values, got {}",
+                        b.type_name(),
+                        a.type_name()
+                    ),
+                    Some(op.to_string()),
+                    "dc and cx do not mix with int, float, or big",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Pop the top operand and reject it before touching the one under it.
+    fn pop_arith(&mut self, op: &str) -> Result<(Value, Value), RunError> {
+        let b = self.pop(op)?;
+        let b_exact = matches!(b, Value::Dec(_) | Value::Cx { .. });
+        if !b_exact && !b.is_num() {
+            let tn = b.type_name();
+            return Err(self.err(
+                TYPE_MISMATCH,
+                format!("`{op}` expected a number, got {tn}"),
+                Some(op.to_string()),
+                "this operator only works on numbers",
+            ));
+        }
+        let a = self.pop(op)?;
+        self.reject_exact_mix(op, &a, &b)?;
+        if !b_exact && (matches!(a, Value::Dec(_) | Value::Cx { .. }) || !a.is_num()) {
+            let tn = a.type_name();
+            return Err(self.err(
+                TYPE_MISMATCH,
+                format!("`{op}` expected a number, got {tn}"),
+                Some(op.to_string()),
+                "dc and cx do not mix with int, float, or big",
+            ));
+        }
+        Ok((a, b))
+    }
+
     fn op_add(&mut self) -> Result<(), RunError> {
         // `+` adds numbers. String concatenation is `ct`.
-        let b = self.pop_num("+")?;
-        let a = self.pop_num("+")?;
-        self.push(self.num_binop("+", &a, &b, Bin::Add)?);
+        let (a, b) = self.pop_arith("+")?;
+        match (a, b) {
+            (Value::Dec(x), Value::Dec(y)) => {
+                self.push(Value::Dec(exact::dec_add(self, "+", x, y, false)?));
+            }
+            (Value::Cx { re: ar, im: ai }, Value::Cx { re: br, im: bi }) => {
+                let (re, im) = exact::cx_add(self, "+", (ar, ai), (br, bi), false)?;
+                self.push(Value::Cx { re, im });
+            }
+            (a, b) => self.push(self.num_binop("+", &a, &b, Bin::Add)?),
+        }
         Ok(())
     }
 
     fn op_sub(&mut self) -> Result<(), RunError> {
-        let b = self.pop_num("-")?;
-        let a = self.pop_num("-")?;
-        self.push(self.num_binop("-", &a, &b, Bin::Sub)?);
+        let (a, b) = self.pop_arith("-")?;
+        match (a, b) {
+            (Value::Dec(x), Value::Dec(y)) => {
+                self.push(Value::Dec(exact::dec_add(self, "-", x, y, true)?));
+            }
+            (Value::Cx { re: ar, im: ai }, Value::Cx { re: br, im: bi }) => {
+                let (re, im) = exact::cx_add(self, "-", (ar, ai), (br, bi), true)?;
+                self.push(Value::Cx { re, im });
+            }
+            (a, b) => self.push(self.num_binop("-", &a, &b, Bin::Sub)?),
+        }
         Ok(())
     }
 
     fn op_mul(&mut self) -> Result<(), RunError> {
         // `*` multiplies numbers. String repeat is `rp`.
-        let b = self.pop_num("*")?;
-        let a = self.pop_num("*")?;
-        self.push(self.num_binop("*", &a, &b, Bin::Mul)?);
+        let (a, b) = self.pop_arith("*")?;
+        match (a, b) {
+            (Value::Dec(x), Value::Dec(y)) => {
+                self.push(Value::Dec(exact::dec_mul(self, "*", x, y)?));
+            }
+            (Value::Cx { re: ar, im: ai }, Value::Cx { re: br, im: bi }) => {
+                let (re, im) = exact::cx_mul(self, "*", (ar, ai), (br, bi))?;
+                self.push(Value::Cx { re, im });
+            }
+            (a, b) => self.push(self.num_binop("*", &a, &b, Bin::Mul)?),
+        }
         Ok(())
     }
 
     fn op_div(&mut self) -> Result<(), RunError> {
-        let b = self.pop_num("/")?;
-        let a = self.pop_num("/")?;
+        let b = self.pop("/")?;
+        if matches!(b, Value::Dec(_) | Value::Cx { .. }) {
+            let _ = self.pop("/")?;
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`/` is not defined for dc or cx".into(),
+                Some("/".into()),
+                "dc and cx multiply and add; they do not divide",
+            ));
+        }
+        self.require_num(&b, "/")?;
+        let a = self.pop("/")?;
+        if matches!(a, Value::Dec(_) | Value::Cx { .. }) {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`/` is not defined for dc or cx".into(),
+                Some("/".into()),
+                "dc and cx multiply and add; they do not divide",
+            ));
+        }
+        self.require_num(&a, "/")?;
         if num_is_zero(&b) {
             return Err(self.err(
                 DIV_ZERO,
@@ -597,8 +692,27 @@ impl Vm {
     }
 
     fn op_mod(&mut self) -> Result<(), RunError> {
-        let b = self.pop_num("%")?;
-        let a = self.pop_num("%")?;
+        let b = self.pop("%")?;
+        if matches!(b, Value::Dec(_) | Value::Cx { .. }) {
+            let _ = self.pop("%")?;
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`%` is not defined for dc or cx".into(),
+                Some("%".into()),
+                "",
+            ));
+        }
+        self.require_num(&b, "%")?;
+        let a = self.pop("%")?;
+        if matches!(a, Value::Dec(_) | Value::Cx { .. }) {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`%` is not defined for dc or cx".into(),
+                Some("%".into()),
+                "",
+            ));
+        }
+        self.require_num(&a, "%")?;
         if num_is_zero(&b) {
             return Err(self.err(DIV_ZERO, "modulo by zero".into(), Some("%".into()), ""));
         }
@@ -619,11 +733,24 @@ impl Vm {
     }
 
     fn op_neg(&mut self) -> Result<(), RunError> {
-        match self.pop_num("_")? {
+        match self.pop("_")? {
+            Value::Dec(d) => self.push(Value::Dec(exact::dec_neg(self, "_", d)?)),
+            Value::Cx { re, im } => {
+                let (re, im) = exact::cx_neg(self, "_", (re, im))?;
+                self.push(Value::Cx { re, im });
+            }
             Value::Big(b) => self.push(Value::Big(b.neg())),
             Value::Float(f) => self.push(Value::Float(-f)),
             Value::Int(i) => self.push(self.fit_int("_", BigInt::from_i64(i).neg())?),
-            _ => unreachable!(),
+            other => {
+                let tn = other.type_name();
+                return Err(self.err(
+                    TYPE_MISMATCH,
+                    format!("`_` expected a number, got {tn}"),
+                    Some("_".into()),
+                    "this operator only works on numbers",
+                ));
+            }
         }
         Ok(())
     }
@@ -708,6 +835,31 @@ impl Vm {
     }
 
     fn rel_bool(&self, op: &str, a: &Value, b: &Value) -> Result<bool, RunError> {
+        if let (Value::Dec(x), Value::Dec(y)) = (a, b) {
+            let ord = exact::dec_cmp(x, y);
+            return Ok(match op {
+                "==" => ord.is_eq(),
+                "!=" => ord.is_ne(),
+                "<" => ord.is_lt(),
+                ">" => ord.is_gt(),
+                "<=" => ord.is_le(),
+                ">=" => ord.is_ge(),
+                _ => false,
+            });
+        }
+        if matches!(a, Value::Dec(_) | Value::Cx { .. }) || matches!(b, Value::Dec(_) | Value::Cx { .. })
+        {
+            if op == "==" || op == "!=" {
+                let eq = a.zown_eq(b);
+                return Ok(if op == "==" { eq } else { !eq });
+            }
+            return Err(self.err(
+                TYPE_MISMATCH,
+                format!("`{op}` cannot compare {} and {}", a.type_name(), b.type_name()),
+                Some(op.to_string()),
+                "",
+            ));
+        }
         if let (Value::Str(x), Value::Str(y)) = (a, b) {
             let ord = x.cmp(y);
             return Ok(match op {
@@ -784,6 +936,14 @@ impl Vm {
                 });
                 Ok(())
             }
+            Some(Value::Coll { store, .. }) => {
+                let store = store.clone();
+                self.push(Value::Coll {
+                    store,
+                    exclusive: false,
+                });
+                Ok(())
+            }
             Some(v) => {
                 let v = v.clone();
                 self.push(v);
@@ -828,6 +988,10 @@ impl Vm {
             },
             Value::Stm { conn, .. } => Value::Stm {
                 conn: conn.clone(),
+                exclusive: false,
+            },
+            Value::Coll { store, .. } => Value::Coll {
+                store: store.clone(),
                 exclusive: false,
             },
             other => other.clone(),
@@ -1015,6 +1179,27 @@ impl Vm {
             "es" => self.b_es(),
             "ev" => self.b_ev(),
             "xk" => self.b_xk(),
+            "iz" => self.b_iz(),
+            "uz" => self.b_uz(),
+            "dc" => self.b_dc(),
+            "cx" => self.b_cx(),
+            "ls" => self.b_ls(),
+            "mp" => self.b_mp(),
+            "sc" => self.b_sc(),
+            "qu" => self.b_qu(),
+            "rg" => self.b_rg(),
+            "te" => self.b_te(),
+            "ti" => self.b_ti(),
+            "bm" => self.b_bm(),
+            "pq" => self.b_pq(),
+            "bv" => self.b_bv(),
+            "ps" => self.b_ps(),
+            "po" => self.b_po(),
+            "gt" => self.b_gt(),
+            "pt" => self.b_pt(),
+            "hs" => self.b_hs(),
+            "sk" => self.b_sk(),
+            "px" => self.b_px(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1126,11 +1311,18 @@ impl Vm {
                 }
                 self.push(Value::Int(n as i64));
             }
+            Value::Coll { store, exclusive } => {
+                let n = self.coll_len(&store)?;
+                if exclusive {
+                    store.borrow_mut().freed = true;
+                }
+                self.push(Value::Int(n));
+            }
             other => {
                 let tn = other.type_name();
                 return Err(self.err(
                     TYPE_MISMATCH,
-                    format!("`ln` expected a string, block, or buf, got {tn}"),
+                    format!("`ln` expected a string, block, buf, or collection, got {tn}"),
                     Some("ln".into()),
                     "",
                 ));
@@ -1534,7 +1726,11 @@ impl Vm {
     }
 
     fn b_width(&mut self, signed: bool, bits: u32) -> Result<(), RunError> {
-        self.push(Value::Width(WidthTag { signed, bits }));
+        self.push(Value::Width(WidthTag {
+            signed,
+            bits,
+            pointer: false,
+        }));
         Ok(())
     }
 
@@ -1942,6 +2138,27 @@ pub fn is_builtin(name: &str) -> bool {
             | "es"
             | "ev"
             | "xk"
+            | "iz"
+            | "uz"
+            | "dc"
+            | "cx"
+            | "ls"
+            | "mp"
+            | "sc"
+            | "qu"
+            | "rg"
+            | "te"
+            | "ti"
+            | "bm"
+            | "pq"
+            | "bv"
+            | "ps"
+            | "po"
+            | "gt"
+            | "pt"
+            | "hs"
+            | "sk"
+            | "px"
     )
 }
 
@@ -1961,6 +2178,18 @@ fn is_type_pattern(s: &str) -> bool {
             | "cur"
             | "buf"
             | "stm"
+            | "dc"
+            | "cx"
+            | "ls"
+            | "mp"
+            | "sc"
+            | "qu"
+            | "rg"
+            | "te"
+            | "ti"
+            | "bm"
+            | "pq"
+            | "bv"
     )
 }
 

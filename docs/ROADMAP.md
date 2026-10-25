@@ -42,7 +42,7 @@ and codegen — then validate them in the Python reference so the compiler is bu
 once, correctly. No new backend in this phase; semantics first.
 
 - Capability types (zero authority by default; unforgeable, scoped, revocable).
-- Full numeric model (`i8…ix u8…ux`, `float`, `b`, and design-only `iz`/`uz`/`dc`/`cx`; explicit
+- Full numeric model (`i8…ix u8…ux`, `float`, `b`, `iz`/`uz`, `dc`, `cx`; explicit
   overflow), SIMD/vector + tensor types, crypto types (`Key Sig Hash NodeID`).
 - Network type primitives (`~` family), protocol-as-type compatibility.
 - Native UI type primitives (typed layout tree; no HTML/CSS), GPU types.
@@ -123,7 +123,9 @@ and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
       `ZOWN_TICK` and `ZOWN_WALL` pin the golden.
 - [x] ChaCha20-Poly1305 (`ae` `ad`), Ed25519 (`es` `ev`), and X25519 (`xk`).
       BLAKE3 `h3` was already in. RFC test vectors. Keys are `buf`s.
-- [ ] Collections and the rest of the numbers. Names are frozen in SPEC §23.
+- [x] Collections and the rest of the numbers (SPEC §11 and §21). `ls` is
+      the list. The other DESIGN §10 structures each have one golden.
+      `iz` `uz` are pointer widths. `dc` and `cx` are not `float` or `b`.
 - [x] Developer toolchain, the part that can be honest today: `zown test`
       (goldens, plus `ts` / `pp`) and `zown fmt` (canonical whitespace).
       LSP, the doc generator, and a mesh REPL are still §23.
@@ -243,7 +245,7 @@ local inference.
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md).
 Through M27 the tree has `buf`, host I/O, crypto, WASM tags, the
 print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
-file, and the UI slice in SPEC §25. Next is M28.
+file, the UI slice in SPEC §25, and the collections in §21. Next is M29.
 
 ---
 

@@ -204,9 +204,14 @@ and prints the same text either way. **M27 ✅** — `zown draw` paints
 the event hits, and drop the event otherwise. `an` adds the tick count
 to the node's width. `gp` fills a rectangle from a Zown shader into a
 `buf`; a shader that does not leave one color is `TYPE_MISMATCH` and
-pushes nothing. The readback matches the CPU rectangle. Next is
-**M28** (one collection, then `iz` `uz` `dc` `cx`). The rest of the
-map is **M28–M32** in `docs/PLAN.md`.
+pushes nothing. The readback matches the CPU rectangle. **M28 ✅** —
+`ls` is a list on a fat pointer: `ps` pushes, `po` pops, `gt` indexes,
+and an index outside the list is `BOUNDS`. `mp` `sc` `qu` `rg` `te`
+`ti` `bm` `pq` `bv` are the other collections, each with one golden.
+`iz` and `uz` are 64-bit pointer widths. `dc` is a checked decimal and
+`cx` is a Gaussian integer. Neither is `float` or `b`. Next is
+**M29** (a tested hot-swap, then one trace id across a socket). The
+rest of the map is **M29–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

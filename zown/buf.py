@@ -54,6 +54,9 @@ def release(v) -> None:
     from .stream import Stream
     if isinstance(v, Stream) and v.exclusive:
         v.conn.close()
+        return
+    from .coll import release_coll
+    release_coll(v)
 
 
 def _plain_int(vm, op: str, pos, v, what: str):

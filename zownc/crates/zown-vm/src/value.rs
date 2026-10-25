@@ -15,10 +15,15 @@ use crate::bigint::BigInt;
 pub struct WidthTag {
     pub signed: bool,
     pub bits: u32,
+    /// `iz` / `uz`. Same width as a host pointer, which is 64 bits here.
+    pub pointer: bool,
 }
 
 impl WidthTag {
     pub fn name(&self) -> String {
+        if self.pointer {
+            return if self.signed { "iz" } else { "uz" }.to_string();
+        }
         if self.bits == 128 {
             return if self.signed { "ix" } else { "ux" }.to_string();
         }
@@ -120,6 +125,22 @@ pub enum Value {
         alloc: Rc<RefCell<BufAlloc>>,
         exclusive: bool,
     },
+    /// Checked decimal. `scale` is the number of digits after the point, `0..18`.
+    Dec(Dec),
+    /// Gaussian integer. Not a float.
+    Cx { re: i64, im: i64 },
+    /// A collection fat pointer. `=` borrows it. `,` on the exclusive value frees it.
+    Coll {
+        store: Rc<RefCell<crate::coll::CollStore>>,
+        exclusive: bool,
+    },
+}
+
+/// A checked decimal coefficient (SPEC §11).
+#[derive(Clone, Copy, Debug)]
+pub struct Dec {
+    pub coeff: i64,
+    pub scale: u32,
 }
 
 /// The socket behind a stream. `None` means the exclusive owner closed it.
@@ -218,6 +239,9 @@ impl Value {
             Value::Buf { alloc, .. } => alloc.borrow().n > 0,
             Value::Vec(v) => !v.lanes.is_empty(),
             Value::Res(r) => r.ok,
+            Value::Dec(d) => d.coeff != 0,
+            Value::Cx { re, im } => *re != 0 || *im != 0,
+            Value::Coll { store, .. } => store.try_borrow().map(|g| g.count() > 0).unwrap_or(false),
         }
     }
 
@@ -237,6 +261,9 @@ impl Value {
             Value::Cur(_) => "cur",
             Value::Stm { .. } => "stm",
             Value::Buf { .. } => "buf",
+            Value::Dec(_) => "dc",
+            Value::Cx { .. } => "cx",
+            Value::Coll { store, .. } => store.try_borrow().map(|g| g.kind).unwrap_or("ls"),
         }
     }
 
@@ -272,6 +299,9 @@ impl Value {
             Value::Cur(names) => format!("cur({})", names.len()),
             Value::Stm { .. } => "stm".into(),
             Value::Buf { alloc, exclusive } => buf_text(alloc, *exclusive),
+            Value::Dec(d) => crate::exact::dec_text(d.coeff, d.scale),
+            Value::Cx { re, im } => format!("cx({re} {im})"),
+            Value::Coll { store, exclusive } => crate::coll::format_coll(store, *exclusive),
         }
     }
 
@@ -311,6 +341,9 @@ impl Value {
             Value::Cur(names) => json_str(&format!("cur:{}", names.len())),
             Value::Stm { .. } => json_str("stm"),
             Value::Buf { alloc, exclusive } => json_str(&buf_text(alloc, *exclusive)),
+            Value::Dec(d) => json_str(&crate::exact::dec_text(d.coeff, d.scale)),
+            Value::Cx { re, im } => json_str(&format!("cx:{re} {im}")),
+            Value::Coll { store, exclusive } => json_str(&crate::coll::format_coll(store, *exclusive)),
         }
     }
 
@@ -344,6 +377,18 @@ impl Value {
                 },
                 Value::Buf {
                     alloc: b,
+                    exclusive: eb,
+                },
+            ) => Rc::ptr_eq(a, b) && ea == eb,
+            (Value::Dec(a), Value::Dec(b)) => crate::exact::dec_eq(a, b),
+            (Value::Cx { re: ar, im: ai }, Value::Cx { re: br, im: bi }) => ar == br && ai == bi,
+            (
+                Value::Coll {
+                    store: a,
+                    exclusive: ea,
+                },
+                Value::Coll {
+                    store: b,
                     exclusive: eb,
                 },
             ) => Rc::ptr_eq(a, b) && ea == eb,

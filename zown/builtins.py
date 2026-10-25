@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
+from .lexer import INT_MAX, INT_MIN
 from .errors import (
     BOUNDS, DIV_ZERO, OVERFLOW, Pos, TEST_FAIL, TYPE_MISMATCH, UNSUPPORTED, ZownError,
 )
@@ -29,6 +30,10 @@ from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_ml, b_mm, b_mo, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_an, b_bh, b_bt, b_cm, b_co, b_gp, b_ky, b_ly, b_pk, b_rw, b_tx
+from .coll import (
+    b_bm, b_bv, b_gt, b_hs, b_ls, b_mp, b_po, b_pq, b_ps, b_pt, b_px, b_qu,
+    b_rg, b_sc, b_sk, b_te, b_ti,
+)
 
 
 def _need_str(vm, op: str, pos: Pos) -> str:
@@ -76,7 +81,17 @@ def b_len(vm, pos: Pos) -> None:
         release(v)
         vm.push(n)
     else:
-        raise vm.err(TYPE_MISMATCH, "`ln` expected a string, block, or buf", op="ln", pos=pos)
+        from .coll import Coll
+        if isinstance(v, Coll):
+            if v.store.freed:
+                raise vm.err(BOUNDS, "`ln` collection was freed", op="ln", pos=pos,
+                             hint="the exclusive owner was dropped with `,`")
+            n = v.store.count()
+            release(v)
+            vm.push(n)
+        else:
+            raise vm.err(TYPE_MISMATCH, "`ln` expected a string, block, buf, or collection",
+                         op="ln", pos=pos)
 
 
 def b_trim(vm, pos: Pos) -> None:
@@ -450,6 +465,50 @@ def _make_width(signed: bool, bits: int):
     return handler
 
 
+def b_iz(vm, pos: Pos) -> None:
+    from .vm import WidthTag
+    vm.push(WidthTag(True, 64, True))
+
+
+def b_uz(vm, pos: Pos) -> None:
+    from .vm import WidthTag
+    vm.push(WidthTag(False, 64, True))
+
+
+def b_dc(vm, pos: Pos) -> None:
+    from .exact import Dec, parse_dec
+    from .vm import Big, type_name
+    v = vm.pop("dc", pos)
+    if isinstance(v, str):
+        vm.push(parse_dec(vm, "dc", pos, v))
+        return
+    if isinstance(v, bool):
+        raise vm.err(TYPE_MISMATCH, "`dc` expected an int, a big, or a decimal string, got bool",
+                     op="dc", pos=pos)
+    if isinstance(v, int):
+        vm.push(Dec(v, 0))
+        return
+    if isinstance(v, Big):
+        if v.v < INT_MIN or v.v > INT_MAX:
+            raise vm.err(OVERFLOW, f"`dc` coefficient {v.v} does not fit int", op="dc", pos=pos)
+        vm.push(Dec(int(v.v), 0))
+        return
+    raise vm.err(TYPE_MISMATCH, f"`dc` expected an int, a big, or a decimal string, got {type_name(v)}",
+                 op="dc", pos=pos, hint="a float is not a decimal")
+
+
+def b_cx(vm, pos: Pos) -> None:
+    from .exact import Cx
+    from .vm import type_name
+    im = vm.pop("cx", pos)
+    re = vm.pop("cx", pos)
+    for n in (re, im):
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise vm.err(TYPE_MISMATCH, f"`cx` expected an int, got {type_name(n)}",
+                         op="cx", pos=pos, hint="cx is a Gaussian integer, not a float")
+    vm.push(Cx(re, im))
+
+
 def _pop_width(vm, op: str, pos: Pos):
     from .vm import WidthTag
     w = vm.pop(op, pos)
@@ -740,6 +799,27 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "vs": (_make_vbinop("vs", lambda x, y: x - y), "vec_sub", "elementwise subtract two matching vectors"),
     "vm": (_make_vbinop("vm", lambda x, y: x * y), "vec_mul", "elementwise multiply two matching vectors"),
     "vh": (b_vsum, "vec_sum", "horizontal sum of a vector's lanes to a scalar"),
+    "iz": (b_iz, "isize", "width tag: signed pointer-sized integer (64 bits)"),
+    "uz": (b_uz, "usize", "width tag: unsigned pointer-sized integer (64 bits)"),
+    "dc": (b_dc, "decimal", "int, fitting big, or $1.50$ dc -> a checked decimal"),
+    "cx": (b_cx, "complex", "re im cx -> a Gaussian integer"),
+    "ls": (b_ls, "list", "ls -> an empty exclusive list"),
+    "mp": (b_mp, "map", "mp -> an empty exclusive map"),
+    "sc": (b_sc, "set", "sc -> an empty exclusive set"),
+    "qu": (b_qu, "queue", "qu -> an empty exclusive queue"),
+    "rg": (b_rg, "ring", "n rg -> an exclusive ring of capacity n"),
+    "te": (b_te, "btree", "te -> an empty exclusive B-tree"),
+    "ti": (b_ti, "trie", "ti -> an empty exclusive trie"),
+    "bm": (b_bm, "bloom", "n bm -> an exclusive bloom filter of n bits"),
+    "pq": (b_pq, "pqueue", "pq -> an empty exclusive priority queue"),
+    "bv": (b_bv, "bitvec", "n bv -> an exclusive bit vector of n zero bits"),
+    "ps": (b_ps, "push", "coll v ps -> insert v; the collection stays"),
+    "po": (b_po, "pop", "coll po -> remove the next value and push it"),
+    "gt": (b_gt, "get", "coll idx-or-key gt -> that element; the collection stays"),
+    "pt": (b_pt, "put", "coll key val pt, or trie key pt, or bits idx bit pt"),
+    "hs": (b_hs, "has", "coll v hs -> 1 if present, else 0"),
+    "sk": (b_sk, "scan", "coll sk -> the canonical text; the collection stays"),
+    "px": (b_px, "prefix", "trie prefix px -> keys with that prefix, one per line"),
 }
 
 # fixed-width integer type tags (i8..ix, u8..ux): each pushes a WidthTag value.

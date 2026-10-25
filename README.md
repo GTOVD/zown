@@ -9,7 +9,7 @@ goal: fit *dramatically* more working code inside an LLM's context window, and
 run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
 boot sector.
 
-> Milestones **M0–M27** are in this tree. The Python package is the behavioral
+> Milestones **M0–M28** are in this tree. The Python package is the behavioral
 > oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
 > LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
 > [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
@@ -198,7 +198,7 @@ python3 conformance/map_reopen.py    # snapshot file, new process
 
 ## Status
 
-**M0–M27 are done.** The same programs run three ways, held to one conformance
+**M0–M28 are done.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -220,10 +220,14 @@ readback is a `buf`. One BLAKE3 bundle is exchanged over IPv6
 an inclusion proof when the program asks. A logical control-plane log
 (`zown watch`) and a 512-byte boot sector are there too. Stage-0 writes
 that sector with `zownc bare`. `zown stage emit` writes the same bytes
-from Zown, and the executable `zownc native -o` links does too.
+from Zown, and the executable `zownc native -o` links does too. A list,
+map, set, queue, ring, B-tree, trie, bloom filter, priority queue, and
+bit vector are fat pointers. `iz` and `uz` are pointer widths. `dc` is
+a checked decimal and `cx` is a Gaussian integer.
 
-**Next is M28:** one ordered collection in a `buf`, then `iz`, `uz`,
-`dc`, and `cx`. QUIC and a kernel are later. The map is
+**Next is M29:** a signed block replaces a word only after its test
+passes, and one trace id crosses a socket. QUIC and a kernel are later.
+The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
