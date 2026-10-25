@@ -1,10 +1,11 @@
-"""Run the Zown lexer and compare it with the host lexer (SPEC §28)."""
+"""Run a Zown frontend and compare it with the host (SPEC §28)."""
 
 from __future__ import annotations
 
 import os
 
 from .lexer import token_dump
+from .parser import ast_dump
 from .vm import VM
 
 
@@ -67,6 +68,37 @@ def stage_file(path: str) -> str:
         src = fh.read()
     host = token_dump(src)
     got = zown_dump(src)
+    if got != host:
+        raise StageMismatch(_diff(host, got))
+    return got
+
+
+def parse_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "std", "parse.zn")
+
+
+def parse_program(src: str, parser: str | None = None) -> str:
+    body = parser if parser is not None else open(parse_path(), encoding="utf-8").read()
+    return quote(token_dump(src)) + " :d\n" + body + "\npx\n"
+
+
+def zown_ast(src: str) -> str:
+    import io
+    buf = io.StringIO()
+    vm = VM(file="<stage>", out=buf)
+    vm.run_src(parse_program(src))
+    return buf.getvalue()
+
+
+def stage_parse(path: str) -> str:
+    """Canonical AST of `path`. The host parser and `std/parse.zn` must match.
+
+    A host lex or parse error propagates. A dump mismatch is a StageMismatch.
+    """
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    host = ast_dump(src, path)
+    got = zown_ast(src)
     if got != host:
         raise StageMismatch(_diff(host, got))
     return got

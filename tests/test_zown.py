@@ -1379,6 +1379,72 @@ def test_zown_lexer_matches_the_host():
     assert saw_self
 
 
+# --- parser (M19) --------------------------------------------------------------
+def test_zown_parser_matches_the_host():
+    import glob
+    from zown.cli import main
+    from zown.parser import ast_dump
+    from zown.stage import stage_parse, zown_ast
+    assert ast_dump("[[1]]\n") == "blk\n  blk\n    int 1\n  end\nend\n"
+    assert ast_dump("007 .\n") == "int 007\nop .\n"
+    assert ast_dump("1.50 .\n") == "float 1.50\nop .\n"
+    samples = [
+        "",
+        "# only a comment\n",
+        "1 2 +\n",
+        "007 .\n",
+        "1.50 .\n",
+        "$$ .\n",
+        "$a\\n$ .\n",
+        "$say \\$$ .\n",
+        "$a\nb$ .\n",
+        "[ 1 2 + ] @\n",
+        "[]\n",
+        "[[1]]\n",
+        "5 :x 'x .\n",
+        "`t .\n",
+        "$a$ » $knows$ → « .\n",
+    ]
+    for src in samples:
+        assert zown_ast(src) == ast_dump(src), repr(src)
+    files = []
+    for pat in ("conformance/cases/*.zn", "conformance/cases_v2/*.zn",
+                "conformance/errors/*.zn", "conformance/errors_v2/*.zn",
+                "conformance/check/*.zn", "examples/*.zn", "zown/std/*.zn"):
+        files.extend(glob.glob(pat))
+    saw_self = False
+    for path in files:
+        text = open(path, encoding="utf-8").read()
+        try:
+            host = ast_dump(text, path)
+        except ZownError:
+            continue
+        assert zown_ast(text) == host, path
+        if path.endswith("parse.zn"):
+            saw_self = True
+    assert saw_self
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["stage", "parse", os.path.join("zown", "std", "parse.zn")])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0, err.getvalue()
+    assert out.getvalue() == ast_dump(
+        open(os.path.join("zown", "std", "parse.zn"), encoding="utf-8").read(),
+        os.path.join("zown", "std", "parse.zn"),
+    )
+    bad = os.path.join(tempfile.mkdtemp(), "bad.zn")
+    with open(bad, "w", encoding="utf-8") as fh:
+        fh.write("]\n")
+    try:
+        stage_parse(bad)
+        raise AssertionError("a stray bracket must stay a host parse error")
+    except ZownError as e:
+        assert e.code == REPAIR_SYNTAX
+
+
 # --- buffers (M18) -------------------------------------------------------------
 def test_buf_owner_borrow_and_free():
     out, _ = run("""

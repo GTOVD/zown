@@ -71,6 +71,9 @@ python3 bin/zown examples/intent.zn
 # the Zown lexer tokenizes its own source; the dump must match the host
 python3 bin/zown stage zown/std/lex.zn
 
+# the Zown parser prints the same AST as the host, including on its own source
+python3 bin/zown stage parse zown/std/parse.zn
+
 # a boot sector whose VGA text is the string this program prints
 # (after `cd zownc && cargo build`)
 ./zownc/target/debug/zownc bare examples/bare.zn -o zown.bin
@@ -210,8 +213,9 @@ Still ahead, in dependency order (the milestone-by-milestone plan is in
 8. **AI control plane (M15)** — the running slice is a logical log (spans,
    declared intent, and faults) and `zown watch`. A fleet, hot-swap, and
    on-device ML are not implemented.
-9. **Self-hosting (M16)** — the running slice is a lexer written in Zown
-   (`zown stage`). A parser and a stage-2 compiler binary are not implemented.
+9. **Self-hosting (M16, M19)** — the running slice is a lexer and a parser
+   written in Zown (`zown stage`, `zown stage parse`). A stage-2 compiler
+   binary is not implemented.
 10. **Bare metal (M17)** — `zownc bare` boots a print program in QEMU and
     writes the VGA text buffer. A microkernel is not implemented.
 

@@ -18,6 +18,8 @@ Usage:
                               open a bundle; a changed byte is INTEGRITY_FAIL
     zown watch <file.zn>      run a program, then print its telemetry log
     zown stage <file.zn>      token-dump a file with the Zown lexer; it must match the host
+    zown stage parse <file.zn>
+                              parse a file with the Zown parser; it must match the host AST
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -258,15 +260,20 @@ def cmd_test(args) -> int:
 
 
 def cmd_stage(args) -> int:
-    from .stage import StageMismatch, stage_file
+    from .stage import StageMismatch, stage_file, stage_parse
+    parsing = args.mode_or_file == "parse"
+    path = args.file if parsing else args.mode_or_file
+    if parsing and not path:
+        sys.stderr.write("usage: zown stage parse <file.zn>\n")
+        return 2
     try:
-        sys.stdout.write(stage_file(args.file))
+        sys.stdout.write(stage_parse(path) if parsing else stage_file(path))
     except ZownError as e:
-        e.file = e.file or args.file
+        e.file = e.file or path
         _emit_error(e, args.zerr, args.zerr_out)
         return EXIT_ERROR
     except StageMismatch as e:
-        sys.stderr.write(f"stage: {args.file}\n{e.msg}\n")
+        sys.stderr.write(f"stage: {path}\n{e.msg}\n")
         return EXIT_ERROR
     return EXIT_OK
 
@@ -372,7 +379,7 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("file")
     pc.set_defaults(func=cmd_check)
 
-    pa = sub.add_parser("ast", help="print the parsed AST")
+    pa = sub.add_parser("ast", help="print the parsed AST as JSON")
     pa.add_argument("file")
     pa.set_defaults(func=cmd_ast)
 
@@ -407,8 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("file")
     pd.set_defaults(func=cmd_draw)
 
-    ps = sub.add_parser("stage", help="token-dump a file with the Zown lexer")
-    ps.add_argument("file")
+    ps = sub.add_parser("stage", help="check the Zown lexer, or `stage parse` for the parser")
+    ps.add_argument("mode_or_file", help="a .zn file, or parse")
+    ps.add_argument("file", nargs="?", help="file to parse when the first argument is parse")
     ps.set_defaults(func=cmd_stage)
 
     pw = sub.add_parser("watch", help="run a program, then print its telemetry log")

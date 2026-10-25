@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M18: exclusive buf, borrow, and free).
+Last updated: 2026-10-24 (M19: parser in Zown, host AST fixed point).
 
 ---
 
@@ -71,7 +71,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M16 | **Self-hosting**: compiler rewritten in Zown | ✅ | `zown/std/lex.zn` matches the host token dump, including on its own source. Native runs it (`stage_parity`). A stage-2 compiler binary is not produced |
 | M17 | Zown OS / bare metal | ✅ | `zownc bare` writes a 512-byte real-mode sector. QEMU shows the text at `0xB8000`. `int 0x20` stores `0xB1` at `0x8000`. Not a microkernel |
 | M18 | Memory (`buf`) | ✅ | `bf` `bg` `bp`. Exclusive owner, borrow, free. No address is visible. `native_parity` 84/84 |
-| M19 | Parser in Zown | ⏳ | Stage-2 frontend. Same kind of fixed point as `lex.zn`. No `buf` required |
+| M19 | Parser in Zown | ✅ | `zown/std/parse.zn` matches the host AST, including on its own source. `zown stage parse`. Native `parse_parity` is 5/5. No executable |
 | M20 | Host I/O | ⬜ | Files, clock, args, env, each behind a capability. Needs M18. Words named in SPEC before code |
 | M21 | Crypto | ⬜ | `ae` `ad` `es` `ev` `xk`. Real algorithms. Needs M18. `h3` already exists |
 | M22 | WASM v0.2 | ⬜ | Emit tags 4–8, `??`, `ty`, moves. Overflow is a `.zerr`. Shortest float format. Parallel with M18 |
@@ -702,11 +702,11 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** nothing new. This is the next piece of the stage-2 compiler.
 **Goal:** the same fixed point the lexer has, for syntax trees.
 
-- [ ] **M19a.** `zown/std/parse.zn` reads a token dump (the text `lex.zn` prints) and prints a canonical AST. The host parser prints the same text.
-- [ ] **M19b.** `zown stage` grows a parse mode, or a sibling command, that checks the dump. The fixed point is the parser's own source.
-- [ ] **M19c.** `zownc native` runs that program (`stage_parity` or its successor).
+- [x] **M19a.** `zown/std/parse.zn` reads a token dump (the text `lex.zn` prints) and prints a canonical AST. The host parser prints the same text. A block is `blk` / `end` indented two spaces. A leaf is `tag` plus the raw lexeme (`int 007`, `float 1.50`, `str $a\n$`).
+- [x] **M19b.** `zown stage parse file.zn` checks that dump. The fixed point is `zown stage parse zown/std/parse.zn`. `zown stage file.zn` is still the lexer.
+- [x] **M19c.** `conformance/parse_parity.py` runs that program with `zownc native` on the parser, the lexer, `hello.zn`, `graph.zn`, and `intent.zn`.
 
-**Acceptance:** the parser written in Zown accepts its own source and matches the host AST. It does not emit an executable.
+**Acceptance:** the parser written in Zown accepts its own source and matches the host AST. It does not emit an executable. Met by `zown stage parse` and `parse_parity` (5/5).
 **Not this slice:** lowering, a stage-2 binary, error recovery beyond what the host parser already reports.
 
 ### M20 — Host I/O
@@ -825,7 +825,7 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** CI depends on nothing else. LSP wants the checker. The package manifest wants M24.
 **Goal:** a push runs the suite, and an editor can ask the checker.
 
-- [ ] **M30a.** CI. One workflow runs the five oracle commands, `cargo test`, `native_parity`, `stage_parity`, and `bare_boot` when QEMU is present. `bare_boot` skips with a visible reason when QEMU is absent, and does not skip when it is present.
+- [ ] **M30a.** CI. One workflow runs the five oracle commands, `cargo test`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot` when QEMU is present. `bare_boot` skips with a visible reason when QEMU is absent, and does not skip when it is present.
 - [ ] **M30b.** LSP over stdio: diagnostics from `zown check`, go to definition for a user binding, format via `zown fmt`. No speculative fixes.
 - [ ] **M30c.** Doc generator. It prints the manifest fields that exist. It does not invent `sig`.
 - [ ] **M30d.** A package file that names a dependency by the M24 content hash. Fetch uses `~f` once M25 can carry it. Before that, the golden is a local file.
@@ -886,6 +886,7 @@ memory type.)*
 | D14 | The control plane in the oracle is a **logical log** (2026-10-24). Spans, intent, and faults share one numbered trace tagged with a content hash, a version, and a trace id. No clock. `rm` records a note; it does not run code. Hot-swap, a fleet, and on-device ML stay design-only | SPEC §27; M15 |
 | D15 | Self-hosting starts at the **lexer** (2026-10-24). `std/lex.zn` prints the same `KIND lexeme` lines as the host, including on its own source. Stage-0 executes it. A stage-2 compiler binary is not produced | SPEC §28; M16 |
 | D16 | The bare-metal slice is a **512-byte real-mode boot sector** (2026-10-24). It prints string literals to the VGA text buffer and runs `int 0x20`. It is not long mode and not a microkernel | SPEC §29; M17 |
+| D17 | The canonical AST is **indented text with raw lexemes** (2026-10-24). Two spaces per block. `blk` and `end` bracket a block. A leaf is `tag` plus the source lexeme, so `007` and `1.50` are not rewritten. `zown ast` JSON stays the debug form | SPEC §28; M19 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -938,11 +939,12 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M19 — parser in Zown.** The stage-2 frontend. `buf` is SPEC §21.
-   The byte-identical compiler is still M23.
-2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
-   `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
-   auto-discover `tele.errors`.
+1. **M20 — host I/O.** Files, a clock, args, and env. Each one is a capability.
+   Name the words in SPEC before writing them. The byte-identical compiler is
+   still M23: the parser fixed point is done, and lowering is not.
+2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
+   `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64`; emit WASM tags 4–8
+   (lane ops included — they are refused today); auto-discover `tele.errors`.
 3. **Windows link.** No MSVC `link.exe` on the 2026-09 machine. Build with
    `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. Do not change
    `rust-toolchain.toml`.

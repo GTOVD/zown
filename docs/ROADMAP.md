@@ -201,7 +201,10 @@ local inference.
 - [x] The lexer is Zown (`zown/std/lex.zn`). `zown stage` checks it against
       the host token dump. The fixed point is the lexer's own source.
       `zownc native` runs that program too (SPEC §28).
-- [ ] A parser and a lowering written in Zown.
+- [x] The parser is Zown (`zown/std/parse.zn`). `zown stage parse` checks it
+      against the host AST, including on its own source. A leaf keeps the raw
+      lexeme. `zownc native` runs that program too.
+- [ ] A lowering written in Zown.
 - [ ] Stage-1 and stage-2 compiler binaries, byte-identical.
       Not started. Stage-0 still emits every executable.
 
@@ -216,8 +219,8 @@ local inference.
       Not started. The sector halts after the one software interrupt.
 
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md). `buf`
-(M18) and a parser written in Zown (M19) start that map. The byte-identical
-stage-2 compiler is M23.
+(M18) and the parser (M19) are done. Next is host I/O (M20). The
+byte-identical stage-2 compiler is M23.
 
 ---
 

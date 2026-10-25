@@ -1,0 +1,104 @@
+# Stage-2 parser (SPEC §28). A token dump is bound to d, the text `lx`
+# prints. `px` prints the canonical AST. A block is `blk` then its nodes
+# indented two spaces, then `end`. A leaf is `tag lexeme`. The lexeme is
+# the raw dump text, quotes and escapes included. `sq` is sqrt, so this
+# file does not use that name.
+
+# One line of a non-string token. The cursor sits on the first lexeme
+# character. Leaves the lexeme and consumes the following newline.
+[ $$ :u
+  [ d ln 0 > [ d hd $\n$ != ] [ 0 ] ? @ ] [
+    u d hd ct :u
+    d tl :d
+  ] ;
+  d ln 0 > [ d hd $\n$ == [ d tl :d ] [ ] ? @ ] [ ] ? @
+  u
+] $sl$ wd
+
+# A STR lexeme, from the opening `$` through the closing `$`. A `\` keeps
+# the next character, so `\$` does not end the string. The newline after
+# the lexeme is the dump separator and is consumed too.
+[ $$ :u
+  u d hd ct :u
+  d tl :d
+  1 :q
+  [ q ] [
+    d ln 0 > [
+      d hd $\\$ == [
+        u d hd ct :u
+        d tl :d
+        d ln 0 > [ u d hd ct :u d tl :d ] [ ] ? @
+      ] [
+        d hd $\$$ == [
+          u d hd ct :u
+          d tl :d
+          0 :q
+        ] [
+          u d hd ct :u
+          d tl :d
+        ] ? @
+      ] ? @
+    ] [ 0 :q ] ? @
+  ] ;
+  d ln 0 > [ d hd $\n$ == [ d tl :d ] [ ] ? @ ] [ ] ? @
+  u
+] $sr$ wd
+
+# Push kind, then lexeme. An empty dump is EOF and an empty lexeme.
+[ d ln 0 == [ $EOF$ $$ ] [
+    $$ :k
+    [ d ln 0 > [ d hd $ $ != [ d hd $\n$ != ] [ 0 ] ? @ ] [ 0 ] ? @ ] [
+      k d hd ct :k
+      d tl :d
+    ] ;
+    d ln 0 > [ d hd $ $ == [ d tl :d ] [ ] ? @ ] [ ] ? @
+    k $STR$ == [ sr ] [ sl ] ? @
+    k \
+  ] ? @
+] $tk$ wd
+
+# KIND to the leaf tag. The kind string is the binding k.
+[ k [
+    [ $INT$ ] [ , $int$ ]
+    [ $FLOAT$ ] [ , $float$ ]
+    [ $STR$ ] [ , $str$ ]
+    [ $IDENT$ ] [ , $name$ ]
+    [ $BIND$ ] [ , $bind$ ]
+    [ $MOVE$ ] [ , $move$ ]
+    [ $CAP$ ] [ , $cap$ ]
+    [ $OP$ ] [ , $op$ ]
+    [ any ] [ , $bad$ ]
+  ] ??
+] $tg$ wd
+
+# Two spaces per open block. `rp` is string then count.
+[ $ $ lv 2 * rp pr ] $pd$ wd
+
+# Walk the dump. `[` prints blk and steps in. `]` steps out and prints end.
+[ 0 :lv
+  1 :go
+  [ go ] [
+    tk :x :k
+    k $EOF$ == [ 0 :go ] [
+      k $RBRACK$ == [
+        lv 1 - :lv
+        pd
+        $end$ pr
+        $\n$ pr
+      ] [
+        k $LBRACK$ == [
+          pd
+          $blk$ pr
+          $\n$ pr
+          lv 1 + :lv
+        ] [
+          pd
+          tg pr
+          $ $ pr
+          x pr
+          $\n$ pr
+        ] ? @
+      ] ? @
+    ] ? @
+  ] ;
+] $px$ wd

@@ -23,6 +23,7 @@ from .errors import Pos, REPAIR_SYNTAX, ZownError
 from .lexer import (
     T_BIND,
     T_CAP,
+    T_COMMENT,
     T_EOF,
     T_FLOAT,
     T_IDENT,
@@ -135,3 +136,64 @@ class Parser:
 
 def parse(src: str, file: str | None = None) -> list[Node]:
     return Parser(lex(src, file), file).parse()
+
+
+# Leaf tag in the canonical dump → token kind that produced it. `blk` / `end`
+# are the block markers and are not tags in this map.
+_AST_KIND = {
+    "int": T_INT,
+    "float": T_FLOAT,
+    "str": T_STR,
+    "name": T_IDENT,
+    "bind": T_BIND,
+    "move": T_MOVE,
+    "cap": T_CAP,
+    "op": T_OP,
+}
+
+
+def ast_dump(src: str, file: str | None = None) -> str:
+    """Canonical AST text. `std/parse.zn` prints this same text.
+
+    A block is a `blk` line, the nodes inside indented two spaces, and an
+    `end` line back at the block's indent. A leaf is the tag, one space, and
+    the raw lexeme: `int 007`, `float 1.50`, `str $a\\n$`. The lexeme is the
+    source text, not the value stored on the node.
+    """
+    nodes = parse(src, file)
+    tokens = [t for t in lex(src, file) if t.kind not in (T_EOF, T_COMMENT)]
+    lines: list[str] = []
+    end = _emit_ast(nodes, tokens, 0, 0, lines, src)
+    if end != len(tokens):
+        raise RuntimeError("ast dump did not consume the token stream")
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
+def _emit_ast(nodes: list[Node], tokens: list[Token], i: int, depth: int,
+              lines: list[str], src: str) -> int:
+    for node in nodes:
+        if i >= len(tokens):
+            raise RuntimeError("ast dump ran out of tokens")
+        tok = tokens[i]
+        ind = "  " * depth
+        tag = node[0]
+        if tag == "blk":
+            if tok.kind != T_LBRACK:
+                raise RuntimeError(f"expected `[`, got {tok.kind}")
+            lines.append(f"{ind}blk")
+            i = _emit_ast(node[1], tokens, i + 1, depth + 1, lines, src)
+            if i >= len(tokens) or tokens[i].kind != T_RBRACK:
+                got = tokens[i].kind if i < len(tokens) else "end of tokens"
+                raise RuntimeError(f"expected `]`, got {got}")
+            lines.append(f"{ind}end")
+            i += 1
+            continue
+        expect = _AST_KIND.get(tag)
+        if tok.kind != expect:
+            raise RuntimeError(f"expected {expect}, got {tok.kind}")
+        raw = src[tok.span[0]:tok.span[0] + tok.span[1]]
+        lines.append(f"{ind}{tag} {raw}")
+        i += 1
+    return i

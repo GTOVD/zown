@@ -1111,15 +1111,35 @@ Every runtime fault is a log line `fault CODE op note`, written when the fault i
 
 `cases_v2/intent` declares a want, watches it drift and then meet, and records a `DIV_ZERO` whose note was set with `rm`. `errors_v2/span_empty` is a bare `se`.
 
-## 28. The frontend — **implemented (M16, Zown lexer on stage-0)**
+## 28. The frontend — **implemented (M16 lexer, M19 parser, both on stage-0)**
 
-Stage-0 is still the Rust toolchain and this Python VM. The lexer is now also a Zown program, `zown/std/lex.zn`. It is not loaded with the other std words. `zown stage file.zn` places the file's text in `z` and runs `lx`.
+Stage-0 is still the Rust toolchain and this Python VM. The lexer and the parser are also Zown programs, `zown/std/lex.zn` and `zown/std/parse.zn`. They are not loaded with the other std words.
 
-Two host words make that program possible. `hd` pushes the first character of a string, one code point. An empty string is `BOUNDS`. `tl` pushes the rest. An empty string stays empty. Anything that is not a string is `TYPE_MISMATCH` (`cases_v2/head`).
+`zown stage file.zn` places the file's text in `z` and runs `lx`. Two host words make that program possible. `hd` pushes the first character of a string, one code point. An empty string is `BOUNDS`. `tl` pushes the rest. An empty string stays empty. Anything that is not a string is `TYPE_MISMATCH` (`cases_v2/head`).
 
 `lx` prints one line per token: the kind, a space, and the raw lexeme. Comments are not printed. A string's lexeme includes both `$` quotes and the escape characters as they appear in the source. The scanner still reads escapes, so `\$` does not end the string. The host lexer (`token_dump`) prints the same lines for every program it accepts. `zown stage zown/std/lex.zn` is the fixed point: the lexer tokenizes its own source, and the dump matches the host. `conformance/stage_parity.py` runs that same program through `zownc native`.
 
-An integer literal past the `int` range, and a file the host lexer rejects, are unchanged host errors. This slice does not reimplement them. The parser, the lowering, and a compiler binary produced by Zown are not in this slice. A byte-identical stage-2 executable is still the endgame (`PLAN` M16), and it is not claimed here.
+`zown stage parse file.zn` binds the host token dump to `d` and runs `px`. That dump is the text `lx` prints. `px` prints the canonical AST, and the host parser prints the same text. The fixed point is `zown stage parse zown/std/parse.zn`. `conformance/parse_parity.py` runs that program through `zownc native`.
+
+The canonical AST is one node per line. A block is a `blk` line, the nodes inside indented two spaces, and an `end` line at the block's own indent. A leaf is the node tag, one space, and the raw lexeme:
+
+```
+int 007
+float 1.50
+str $a\n$
+name x
+bind :x
+move 'x
+cap `t
+op +
+blk
+  int 1
+end
+```
+
+The lexeme is the source text, not the value the host stores on the node. `007` stays `007`. `1.50` stays `1.50`. A string keeps both `$` quotes and the escape characters. A real newline inside a string stays inside the lexeme, and the dump's token separator is the newline after the closing `$`. Comments are absent, because the dump has already dropped them. `zown ast` still prints JSON for debugging. That JSON is not this text.
+
+An integer literal past the `int` range, a file the host lexer rejects, and a file the host parser rejects (`REPAIR_SYNTAX`, including a block nested past 256) stay host errors. This slice does not reimplement them. The lowering and a compiler binary produced by Zown are not in this slice. A byte-identical stage-2 executable is still M23.
 
 ## 29. Bare metal — **implemented (M17, boot sector)**
 
