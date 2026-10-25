@@ -546,13 +546,11 @@ Goldens: `conformance/check/` (`python3 conformance/check.py`).
 constant-time `ct-eq`, a single secure-RNG primitive (distinct type from the
 fast non-secure PRNG), and capability-level rate limiting.
 
-## 13. Crypto & identity types — *design-only (M14)*
+## 13. Crypto & identity types — *algorithms run (M21); the types do not*
 
-> Frozen here, **not** in the oracle: faithful `Key`/`Sig`/`NodeID` need real
-> Ed25519/X25519, which a pure stack interpreter cannot exhibit honestly
-> (a stand-in would mislead on a security-critical surface). BLAKE3 itself is
-> the word `h3` (M12). M14 seals a graph bundle with that hash (§26). `Key`,
-> `Sig`, and Ed25519 are still not implemented.
+> The algorithms are the words in §23. They operate on `buf` bytes. `Key`,
+> `Sig`, `Hash`, and `NodeID` are still not separate value kinds. `ni` stays
+> the BLAKE3 id from §24. A stand-in cipher is not used.
 
 First-class types the type system understands (not raw byte arrays):
 
@@ -793,6 +791,8 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `fr` of a missing file, or a file larger than 1048576 bytes | trap `BOUNDS` | `errors_v2/io_missing` (missing). The size limit is a unit test |
 | `ag` index outside `0 .. ac` | trap `BOUNDS` | `errors_v2/arg_oob` |
 | `en` of a name that is not set | trap `BOUNDS` | `errors_v2/env_unset` |
+| `ad` tag does not match | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/crypt_tag` |
+| `ev` signature does not verify | trap `SIG_INVALID` (kind `sec`) | `errors_v2/crypt_sig` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
@@ -978,9 +978,9 @@ hashed with a stand-in would be a lie.
 | Area | Frozen choice | Word |
 |------|----------------|------|
 | Hash | BLAKE3 | `h3` — **implemented** (§24). The digest is 64 hex digits, not a separate value type yet |
-| Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens. Not implemented |
-| Signature | Ed25519 | `es` signs, `ev` verifies. Not implemented |
-| Key agreement | X25519 | `xk`. Not implemented |
+| Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens. **Implemented** below |
+| Signature | Ed25519 | `es` signs, `ev` verifies. **Implemented** below |
+| Key agreement | X25519 | `xk`. **Implemented** below |
 | Files | `` `d ``, path-scoped | `gd` `fr` `fw` — **implemented** below |
 | Clock | `` `c `` | `tm` — **implemented** below |
 | Arguments | the program vector | `ac` `ag` — **implemented** below. Not a capability |
@@ -999,6 +999,11 @@ The program does not start with a view of the disk, the environment, or the cloc
 | `ag` | `idx ag` | that argument. An index outside `0 .. ac` is `BOUNDS` |
 | `en` | `name en` | the value of that variable. Needs `` `v ``. An unset name is `BOUNDS` |
 | `tm` | `tm` | push the monotonic tick, then wall unix seconds. Needs `` `c `` |
+| `ae` | `key nonce plain aad ae` | ChaCha20-Poly1305 seal: ciphertext with the 16-byte tag appended |
+| `ad` | `key nonce boxed aad ad` | open that seal. A bad tag is `INTEGRITY_FAIL` |
+| `es` | `seed message es` | Ed25519 signature, 64 bytes |
+| `ev` | `public message sig ev` | push `1` when the signature matches. Otherwise `SIG_INVALID` |
+| `xk` | `scalar point xk` | X25519 shared secret, 32 bytes |
 
 A path is a string. The separator is `/`. A relative path starts at the process working directory. The check walks the path: `.` is skipped, `..` pops a component, and a symlink is followed, up to 40 links. The candidate that remains must equal a live root, or sit inside a root that is not an existing file (`root/` is the prefix, so a grant of `/tmp/zown` does not cover `/tmp/zown2`). A symlink that resolves outside the root is `CAP_DENIED`. An existing-file root allows only that file.
 
@@ -1011,6 +1016,12 @@ A path is a string. The separator is `/`. A relative path starts at the process 
 `tm` pushes two ints. `ZOWN_TICK`, when it is an integer that fits `int`, replaces the monotonic reading. `ZOWN_WALL` does the same for the wall clock. Anything else in those variables is ignored and the host clock is used. The conformance runners set `ZOWN_TICK=1` and `ZOWN_WALL=0`, and `cases_v2/clock` prints `0` then `1`. An unpinned monotonic reading is host-specific and is not a golden.
 
 There is no subprocess word, no signal word, no socket word, and no delete word. Those stay out of this slice.
+
+`ae` consumes its four values and pushes one exclusive `buf`. `ad` does the same with the seal in place of the plaintext. `es` consumes the seed and the message. `ev` consumes the public key, the message, and the signature. `xk` consumes the scalar and the point. A bare name passes a borrow, so a binding keeps its exclusive `buf`. A freed `buf` is `BOUNDS`.
+
+The key is 32 bytes and the nonce is 12. The seed, the public key, the scalar, and the point are 32 bytes. The signature is 64. Any other length is `TYPE_MISMATCH`. The seal is the ciphertext followed by the tag. A seal shorter than 16 bytes is `TYPE_MISMATCH`. Plaintext and associated data may be empty. A seal longer than 1048576 bytes is `BOUNDS`.
+
+This is RFC 8439 for the seal, RFC 8032 for the signature, and RFC 7748 for the exchange. `cases_v2/crypt` runs those three test vectors. The arithmetic is not constant-time. There is no second hash, no certificate, and no TLS. `h3` stays BLAKE3. `ni` stays the BLAKE3 node id; an Ed25519 public key is a `buf` the program holds.
 
 Collections (`List`, `Map`, …) are not a second kind of block. A block is code.
 A value collection waits on the fat pointer (§21). LSP, a doc generator, and a
@@ -1036,8 +1047,8 @@ fetch without a socket (`cases_v2/bundle`).
 non-empty, is hashed with BLAKE3 to make that id; otherwise the id is 32
 random bytes. `ua` pushes the IPv6 unique-local form: the first byte is
 `0xfd` and the next 15 bytes are the start of the node id, printed as eight
-groups of four hex digits. This id is **not** an Ed25519 key. Signing,
-X25519, and ChaCha20-Poly1305 are still the unimplemented words in §23.
+groups of four hex digits. This id is **not** an Ed25519 key. Signing and key agreement are the `buf`
+words in §23. They do not replace `ni`.
 
 `zown mesh [port]` runs two peers. Each is an IPv6 UDP socket. They rendezvous
 at `[::1]:port` (default 59770): one binds it, the other announces, then fetches

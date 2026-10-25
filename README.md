@@ -83,6 +83,9 @@ python3 bin/zown examples/buf.zn
 
 # read a fixture under a path grant, write it back, read the copy
 python3 bin/zown examples/io.zn
+
+# RFC seal, signature, and X25519 shared secret
+python3 bin/zown conformance/cases_v2/crypt.zn
 ```
 
 Install the `zown` command for real:

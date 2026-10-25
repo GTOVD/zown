@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M20: host I/O behind capabilities).
+Last updated: 2026-10-24 (M21: ChaCha20-Poly1305, Ed25519, X25519).
 
 ---
 
@@ -73,7 +73,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M18 | Memory (`buf`) | ✅ | `bf` `bg` `bp`. Exclusive owner, borrow, free. No address is visible. `native_parity` 84/84 |
 | M19 | Parser in Zown | ✅ | `zown/std/parse.zn` matches the host AST, including on its own source. `zown stage parse`. Native `parse_parity` is 5/5. No executable |
 | M20 | Host I/O | ✅ | `gd` `fr` `fw` under `` `d ``. `ac` `ag`. `en` under `` `v ``. `tm` under `` `c ``. `native_parity` 95/95 |
-| M21 | Crypto | ⬜ | `ae` `ad` `es` `ev` `xk`. Real algorithms. Needs M18. `h3` already exists |
+| M21 | Crypto | ✅ | `ae` `ad` ChaCha20-Poly1305. `es` `ev` Ed25519. `xk` X25519. RFC vectors. `native_parity` 98/98 |
 | M22 | WASM v0.2 | ⬜ | Emit tags 4–8, `??`, `ty`, moves. Overflow is a `.zerr`. Shortest float format. Parallel with M18 |
 | M23 | Stage-2 compiler binary | ⬜ | Lowering in Zown, then `stage1 == stage2` bytes. Needs M18, M19, and a byte emitter |
 | M24 | Signed distribution | ⬜ | Ed25519 on the sync bundle, transparency log, inclusion proofs. Needs M21 |
@@ -724,12 +724,12 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18. Words are already reserved in SPEC §23: `ae` `ad` `es` `ev` `xk`. `h3` stays the hash.
 **Goal:** one real algorithm per job. Keys live in a `buf`.
 
-- [ ] **M21a.** `ae` seals and `ad` opens with ChaCha20-Poly1305. A wrong tag is `INTEGRITY_FAIL`. Test vectors, not a toy XOR.
-- [ ] **M21b.** `es` signs and `ev` verifies with Ed25519. A bad signature is `SIG_INVALID`. The node id may then be a public key. Until this slice, `ni` stays the BLAKE3 id from §24.
-- [ ] **M21c.** `xk` is X25519. The shared secret is a `buf`.
+- [x] **M21a.** `key nonce plain aad ae` seals with ChaCha20-Poly1305. `key nonce boxed aad ad` opens it. A wrong tag is `INTEGRITY_FAIL`. RFC 8439 §2.8.2.
+- [x] **M21b.** `seed message es` signs with Ed25519. `public message sig ev` pushes `1`, or `SIG_INVALID`. RFC 8032 TEST 1. `ni` stays the BLAKE3 id. An Ed25519 public key is a `buf`.
+- [x] **M21c.** `scalar point xk` is X25519. The shared secret is a `buf`. RFC 7748 §6.1.
 
-**Acceptance:** official or well-known test vectors pass in both VMs. A forged tag or signature is rejected.
-**Not this slice:** TLS, a certificate authority, or a second hash.
+**Acceptance:** the RFC vectors pass in both VMs. A forged tag or signature is rejected. Met by `cases_v2/crypt`, `errors_v2/crypt_tag`, and `errors_v2/crypt_sig`. `native_parity` is 98/98.
+**Not this slice:** TLS, a certificate authority, or a second hash. The curve arithmetic is not constant-time.
 
 ### M22 — WASM v0.2
 **Depends on:** nothing new. Carry-over from M9. Can run beside M18.
@@ -888,6 +888,7 @@ memory type.)*
 | D16 | The bare-metal slice is a **512-byte real-mode boot sector** (2026-10-24). It prints string literals to the VGA text buffer and runs `int 0x20`. It is not long mode and not a microkernel | SPEC §29; M17 |
 | D17 | The canonical AST is **indented text with raw lexemes** (2026-10-24). Two spaces per block. `blk` and `end` bracket a block. A leaf is `tag` plus the source lexeme, so `007` and `1.50` are not rewritten. `zown ast` JSON stays the debug form | SPEC §28; M19 |
 | D18 | Host I/O is **capability-scoped** (2026-10-24). Disk is `` `d `` plus a `gd` path root, not a second `` `f ``. Env lookup is `` `v `` and one name. Arguments are the program vector after `--`, default empty. `ZOWN_TICK` and `ZOWN_WALL` pin `tm` | SPEC §12, §23; M20 |
+| D19 | Crypto words are **RFC algorithms on `buf`** (2026-10-24). `ae`/`ad` are ChaCha20-Poly1305, `es`/`ev` are Ed25519, `xk` is X25519. `ni` stays the BLAKE3 node id. `Key` and `Sig` are not value kinds | SPEC §13, §23; M21 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -940,9 +941,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M21 — crypto.** `ae` `ad` with ChaCha20-Poly1305, `es` `ev` with Ed25519,
-   `xk` with X25519. Real test vectors. Keys live in a `buf`. The byte-identical
-   compiler is still M23: the parser fixed point is done, and lowering is not.
+1. **M22 — WASM v0.2.** Emit tags 4–8, `??`, `ty`, and moves. Checked `int`
+   overflow is a `.zerr`. The byte-identical compiler is still M23. Signed
+   bundles are M24 and can use `es` / `ev`.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64`; emit WASM tags 4–8
    (lane ops included — they are refused today); auto-discover `tele.errors`.

@@ -22,6 +22,7 @@ from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
 from .buf import b_bf, b_bg, b_bp, release
 from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
+from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
@@ -694,6 +695,11 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "ag": (b_ag, "arg", "idx ag -> that program argument (BOUNDS outside 0..count)"),
     "en": (b_en, "env", "name en -> that variable; unset is BOUNDS; needs `v"),
     "tm": (b_tm, "time", "tm -> monotonic tick, then wall seconds; needs `c; ZOWN_TICK and ZOWN_WALL pin them"),
+    "ae": (b_ae, "aead_seal", "key nonce plain aad ae -> buf of ciphertext || 16-byte ChaCha20-Poly1305 tag"),
+    "ad": (b_ad, "aead_open", "key nonce boxed aad ad -> plaintext buf; a bad tag is INTEGRITY_FAIL"),
+    "es": (b_es, "ed_sign", "seed message es -> 64-byte Ed25519 signature"),
+    "ev": (b_ev, "ed_verify", "public message sig ev -> 1; a bad signature is SIG_INVALID"),
+    "xk": (b_xk, "x25519", "scalar point xk -> 32-byte X25519 shared secret"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

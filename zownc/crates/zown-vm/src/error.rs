@@ -23,6 +23,7 @@ pub const STACK_OVERFLOW: &str = "STACK_OVERFLOW";
 pub const CAP_DENIED: &str = "CAP_DENIED";
 pub const TEST_FAIL: &str = "TEST_FAIL";
 pub const INTEGRITY_FAIL: &str = "INTEGRITY_FAIL";
+pub const SIG_INVALID: &str = "SIG_INVALID";
 
 #[derive(Debug, Clone)]
 pub struct RunError {

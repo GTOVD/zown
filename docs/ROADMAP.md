@@ -121,9 +121,9 @@ and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
 - [x] Host I/O (SPEC §23). `gd` `fr` `fw` are path-scoped disk. `ac` `ag` are
       the program's arguments. `en` looks up one variable. `tm` reads the clock.
       `ZOWN_TICK` and `ZOWN_WALL` pin the golden.
-- [ ] Crypto suite (ChaCha20-Poly1305, Ed25519, X25519; BLAKE3 `h3` already
-      exists), collections, and the rest of the numbers. Names are frozen in
-      SPEC §23.
+- [x] ChaCha20-Poly1305 (`ae` `ad`), Ed25519 (`es` `ev`), and X25519 (`xk`).
+      BLAKE3 `h3` was already in. RFC test vectors. Keys are `buf`s.
+- [ ] Collections and the rest of the numbers. Names are frozen in SPEC §23.
 - [x] Developer toolchain, the part that can be honest today: `zown test`
       (goldens, plus `ts` / `pp`) and `zown fmt` (canonical whitespace).
       LSP, the doc generator, and a mesh REPL are still §23.
@@ -222,8 +222,8 @@ local inference.
       Not started. The sector halts after the one software interrupt.
 
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md). `buf`
-(M18), the parser (M19), and host I/O (M20) are done. Next is crypto (M21).
-The byte-identical stage-2 compiler is M23.
+(M18) through host I/O (M20) and crypto (M21) are done. Next is WASM v0.2
+(M22). The byte-identical stage-2 compiler is M23.
 
 ---
 

@@ -8,8 +8,12 @@
 mod bigint;
 mod blake3;
 mod buf;
+mod chacha;
+mod crypt;
+mod curve;
 mod error;
 mod hostio;
+mod sha512;
 mod lanes;
 mod mesh;
 mod native;
@@ -959,6 +963,11 @@ impl Vm {
             "ag" => self.b_ag(),
             "en" => self.b_en(),
             "tm" => self.b_tm(),
+            "ae" => self.b_ae(),
+            "ad" => self.b_ad(),
+            "es" => self.b_es(),
+            "ev" => self.b_ev(),
+            "xk" => self.b_xk(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1865,6 +1874,11 @@ pub fn is_builtin(name: &str) -> bool {
             | "ag"
             | "en"
             | "tm"
+            | "ae"
+            | "ad"
+            | "es"
+            | "ev"
+            | "xk"
     )
 }
 
