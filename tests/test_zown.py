@@ -1305,8 +1305,13 @@ bg 4 2 [ $Hi$ 8 fg tx ] cm
     assert raw.startswith(b"P6\n20 12\n255\n")
     body = raw.split(b"\n", 3)[3]
     assert body[0:3] == bytes((30, 30, 30))
-    i = (2 * 20 + 2) * 3
-    assert body[i:i + 3] == bytes((255, 255, 255))
+    # H's top-left bit is on. The next column of that row is a hole, so the
+    # parent gray shows through the cell.
+    assert body[(2 * 20 + 2) * 3:(2 * 20 + 2) * 3 + 3] == bytes((255, 255, 255))
+    assert body[(2 * 20 + 4) * 3:(2 * 20 + 4) * 3 + 3] == bytes((30, 30, 30))
+    # The stem of i is ink. The column to its left is the parent.
+    assert body[(2 * 20 + 14) * 3:(2 * 20 + 14) * 3 + 3] == bytes((255, 255, 255))
+    assert body[(2 * 20 + 10) * 3:(2 * 20 + 10) * 3 + 3] == bytes((30, 30, 30))
     d = tempfile.mkdtemp()
     path = os.path.join(d, "ui.zn")
     with open(path, "w", encoding="utf-8") as fh:
@@ -1331,6 +1336,43 @@ bg 4 2 [ $Hi$ 8 fg tx ] cm
         sys.stdout = old
     assert code == 0
     assert out.buffer.getvalue().startswith(b"P6\n20 12\n255\n")
+
+
+def test_button_handler_animation_and_gpu_readback():
+    from zown.buf import Buf
+    from zown.ui import Color, UiNode, raster
+
+    out, _ = run(open(os.path.join("conformance", "cases_v2", "click.zn"), encoding="utf-8").read())
+    assert out == "hit\nhit\nhit\nhit\n"
+    _fails("1 0 0 pk", TYPE_MISMATCH, "pk")
+
+    out, _ = run("""255 255 255 co :fg
+$Hi$ 4 fg tx =
+ly .
+2 an
+ly .
+$Hi$ 4 fg tx =
+2 an
+ly .
+ly .
+""")
+    assert out == (
+        "tx 0 0 8 4 ok Hi\n"
+        "tx 0 0 10 4 ok Hi\n"
+        "tx 0 0 10 4 ok Hi\n"
+        "tx 0 0 10 4 ok Hi\n"
+    )
+    _fails("$A$ 1 0 0 0 co tx 1 _ an", BOUNDS, "an")
+    _fails(f"$A$ 1 0 0 0 co tx {INT_MAX} an", OVERFLOW, "an")
+
+    _, vm = run("2 2 [ 255 0 0 co ] gp")
+    buf = vm.stack[0]
+    assert isinstance(buf, Buf)
+    picture = raster(UiNode("cm", "", Color(255, 0, 0), 0, 0, 2, 2))
+    assert bytes(buf.alloc.data) == picture.split(b"\n", 3)[3]
+    e = _fails("1 1 [ 1 ] gp", TYPE_MISMATCH, "gp")
+    assert e.stack == []
+    _fails("0 1 [ 0 0 0 co ] gp", BOUNDS, "gp")
 
 
 # --- graph store (M14) ---------------------------------------------------------

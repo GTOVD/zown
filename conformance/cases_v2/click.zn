@@ -1,0 +1,13 @@
+255 0 0 co :c
+$Go$ 4 c bt
+0 0 pk
+$Go$ 4 c [ $hit$ . ] bh :go
+go 100 100 pk
+go 0 0 pk
+go $Go$ ky
+0 0 0 co :k
+k 0 0 [ $No$ 4 c bt $Go$ 4 c [ $hit$ . ] bh ] cm :col
+col 0 0 pk
+col 0 8 pk
+col $No$ ky
+col $Go$ ky

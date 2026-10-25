@@ -9,7 +9,7 @@ goal: fit *dramatically* more working code inside an LLM's context window, and
 run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
 boot sector.
 
-> Milestones **M0–M26** are in this tree. The Python package is the behavioral
+> Milestones **M0–M27** are in this tree. The Python package is the behavioral
 > oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
 > LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
 > [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
@@ -59,7 +59,7 @@ python3 bin/zown test
 # two local IPv6 peers exchange one BLAKE3-addressed bundle
 python3 bin/zown mesh
 
-# the layout tree, then the same scene as a PPM picture
+# the layout tree, then the same scene as a PPM of glyphs
 python3 bin/zown examples/ui.zn
 python3 bin/zown draw examples/paint.zn > ui.ppm
 
@@ -198,7 +198,7 @@ python3 conformance/map_reopen.py    # snapshot file, new process
 
 ## Status
 
-**M0–M26 are done.** The same programs run three ways, held to one conformance
+**M0–M27 are done.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -212,15 +212,18 @@ suite:
   refused at compile time; `conformance/wasm_parity.py` records that skip.
 
 Also in the tree: `zown fmt` and `zown test`, a lexer, parser, and lowering
-written in Zown (`zown stage`), a layout tree and PPM (`zown draw`), one
-BLAKE3 bundle exchanged over IPv6 (`zown mesh`), a sealed graph (`zown keep`,
-with an Ed25519 trailer and an inclusion proof when the program asks),
-a logical control-plane log (`zown watch`), and a 512-byte boot sector. Stage-0
-writes that sector with `zownc bare`. `zown stage emit` writes the same bytes
+written in Zown (`zown stage`), a layout tree and a PPM of 5×7 glyphs
+(`zown draw`), a button that runs when a pointer or a key hits it, one
+animation tick on the node's width, and a software pipeline (`gp`) whose
+readback is a `buf`. One BLAKE3 bundle is exchanged over IPv6
+(`zown mesh`). A sealed graph (`zown keep`) carries an Ed25519 trailer and
+an inclusion proof when the program asks. A logical control-plane log
+(`zown watch`) and a 512-byte boot sector are there too. Stage-0 writes
+that sector with `zownc bare`. `zown stage emit` writes the same bytes
 from Zown, and the executable `zownc native -o` links does too.
 
-**Next is M27:** glyphs in the picture, a button that runs when it is
-hit, then one animation tick. QUIC, GPU, and a kernel are later. The map is
+**Next is M28:** one ordered collection in a `buf`, then `iz`, `uz`,
+`dc`, and `cx`. QUIC and a kernel are later. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

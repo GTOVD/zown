@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::process::abort;
 
 pub use zown_vm::NatOp;
-use zown_vm::{RunError, Slice, Value, Vm, STACK_OVERFLOW};
+use zown_vm::{RunError, Slice, UiHandler, Value, Vm, STACK_OVERFLOW};
 
 const MAX_DEPTH: u32 = 128;
 
@@ -285,6 +285,10 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
             "pp" => return exec_pp(rt),
             "rw" => return ui_box(rt, true),
             "cm" => return ui_box(rt, false),
+            "bh" => return ui_bh(rt),
+            "gp" => return ui_gp(rt),
+            "pk" => return ui_event(rt, false),
+            "ky" => return ui_event(rt, true),
             "vf" => return vec_ctor(rt, "vf", 4, true, true, 32),
             "vd" => return vec_ctor(rt, "vd", 2, true, true, 64),
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
@@ -389,6 +393,60 @@ unsafe fn ui_box(rt: *mut Rt, row: bool) -> i32 {
     }
     match (*rt).vm.finish_box(op, op, color, gap, pad, kids) {
         Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
+    }
+}
+
+/// `$label$ size color [body] bh`. The body is a compiled block.
+unsafe fn ui_bh(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("bh") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    match (*rt).vm.seal_button(UiHandler::Native(id)) {
+        Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
+    }
+}
+
+/// `w h [shader] gp`. The shader runs on a fresh stack and must leave a color.
+unsafe fn ui_gp(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("gp") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let (w, h) = match (*rt).vm.gp_dims() {
+        Ok(wh) => wh,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let saved = (*rt).vm.take_stack();
+    let code = call_block(rt, id, "gp");
+    let left = (*rt).vm.take_stack();
+    (*rt).vm.set_stack(saved);
+    if code != 0 {
+        return 1;
+    }
+    match (*rt).vm.finish_gpu(w, h, left) {
+        Ok(()) => 0,
+        Err(e) => fail(&mut *rt, e),
+    }
+}
+
+/// `pk` or `ky`. A compiled handler runs here; an AST handler goes through the VM.
+unsafe fn ui_event(rt: *mut Rt, key: bool) -> i32 {
+    let op = if key { "ky" } else { "pk" };
+    let hit = if key {
+        (*rt).vm.key_handler()
+    } else {
+        (*rt).vm.pointer_handler()
+    };
+    match hit {
+        Ok(Some(UiHandler::Native(id))) => call_block(rt, id, op),
+        Ok(Some(UiHandler::Ast(body))) => match (*rt).vm.call_ast(body, op) {
+            Ok(()) => 0,
+            Err(e) => fail(&mut *rt, e),
+        },
+        Ok(None) => 0,
         Err(e) => fail(&mut *rt, e),
     }
 }

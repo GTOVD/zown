@@ -2,15 +2,17 @@
 
 A color is three channels. A text or button is a leaf. `rw` and `cm` run a
 block on a fresh stack and lay the nodes it leaves out, start-aligned, with
-padding and a gap. `ly` pushes a preorder dump. The picture (`zown draw`)
-fills those rectangles; it is not a GPU.
+padding and a gap. `ly` pushes a preorder dump. `zown draw` paints boxes as
+rectangles and leaves as 5×7 glyphs. `pk` and `ky` run a button handler.
+`an` adds a tick count to a node's width. `gp` fills a rectangle from a
+shader into a `buf`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .errors import BOUNDS, TYPE_MISMATCH
+from .errors import BOUNDS, OVERFLOW, TYPE_MISMATCH
 
 
 @dataclass
@@ -30,6 +32,7 @@ class UiNode:
     w: int = 0
     h: int = 0
     children: list["UiNode"] = field(default_factory=list)
+    handler: object | None = None
 
 
 def _int(vm, op: str, pos) -> int:
@@ -77,13 +80,15 @@ def _text_node(vm, kind: str, pos) -> None:
         raise vm.err(TYPE_MISMATCH, f"`{kind}` expected one line of text, got {got}",
                      op=kind, pos=pos)
     n = len(text)
-    if kind == "bt":
+    button = kind in ("bt", "bh")
+    if button:
         w = n * size + size * 2
         h = size * 2
     else:
         w = n * size
         h = size
-    vm.push(UiNode(kind, text, color, 0, 0, w, h))
+    node = UiNode("bt" if button else "tx", text, color, 0, 0, w, h)
+    vm.push(node)
 
 
 def b_tx(vm, pos) -> None:
@@ -92,6 +97,12 @@ def b_tx(vm, pos) -> None:
 
 def b_bt(vm, pos) -> None:
     _text_node(vm, "bt", pos)
+
+
+def b_bh(vm, pos) -> None:
+    blk = vm.pop_block("bh", pos)
+    _text_node(vm, "bh", pos)
+    vm.stack[-1].handler = blk
 
 
 def _fresh(vm, blk, op: str, pos) -> list:
@@ -198,6 +209,142 @@ def b_ly(vm, pos) -> None:
     vm.push("\n".join(dump(v)))
 
 
+# 5×7 glyphs. Bit 4 is the left column. A missing glyph is blank.
+_GLYPHS = {
+    " ": (0, 0, 0, 0, 0, 0, 0),
+    "H": (0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001),
+    "i": (0b00100, 0, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100),
+    "G": (0b01111, 0b10000, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111),
+    "o": (0, 0, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110),
+}
+
+
+def glyph_on(ch: str, x: int, y: int, size: int) -> bool:
+    rows = _GLYPHS.get(ch)
+    if rows is None or size < 1 or x < 0 or y < 0 or x >= size or y >= size:
+        return False
+    col = x * 5 // size
+    row = y * 7 // size
+    if col > 4 or row > 6:
+        return False
+    return (rows[row] >> (4 - col)) & 1 == 1
+
+
+def _ink(c: Color) -> Color:
+    if lum(c.r, c.g, c.b) >= 1280:
+        return Color(0, 0, 0)
+    return Color(255, 255, 255)
+
+
+def _hit(node: UiNode, ox: int, oy: int, x: int, y: int) -> UiNode | None:
+    """Deepest button whose rectangle contains the point."""
+    for ch in node.children:
+        found = _hit(ch, ox + ch.x, oy + ch.y, x, y)
+        if found is not None:
+            return found
+    if node.kind == "bt" and ox <= x < ox + node.w and oy <= y < oy + node.h:
+        return node
+    return None
+
+
+def _labeled(node: UiNode, key: str) -> UiNode | None:
+    for ch in node.children:
+        found = _labeled(ch, key)
+        if found is not None:
+            return found
+    if node.kind == "bt" and node.text == key:
+        return node
+    return None
+
+
+def b_pk(vm, pos) -> None:
+    y = _int(vm, "pk", pos)
+    x = _int(vm, "pk", pos)
+    node = vm.pop("pk", pos)
+    from .vm import type_name
+    if not isinstance(node, UiNode):
+        raise vm.err(TYPE_MISMATCH, f"`pk` expected a node, got {type_name(node)}",
+                     op="pk", pos=pos)
+    hit = _hit(node, 0, 0, x, y)
+    if hit is not None and hit.handler is not None:
+        vm.invoke(hit.handler, "pk", pos)
+
+
+def b_ky(vm, pos) -> None:
+    key = vm.pop("ky", pos)
+    node = vm.pop("ky", pos)
+    from .vm import type_name
+    if not isinstance(key, str) or "\n" in key:
+        got = "a string with a newline" if isinstance(key, str) else type_name(key)
+        raise vm.err(TYPE_MISMATCH, f"`ky` expected one line of text, got {got}",
+                     op="ky", pos=pos)
+    if not isinstance(node, UiNode):
+        raise vm.err(TYPE_MISMATCH, f"`ky` expected a node, got {type_name(node)}",
+                     op="ky", pos=pos)
+    hit = _labeled(node, key)
+    if hit is not None and hit.handler is not None:
+        vm.invoke(hit.handler, "ky", pos)
+
+
+def b_an(vm, pos) -> None:
+    n = _int(vm, "an", pos)
+    if n < 0:
+        raise vm.err(BOUNDS, "`an` tick count must be >= 0", op="an", pos=pos)
+    node = vm.pop("an", pos)
+    from .vm import type_name
+    if not isinstance(node, UiNode):
+        raise vm.err(TYPE_MISMATCH, f"`an` expected a node, got {type_name(node)}",
+                     op="an", pos=pos)
+    from .lexer import INT_MAX
+    if node.w > INT_MAX - n:
+        raise vm.err(OVERFLOW, "`an` width does not fit int", op="an", pos=pos)
+    node.w += n
+    vm.push(node)
+
+
+def b_gp(vm, pos) -> None:
+    from .buf import BUF_MAX, Alloc, Buf
+    blk = vm.pop_block("gp", pos)
+    h = _int(vm, "gp", pos)
+    w = _int(vm, "gp", pos)
+    if w < 1 or h < 1:
+        raise vm.err(BOUNDS, "`gp` width and height must be >= 1", op="gp", pos=pos)
+    if w * h > BUF_MAX // 3:
+        raise vm.err(BOUNDS, "`gp` picture is larger than the buffer budget",
+                     op="gp", pos=pos)
+    saved = vm.stack
+    vm.stack = []
+    try:
+        vm.invoke(blk, "gp", pos)
+        left = list(vm.stack)
+    finally:
+        vm.stack = saved
+    if len(left) != 1 or not isinstance(left[0], Color):
+        raise vm.err(TYPE_MISMATCH, "`gp` shader must leave one color",
+                     op="gp", pos=pos, hint="the block runs on a fresh stack and leaves r g b co")
+    color = left[0]
+    alloc = Alloc(w * h * 3)
+    data = alloc.data
+    assert data is not None
+    for i in range(0, len(data), 3):
+        data[i] = color.r
+        data[i + 1] = color.g
+        data[i + 2] = color.b
+    vm.push(Buf(alloc, True))
+
+
+def _glyphs(fill, n: UiNode, ox: int, oy: int, color: Color) -> None:
+    size = n.h if n.kind == "tx" else n.h // 2
+    if size < 1:
+        return
+    for i, ch in enumerate(n.text):
+        gx = ox + i * size
+        for y in range(size):
+            for x in range(size):
+                if glyph_on(ch, x, y, size):
+                    fill(gx + x, oy + y, 1, 1, color)
+
+
 def raster(node: UiNode) -> bytes:
     """P6 PPM of the laid-out rectangles. A zero-size root is refused by the caller."""
     w, h = node.w, node.h
@@ -217,8 +364,11 @@ def raster(node: UiNode) -> bytes:
             fill(ox, oy, n.w, n.h, n.color)
             for ch in n.children:
                 paint(ch, ox + ch.x, oy + ch.y)
-        else:
+        elif n.kind == "bt":
             fill(ox, oy, n.w, n.h, n.color)
+            _glyphs(fill, n, ox + n.h // 2, oy + n.h // 4, _ink(n.color))
+        else:
+            _glyphs(fill, n, ox, oy, n.color)
 
     paint(node, 0, 0)
     header = f"P6\n{w} {h}\n255\n".encode("ascii")

@@ -24,7 +24,7 @@ const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];
 const BOX_CTORS: &[&str] = &["rw", "cm"];
 const INVOKING_OPS: &[&str] = &["@", ";", "??"];
-const INVOKING_WORDS: &[&str] = &["gr", "ty", "gd", "vf", "vd", "vi", "vu", "rw", "cm"];
+const INVOKING_WORDS: &[&str] = &["gr", "ty", "gd", "gp", "vf", "vd", "vi", "vu", "rw", "cm"];
 
 fn net_cap(op: &str) -> Option<&'static str> {
     match op {
@@ -428,7 +428,9 @@ impl Checker {
             ..
         }) = nxt
         {
-            if (VEC_CTORS.contains(&name.as_str()) || BOX_CTORS.contains(&name.as_str()))
+            if (VEC_CTORS.contains(&name.as_str())
+                || BOX_CTORS.contains(&name.as_str())
+                || name == "gp")
                 && !self.bound.contains(name)
             {
                 inner = known.cloned();

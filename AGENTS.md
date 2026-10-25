@@ -199,9 +199,14 @@ relays one frame each way. QUIC is not this transport. **M26 ✅** —
 `mm` fsyncs the graph snapshot to a file, `mo` reopens it as a `buf`,
 and `ml` loads it back. A short file is `INTEGRITY_FAIL`. `tc` `tu`
 `tq` are a column table. `mg` unions two snapshots, keeps both parents,
-and prints the same text either way. Next is **M27** (a font, then a
-button, then one animation tick). The rest of the map is **M27–M32**
-in `docs/PLAN.md`.
+and prints the same text either way. **M27 ✅** — `zown draw` paints
+5×7 glyphs. `bh` is a `bt` with a handler. `pk` and `ky` run it when
+the event hits, and drop the event otherwise. `an` adds the tick count
+to the node's width. `gp` fills a rectangle from a Zown shader into a
+`buf`; a shader that does not leave one color is `TYPE_MISMATCH` and
+pushes nothing. The readback matches the CPU rectangle. Next is
+**M28** (one collection, then `iz` `uz` `dc` `cx`). The rest of the
+map is **M28–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

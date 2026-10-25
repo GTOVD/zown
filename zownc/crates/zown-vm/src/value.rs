@@ -105,8 +105,9 @@ pub enum Value {
     Res(Res),
     /// `r g b co`. Channels are `0..255`.
     Color(Rgb),
-    /// A layout node: `tx`, `bt`, `rw`, or `cm`.
-    Ui(UiNode),
+    /// A layout node: `tx`, `bt`, `rw`, or `cm`. Dup and a bare name share it,
+    /// so `an` is visible through every alias (SPEC §25).
+    Ui(Rc<RefCell<UiNode>>),
     /// A graph query cursor. Names are the vertices it currently sits on.
     Cur(Vec<String>),
     /// A TCP stream on `[::1]`. Dropping the exclusive value closes it.
@@ -148,14 +149,22 @@ pub struct BufAlloc {
 }
 
 /// An sRGB color. The layout contrast test uses these channels linearly.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
     pub b: u8,
 }
 
+/// A button body. The tree-walker stores the AST. Native stores the compiled id.
+#[derive(Clone, Debug)]
+pub enum UiHandler {
+    Ast(Rc<Vec<Node>>),
+    Native(u32),
+}
+
 /// One node of the retained layout tree. Child `x`/`y` are relative to the parent.
+/// The node lives behind `Rc<RefCell<_>>` so a dup and a box child are one object.
 #[derive(Clone, Debug)]
 pub struct UiNode {
     pub kind: &'static str,
@@ -165,7 +174,9 @@ pub struct UiNode {
     pub y: i64,
     pub w: i64,
     pub h: i64,
-    pub children: Vec<UiNode>,
+    pub children: Vec<Rc<RefCell<UiNode>>>,
+    /// Set by `bh`. `bt` leaves this empty, and a hit with no handler is dropped.
+    pub handler: Option<UiHandler>,
 }
 
 impl Value {
@@ -251,6 +262,7 @@ impl Value {
             }
             Value::Color(c) => format!("co({} {} {})", c.r, c.g, c.b),
             Value::Ui(n) => {
+                let n = n.borrow();
                 if n.kind == "tx" || n.kind == "bt" {
                     format!("{}({})", n.kind, n.text)
                 } else {
@@ -292,7 +304,10 @@ impl Value {
                 snap_flat(&r.val)
             )),
             Value::Color(c) => json_str(&format!("co:{} {} {}", c.r, c.g, c.b)),
-            Value::Ui(n) => json_str(&format!("{}:{}", n.kind, n.children.len())),
+            Value::Ui(n) => {
+                let n = n.borrow();
+                json_str(&format!("{}:{}", n.kind, n.children.len()))
+            }
             Value::Cur(names) => json_str(&format!("cur:{}", names.len())),
             Value::Stm { .. } => json_str("stm"),
             Value::Buf { alloc, exclusive } => json_str(&buf_text(alloc, *exclusive)),
@@ -351,7 +366,12 @@ fn buf_text(alloc: &Rc<RefCell<BufAlloc>>, exclusive: bool) -> String {
     }
 }
 
-fn ui_eq(a: &UiNode, b: &UiNode) -> bool {
+fn ui_eq(a: &Rc<RefCell<UiNode>>, b: &Rc<RefCell<UiNode>>) -> bool {
+    if Rc::ptr_eq(a, b) {
+        return true;
+    }
+    let a = a.borrow();
+    let b = b.borrow();
     a.kind == b.kind
         && a.text == b.text
         && a.color == b.color
@@ -359,8 +379,14 @@ fn ui_eq(a: &UiNode, b: &UiNode) -> bool {
         && a.y == b.y
         && a.w == b.w
         && a.h == b.h
+        && match (&a.handler, &b.handler) {
+            (None, None) => true,
+            (Some(UiHandler::Ast(x)), Some(UiHandler::Ast(y))) => Rc::ptr_eq(x, y),
+            (Some(UiHandler::Native(x)), Some(UiHandler::Native(y))) => x == y,
+            _ => false,
+        }
         && a.children.len() == b.children.len()
-        && a.children.iter().zip(&b.children).all(|(x, y)| ui_eq(x, y))
+        && a.children.iter().zip(b.children.iter()).all(|(x, y)| ui_eq(x, y))
 }
 
 /// Ordering of two numbers. `None` when either is `nan` or not a number.

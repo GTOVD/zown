@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M26: snapshot file, column table, set-union merge).
+Last updated: 2026-10-25 (M27: bitmap glyphs, button hits, one animation tick, GPU readback).
 
 ---
 
@@ -79,7 +79,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M24 | Signed distribution | ✅ | `sl` adds an Ed25519 trailer. `la` `lp` `lr` are the log and its proof. A BLAKE3-only bundle still opens. Manifest `content` is the source hash; `sig` needs `ZOWN_SIGN` |
 | M25 | Streams and mesh | ✅ | `~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. A grant is required. `zown mesh` announces the bundle hash before the fetch. QUIC is not this transport |
 | M26 | Store engine | ✅ | `mm` `mo` `ml` reopen a snapshot file. `tc` `tu` `tq` are the column table. `mg` unions two snapshots and keeps both parents |
-| M27 | UI completion | ⬜ | Font, input, animation, then GPU and shaders. Needs M18 |
+| M27 | UI completion | ✅ | Bitmap glyphs, `pk`/`ky` on `bh`, `an` adds ticks to the width, `gp` readback. |
 | M28 | Collections and remaining numbers | ⬜ | One collection on `buf`, then the rest. `iz` `uz` `dc` `cx`. Needs M18 |
 | M29 | Control plane completion | ⬜ | Hot-swap of a verified block, a trace that crosses a socket, fleet intent. Needs M23 and M25 |
 | M30 | Tooling | ⬜ | CI, LSP, doc generator, package manifest. CI does not wait on the rest |
@@ -791,10 +791,10 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18. SPEC §15, DESIGN §4–§5.
 **Goal:** the layout tree becomes something a person can read and point at, then a GPU.
 
-- [ ] **M27a.** A bitmap font. `tx` cells in `zown draw` use it. The PPM shows glyph pixels, not only rectangles. Contrast from §25 still applies.
-- [ ] **M27b.** Input. A test injects a pointer and a key. A `bt` with a handler block runs when the event hits its rectangle. No handler means the event is dropped.
-- [ ] **M27c.** One animation clock tied to the M20 tick. A property changes over N ticks. Goldens pin the tick.
-- [ ] **M27d.** GPU. A buffer and a pipeline the test can read back. Shaders are a Zown subset. A wrong shader is a `.zerr`, not a silent blank image.
+- [x] **M27a.** A bitmap font. `tx` cells in `zown draw` use it. The PPM shows glyph pixels, not only rectangles. Contrast from §25 still applies.
+- [x] **M27b.** Input. A test injects a pointer and a key. A `bt` with a handler block runs when the event hits its rectangle. No handler means the event is dropped.
+- [x] **M27c.** One animation clock tied to the M20 tick. A property changes over N ticks. Goldens pin the tick.
+- [x] **M27d.** GPU. A buffer and a pipeline the test can read back. Shaders are a Zown subset. A wrong shader is a `.zerr`, not a silent blank image.
 
 **Acceptance:** `zown draw` renders the word `Hi` as glyphs. A clicked button runs its block. The GPU slice's readback matches the CPU picture for one triangle or one rectangle.
 **Not this slice:** a PDF exporter, a full widget set, or a browser engine.
@@ -893,6 +893,7 @@ memory type.)*
 | D21 | The M24 log is **per VM and BLAKE3-Merkle** (2026-10-25). `sl` signs the bundle body. `la` appends that body's digest. `so` checks a carried proof against this VM's root. An empty log is `""`, not a hash. The manifest `sig` stays null unless `ZOWN_SIGN` is set. No hot-swap | SPEC §26; M24 |
 | D22 | M25 streams are **TCP on `[::1]`** (2026-10-25). `~o` connects, `~l` accepts and registers a name, `~c` dials that name, `~s`/`~r` move one UTF-8 frame, `~w` relays one frame each way. `` `t `` sends, `` `r `` receives. QUIC is not this transport | SPEC §14; M25 |
 | D23 | The M26 map is **a `buf` of a snapshot file** (2026-10-25). `mm` fsyncs `gs`. `mo` and `ml` reject a short file. `tq` scans a column. `mg` is a sorted set-union that keeps both parents. No SQL, and no integer address | SPEC §26; M26 |
+| D24 | M27 UI is a **bitmap, a hit, a tick, and a software pipeline** (2026-10-25). `zown draw` paints 5×7 glyphs. `bh` stores a handler on a `bt`. `pk` and `ky` run it, or drop the event. `an` adds the tick count to the width of the shared node. `gp` fills a rectangle from a shader that must leave one color; a wrong shader is `TYPE_MISMATCH` and pushes nothing. Readback matches the CPU rectangle. A hardware device, a PDF exporter, and a widget set stay later | SPEC §25; M27 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -942,9 +943,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M27 — UI completion.** A bitmap font in `zown draw`, then a pointer
-   event on a button, then one animation clock tied to the tick. GPU
-   readback is the last slice.
+1. **M28 — collections and the remaining numbers.** One ordered collection
+   in a `buf`, named in SPEC first, then `iz` `uz` `dc` `cx` under the
+   overflow rule of §11.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

@@ -28,7 +28,7 @@ from .store import (
 from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_ml, b_mm, b_mo, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
-from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
+from .ui import b_an, b_bh, b_bt, b_cm, b_co, b_gp, b_ky, b_ly, b_pk, b_rw, b_tx
 
 
 def _need_str(vm, op: str, pos: Pos) -> str:
@@ -670,6 +670,11 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "co": (b_co, "color", "r g b co -> a color; each channel is an int in 0..255"),
     "tx": (b_tx, "text", "$text$ size color tx -> a text node (width is characters times size)"),
     "bt": (b_bt, "button", "$label$ size color bt -> a button node (role button, padded label)"),
+    "bh": (b_bh, "button_handler", "$label$ size color [body] bh -> a button that runs body when it is hit"),
+    "pk": (b_pk, "pointer", "node x y pk -> run the deepest button handler that contains the point"),
+    "ky": (b_ky, "key", "node $key$ ky -> run the handler of the button whose label is that key"),
+    "an": (b_an, "animate", "node n an -> add n to the node width; n is a tick count"),
+    "gp": (b_gp, "gpu", "w h [shader] gp -> buf of a rectangle in the shader's color"),
     "rw": (b_rw, "row", "color gap pad [nodes] rw -> a row box, children start-aligned"),
     "cm": (b_cm, "column", "color gap pad [nodes] cm -> a column box, children start-aligned"),
     "ly": (b_ly, "layout", "node ly -> the preorder layout dump"),

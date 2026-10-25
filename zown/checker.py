@@ -87,7 +87,7 @@ _VEC_CTORS = {"vf", "vd", "vi", "vu"}
 _BOX_CTORS = {"rw", "cm"}
 # Nodes that may run arbitrary code — and therefore rebind any name.
 _INVOKING_OPS = {"@", ";", "??"}
-_INVOKING_WORDS = {"gr", "ty", "gd"} | _VEC_CTORS | _BOX_CTORS
+_INVOKING_WORDS = {"gr", "ty", "gd", "gp"} | _VEC_CTORS | _BOX_CTORS
 # Host words that require a capability the way `rq` does (SPEC §23).
 _HOST_CAP = {"fr": "d", "fw": "d", "mm": "d", "mo": "d", "ml": "d", "en": "v", "tm": "c"}
 _NET_CAP = {"~o": "t", "~s": "t", "~c": "t", "~l": "r", "~r": "r"}
@@ -307,8 +307,8 @@ class Checker:
             inner = known | {"d"} if known is not UNKNOWN else UNKNOWN
         elif self._is_word(nxt, "ty"):                              # [b] ty
             inner, in_at = known, True  # runs inline, but its faults are caught
-        elif nxt is not None and nxt[0] == "name" and nxt[1] in _VEC_CTORS | _BOX_CTORS \
-                and nxt[1] not in self.bound:                       # [lanes] vi, or [nodes] rw/cm
+        elif nxt is not None and nxt[0] == "name" and nxt[1] in _VEC_CTORS | _BOX_CTORS | {"gp"} \
+                and nxt[1] not in self.bound:                       # [lanes] vi, [nodes] rw/cm, or [shader] gp
             inner = known
         else:
             inner, inherit = UNKNOWN, None  # escapes: bound, on the stack, or unknown consumer

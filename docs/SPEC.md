@@ -607,11 +607,11 @@ QUIC, a DHT beyond that announcement, NAT traversal, and HTTP/3 are not this sli
 Content addresses are written `$zown:<hash>$`; mutable refs are
 `$zown:<pubkey>$` (latest signed version). `~f` fetch / `~p` publish operate on them.
 
-## 15. Native UI & GPU types — *design-only, except the layout slice in §25*
+## 15. Native UI & GPU types — *design-only, except the slice in §25*
 
-> Frozen here, not in the oracle: a retained scene graph, typed style values, and
-> ZownGPU resources need a renderer. The type vocabulary is fixed so the manifest
-> and type system can carry it.
+> The style-block syntax below is still design-only. The running slice is §25:
+> a layout tree, a 5×7 bitmap, pointer and key delivery, one animation tick,
+> and a software pipeline whose readback is a `buf`.
 
 UI is **typed data**, not markup (no HTML/CSS; `DESIGN.md` §4). A layout node is a
 dense word + a style block + a children block. Style values are **typed** (`Color`
@@ -811,6 +811,12 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `ev` signature does not verify | trap `SIG_INVALID` (kind `sec`) | `errors_v2/crypt_sig` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
+| `gp` shader leaves anything but one color | trap `TYPE_MISMATCH`. No buffer is pushed | `errors_v2/shader` |
+| `gp` width or height below 1, or a picture above the buffer budget | trap `BOUNDS` | (unit test) |
+| `an` tick count below 0 | trap `BOUNDS` | (unit test) |
+| `an` width does not fit `int` | trap `OVERFLOW` | (unit test) |
+| `pk` or `ky` on a value that is not a node | trap `TYPE_MISMATCH` | (unit test) |
+| a pointer or key misses, or the button has no handler | the event is dropped | `cases_v2/click` |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
@@ -1076,26 +1082,43 @@ machine. The hello packet carries the bundle hash from the serving node
 id, and the fetcher checks that announcement before it requests the bytes.
 QUIC and a DHT are not this command. Streams on `[::1]` are §14.
 
-## 25. Layout — **implemented (M13, oracle + Rust VM)**
+## 25. Layout — **implemented (M13 layout, M27 glyphs, input, tick, readback; oracle + Rust VM)**
 
 UI is data. There is no markup. A program builds a tree and `ly` pushes its
-geometry. `zown draw` paints that tree as a PPM. This is a CPU picture of the
-rectangles, not a GPU, a font, or an audio graph. Those stay design-only (§15).
+geometry. `zown draw` paints that tree as a PPM. Boxes are rectangles. Text
+and button labels are a 5×7 bitmap. `gp` is a software pipeline: the test
+reads the rectangle back from a `buf`. A hardware device, audio, and a PDF
+exporter stay design-only (§15).
 
 | Word | Stack | Result |
 |------|--------|--------|
 | `co` | `r g b co` | a color. Each channel is a plain `int` in `0..255`, else `BOUNDS` |
 | `tx` | `$text$ size color tx` | a text node. `size` is an `int` ≥ 1. Width is the number of characters times `size`; height is `size`. A newline in the text is `TYPE_MISMATCH` |
-| `bt` | `$label$ size color bt` | a button. Width is the text width plus `size` on each side; height is `size * 2`. The accessible name is the label |
+| `bt` | `$label$ size color bt` | a button. Width is the text width plus `size` on each side; height is `size * 2`. The accessible name is the label. It has no handler |
+| `bh` | `$label$ size color [body] bh` | the same button, plus a handler. `ly` still prints `bt` |
+| `pk` | `node x y pk` | run the deepest button whose rectangle contains the point. The handler runs on the caller's stack |
+| `ky` | `node $key$ ky` | run the first button, in child-before-self order, whose label equals `key` |
+| `an` | `node n an` | add `n` to the node's width and push the same node. `n` is a tick count, an `int` ≥ 0 |
+| `gp` | `w h [shader] gp` | an exclusive `buf` of a `w` by `h` rectangle in the shader's color |
 | `rw` | `color gap pad [nodes] rw` | a row. The block runs on a fresh stack and must leave nodes |
 | `cm` | `color gap pad [nodes] cm` | a column, same rule |
 | `ly` | `node ly` | the dump below, one string |
 
 `pad` and `gap` are plain `int`s ≥ 0, else `BOUNDS`. A child that is not a node is `TYPE_MISMATCH`. Children are start-aligned: a column stacks them downward, a row lays them to the right, separated by `gap`, inset by `pad`. An empty box is `pad*2` by `pad*2`.
 
-`ly` walks preorder. A box line is `rw|cm x y w h`. A leaf line is `tx|bt x y w h ok|low text`. Indentation is two spaces per level. Coordinates are the top-left of the root. `ok` means the leaf's color against its parent box (or black, if it is the root) passes the contrast test; `low` means it does not. Luma is linear Rec. 709, `(2126*r + 7152*g + 722*b) // 1000`. It passes when `(hi+128)*10 >= (lo+128)*45`.
+`ly` walks preorder. A box line is `rw|cm x y w h`. A leaf line is `tx|bt x y w h ok|low text`. Indentation is two spaces per level. Coordinates are the top-left of the root passed to `ly`, not a stored origin. `ok` means the leaf's color against its parent box (or black, if it is the root) passes the contrast test; `low` means it does not. Luma is linear Rec. 709, `(2126*r + 7152*g + 722*b) // 1000`. It passes when `(hi+128)*10 >= (lo+128)*45`.
 
-`zown draw file.zn` runs the program and paints the one node it leaves. The root must have area. The file is a binary `P6` PPM: boxes fill their rectangle with their color, then children paint over them; a leaf fills its rectangle with its own color. Animation, input delivery, shaders, and audio are not in this picture.
+`zown draw file.zn` runs the program and paints the one node it leaves. The root must have area. The file is a binary `P6` PPM. A box fills its rectangle with its color, then children paint over it. A `tx` node paints only glyph pixels, in its own color, so the parent shows through the holes. A `bt` node fills its rectangle, then paints the label. The label's cell size is half the button height. Its origin is `(x + height/2, y + height/4)`. Ink is black when the button's luma is at least 1280, and white otherwise.
+
+The glyph is 5 columns by 7 rows. Bit 4 of a row is the left column. A pixel at local `(x, y)` in a cell of the node's `size` reads column `x * 5 // size` and row `y * 7 // size`. A code point with no glyph is blank. The oracle's table covers space, `H`, `i`, `G`, and `o`, which is enough for the word `Hi` and the label `Go`.
+
+A point hits a button when `x0 ≤ x < x0+w` and `y0 ≤ y < y0+h`, using the same origins as `ly`. Children are tested first, so the deepest button wins. A button with no handler still consumes the hit: a later sibling does not run. A miss is dropped. `ky` uses the same walk and compares the label. A newline in the key is `TYPE_MISMATCH`. Both words pop the node.
+
+`an` mutates the node a dup or a bare name already shares, then pushes it. `n < 0` is `BOUNDS`. A width that does not fit `int` is `OVERFLOW`. The count is one tick in the sense of §23: N ticks add N to the width. `ly` after `an` shows the new width.
+
+`gp` checks `w` and `h` before the shader runs. Each is an `int` ≥ 1, else `BOUNDS`. `w * h` above `1048576 // 3` is `BOUNDS`, the same budget as `bf`. The shader runs on a fresh stack with the authority of the caller (the checker walks it inline, as it walks `rw`). It must leave exactly one color. Anything else is `TYPE_MISMATCH` and the word pushes nothing. The buffer is row-major RGB, three bytes per pixel, every pixel that color. The bytes match the PPM body of a solid box of the same size and color. A shader that faults keeps its own `.zerr`.
+
+`bh`'s handler is an escaped block: it does not inherit the caller's capability marks. `pk` and `ky` run it later, on the caller's stack.
 
 ## 26. The graph — **implemented (M14 bundle, M24 signature and log; oracle + Rust VM)**
 

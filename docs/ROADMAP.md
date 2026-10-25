@@ -161,12 +161,15 @@ Hard problems still open: congestion control, DHT churn, relay incentives.
 ## Phase 7 — Native UI, ZownGPU, audio, input
 
 Everything a frontend needs, native (see `DESIGN.md` §4–§5). The running slice
-is SPEC §25: a typed tree and a PPM of its rectangles.
+is SPEC §25: a typed tree, a 5×7 bitmap, a hit, one tick, and a software
+pipeline.
 
 - [x] Layout tree with no markup: `co`, `tx`, `bt`, `rw`, `cm`, and `ly`.
       `zown draw` paints the rectangles. Contrast is marked `ok` or `low`.
-- [ ] ZownGPU, shaders, text shaping, animation, input delivery, audio, PDF.
-      Not started. The picture is not a font and not a GPU.
+- [x] Glyphs in the PPM. `bh` runs from `pk` or `ky`. `an` adds N ticks to
+      the width. `gp` fills a rectangle from a Zown shader; readback matches
+      the CPU picture. A wrong shader is `TYPE_MISMATCH`.
+- [ ] Audio, PDF, a widget set, and a hardware GPU.
 
 ---
 
@@ -237,9 +240,10 @@ local inference.
 - [ ] Long mode, a hardware IRQ, and a microkernel.
       Not started. The sector halts after the one software interrupt.
 
-The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md). `buf`
-(M18) through host I/O (M20) and crypto (M21) are done. Next is WASM v0.2
-(M22). The byte-identical stage-2 compiler is M23.
+The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md).
+Through M27 the tree has `buf`, host I/O, crypto, WASM tags, the
+print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
+file, and the UI slice in SPEC §25. Next is M28.
 
 ---
 

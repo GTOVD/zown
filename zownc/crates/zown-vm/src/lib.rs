@@ -37,7 +37,7 @@ use value::{f64_fits_int, num_partial_cmp, Lane, VecVal, WidthTag};
 pub use error::*;
 pub use lanes::Slice;
 pub use native::NatOp;
-pub use value::Value;
+pub use value::{UiHandler, Value};
 
 /// Nested block invocations before a structured `STACK_OVERFLOW` (SPEC §19).
 /// Loops (`;`) do not accumulate depth: each condition and body returns.
@@ -966,6 +966,11 @@ impl Vm {
             "co" => self.b_co(),
             "tx" => self.b_tx(),
             "bt" => self.b_bt(),
+            "bh" => self.b_bh(),
+            "pk" => self.b_pk(),
+            "ky" => self.b_ky(),
+            "an" => self.b_an(),
+            "gp" => self.b_gp(),
             "rw" => self.b_box(true),
             "cm" => self.b_box(false),
             "ly" => self.b_ly(),
@@ -1888,6 +1893,11 @@ pub fn is_builtin(name: &str) -> bool {
             | "co"
             | "tx"
             | "bt"
+            | "bh"
+            | "pk"
+            | "ky"
+            | "an"
+            | "gp"
             | "rw"
             | "cm"
             | "ly"
