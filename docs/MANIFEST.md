@@ -86,6 +86,19 @@ automatically vs. what you (or an AI) fill in:
   `module.log` stays empty. A manifest does not claim the source was entered
   in a transparency log. `author` is still yours to write.
 
+`zown doc file.zn` prints this object. It does not write the sidecar and it
+does not fill a missing `sig`. With `ZOWN_SIGN` unset and no prior signature,
+the line is `sig: null`. A package file names a dependency by that same
+content hash:
+
+```json
+{ "name": "app", "deps": ["zown:<64 hex>"] }
+```
+
+`zown pkg app.zpkg` resolves each hash to a file in a directory. It does not
+fetch from a registry. Publishing the bytes so `~f` can load them is a
+separate step.
+
 ### Per-symbol additions
 
 ```json
@@ -114,7 +127,9 @@ automatically vs. what you (or an AI) fill in:
 | `tele` | authored hint for the control plane (`DESIGN.md` §8). The log the runtime actually writes is SPEC §27; this field is not filled from that log. |
 | `i18n` | translation keys referenced by this symbol (BiDi/CLDR resolution at runtime). |
 
-### Module-level provenance block (planned)
+### Module-level provenance block
+
+`zown doc` prints `sig` as it is stored. Until you sign, that line is `sig: null`.
 
 Distribution and verified updates (`DESIGN.md` §7) live in a top-level `module`
 block — the signed, content-addressed record that makes "this is the original,

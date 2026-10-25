@@ -312,6 +312,24 @@ each short name to an `alias`, a prose `desc`, and an `ai_hint` describing how t
 modify it safely. `zown manifest file.zn` scans the file and merges discoveries
 into the manifest **without** clobbering descriptions you've already written.
 
+`zown doc file.zn` prints the fields that scan stored. It does not write the
+sidecar. `module.sig` prints as `null` unless a signature is already stored or
+`ZOWN_SIGN` is a 64-hex seed. The command does not invent one.
+
+`zown lsp` speaks JSON-RPC 2.0 on stdin, framed with `Content-Length`.
+Diagnostics are the human text of `zown check`. The check command's summary
+line (`N issue(s)` or `ok:`) is not a diagnostic. Go to definition returns the
+`:name` that binds a user name under the cursor; a builtin has none. Formatting
+is one edit from `zown fmt`. There is no code action and no speculative fix.
+
+`zown pkg file.zpkg` reads a JSON object with `name` and `deps`. Each
+dependency is `zown:` plus 64 hex digits, the BLAKE3 `~f` uses for a published
+string. The command walks a directory — the package's own, or `--root` — and
+prints the hash and the relative path of the file with those bytes. Two files
+with one hash yield the lexicographically smaller path. A missing hash is
+`BOUNDS`. A file that is not that JSON shape is `TYPE_MISMATCH`. This is a
+local directory, not a registry.
+
 ---
 
 ## 10. Grammar (EBNF, informal)
@@ -1100,8 +1118,9 @@ The key is 32 bytes and the nonce is 12. The seed, the public key, the scalar, a
 
 This is RFC 8439 for the seal, RFC 8032 for the signature, and RFC 7748 for the exchange. `cases_v2/crypt` runs those three test vectors. The arithmetic is not constant-time. There is no second hash, no certificate, and no TLS. `h3` stays BLAKE3. `ni` stays the BLAKE3 node id; an Ed25519 public key is a `buf` the program holds.
 
-Collections are the fat pointers in §21. A block stays code. LSP, a doc
-generator, and a mesh REPL are the same toolchain story and are not commands yet.
+Collections are the fat pointers in §21. A block stays code. `zown lsp`,
+`zown doc`, and `zown pkg` are the M30 commands in §9. A mesh REPL is still
+not a command.
 
 `zown fmt` rewrites whitespace only: one space between tokens, source line
 breaks kept, blank lines removed, a trailing newline. It is idempotent.

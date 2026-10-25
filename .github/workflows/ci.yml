@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: qemu
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
+
+      - name: oracle
+        run: |
+          python3 tests/test_zown.py
+          python3 tests/test_examples.py
+          python3 conformance/run.py
+          python3 conformance/v2.py
+          python3 conformance/check.py
+
+      - name: cargo test
+        working-directory: zownc
+        run: cargo test
+
+      # `cargo test` builds the test harness, not target/debug/zownc.
+      - name: cargo build
+        working-directory: zownc
+        run: cargo build
+
+      - name: native parity and boot
+        run: |
+          python3 conformance/native_parity.py
+          python3 conformance/stage_parity.py
+          python3 conformance/parse_parity.py
+          python3 conformance/bare_boot.py

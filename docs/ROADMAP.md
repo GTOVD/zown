@@ -126,9 +126,10 @@ and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
 - [x] Collections and the rest of the numbers (SPEC §11 and §21). `ls` is
       the list. The other DESIGN §10 structures each have one golden.
       `iz` `uz` are pointer widths. `dc` and `cx` are not `float` or `b`.
-- [x] Developer toolchain, the part that can be honest today: `zown test`
-      (goldens, plus `ts` / `pp`) and `zown fmt` (canonical whitespace).
-      LSP, the doc generator, and a mesh REPL are still §23.
+- [x] Developer toolchain: `zown test` (goldens, plus `ts` / `pp`),
+      `zown fmt` (canonical whitespace), `zown doc`, `zown pkg`, and
+      `zown lsp` (diagnostics, definition, format). A mesh REPL is still
+      not a command.
 - [x] Begin the self-host migration: `std/core.zn` is loaded by both VMs.
       Host intrinsics remain for words the language cannot express (`ab`,
       strings, `sq`, `pw`, …).
@@ -247,10 +248,11 @@ local inference.
       Not started. The sector halts after the one software interrupt.
 
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md).
-Through M27 the tree has `buf`, host I/O, crypto, WASM tags, the
+Through M30 the tree has `buf`, host I/O, crypto, WASM tags, the
 print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
-file, the UI slice in SPEC §25, the collections in §21, and the
-two-peer control plane in §27. Next is M30.
+file, the UI slice in SPEC §25, the collections in §21, the two-peer
+control plane in §27, and the toolchain (`zown lsp`, `zown doc`,
+`zown pkg`, and CI). Next is M31.
 
 ---
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -24,7 +25,7 @@ ZOWNC = os.path.join(ROOT, "zownc", "target", "debug",
 QEMU = "qemu-system-i386"
 EXAMPLE = os.path.join(ROOT, "examples", "bare.zn")
 
-GREEN, RED, RST = "\033[32m", "\033[31m", "\033[0m"
+GREEN, RED, YEL, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
 
 
 class BootFailure(Exception):
@@ -158,6 +159,9 @@ def main() -> int:
     if not os.path.exists(ZOWNC):
         print(f"{RED}error{RST}: {ZOWNC} not found. Build it: (cd zownc && cargo build)")
         return 2
+    if shutil.which(QEMU) is None:
+        print(f"{YEL}skip{RST} bare_boot  (qemu-system-i386 not found)")
+        return 0
     try:
         src = open(EXAMPLE, encoding="utf-8").read()
         check("examples/bare.zn", src, "Zown\n")

@@ -214,8 +214,14 @@ and an index outside the list is `BOUNDS`. `mp` `sc` `qu` `rg` `te`
 after an Ed25519 signature checks and the test leaves one truthy value.
 A bad signature or a failed test leaves the old word. `~s` carries the
 trace and the wants. `~r` installs them, so two peers `df` the same
-drift and both logs name the trace id. Next is **M30** (CI, then an
-LSP). The rest of the map is **M30–M32** in `docs/PLAN.md`.
+drift and both logs name the trace id. **M30 ✅** — `.github/workflows/ci.yml`
+runs the oracle, `cargo test`, `cargo build`, `native_parity`, `stage_parity`,
+`parse_parity`, and `bare_boot` (that boot skips only when
+`qemu-system-i386` is absent). `zown lsp` returns the checker's human
+text, a user `:name`, and `zown fmt`. `zown doc` prints stored manifest
+fields and does not invent `sig`. `zown pkg` resolves a `zown:` content
+hash in a directory. Next is **M31** (Opus, then one AV1 frame). The
+rest of the map is **M31–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

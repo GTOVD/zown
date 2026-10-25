@@ -1830,6 +1830,261 @@ def test_zown_emit_boot_sector():
     assert same == img
 
 
+# --- tooling (M30) -------------------------------------------------------------
+def _frames(blob: bytes) -> list:
+    msgs = []
+    i = 0
+    while i < len(blob):
+        end = blob.find(b"\r\n\r\n", i)
+        assert end >= 0, blob[i:]
+        header = blob[i:end].decode("ascii")
+        n = int(header.split(":", 1)[1].strip())
+        body = blob[end + 4:end + 4 + n]
+        msgs.append(json.loads(body.decode("utf-8")))
+        i = end + 4 + n
+    return msgs
+
+
+def _rpc(obj: dict) -> bytes:
+    data = json.dumps(obj).encode("utf-8")
+    return f"Content-Length: {len(data)}\r\n\r\n".encode("ascii") + data
+
+
+def _check_body(path: str) -> tuple[int, str, str]:
+    """stderr of `zown check` split into findings and the summary line."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    proc = subprocess.run(
+        [sys.executable, os.path.join(root, "bin", "zown"), "check", path],
+        capture_output=True, text=True,
+    )
+    err = proc.stderr
+    if err.endswith("\n"):
+        err = err[:-1]
+    lines = err.split("\n") if err else []
+    summary = lines[-1] if lines else ""
+    body = "\n".join(lines[:-1])
+    return proc.returncode, body, summary
+
+
+def test_lsp_diagnostics_match_zown_check():
+    from zown.lsp import diagnostics
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "bad.zn")
+    src = "zz\n"
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    code, body, summary = _check_body(path)
+    assert code == 2
+    assert summary == f"1 issue(s) in {path}"
+    items = diagnostics(src, path)
+    assert "\n".join(item["message"] for item in items) == body
+    assert items[0]["code"] == NAME_UNRESOLVED
+    assert items[0]["severity"] == 1
+    clean = os.path.join(d, "ok.zn")
+    good = "1 :n\nn .\n"
+    with open(clean, "w", encoding="utf-8") as fh:
+        fh.write(good)
+    code, body, summary = _check_body(clean)
+    assert code == 0 and body == ""
+    assert summary == f"ok: {clean} — no issues"
+    assert diagnostics(good, clean) == []
+
+
+def test_lsp_definition_and_format():
+    from zown.fmt import format_source
+    from zown.lsp import definition, formatting
+    src = "1 :n\nn .\n"
+    found = definition(src, 1, 0)
+    assert found == {
+        "start": {"line": 0, "character": 2},
+        "end": {"line": 0, "character": 4},
+    }
+    assert src[2:4] == ":n"
+    assert definition(src, 0, 2) == found
+    shadowed = "1 :n\n2 :n\nn .\n"
+    later = definition(shadowed, 2, 0)
+    assert later["start"] == {"line": 1, "character": 2}
+    early = "n .\n1 :n\n"
+    assert definition(early, 0, 0)["start"] == {"line": 1, "character": 2}
+    assert definition("1 :n\nln .\n", 1, 0) is None
+    messy = "1  +  2"
+    edits = formatting(messy)
+    assert len(edits) == 1
+    assert edits[0]["newText"] == format_source(messy) == "1 + 2\n"
+    assert edits[0]["range"]["start"] == {"line": 0, "character": 0}
+    assert edits[0]["range"]["end"] == {"line": 0, "character": len(messy)}
+
+
+def test_lsp_stdio_roundtrip():
+    from zown.lsp import Server, serve
+    uri = "file:///t.zn"
+    text = "1 :n\nn .\n"
+    inp = io.BytesIO(b"".join([
+        _rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        _rpc({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
+        _rpc({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri, "text": text},
+        }}),
+        _rpc({"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {
+            "textDocument": {"uri": uri},
+        }}),
+        _rpc({"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 0},
+        }}),
+        _rpc({"jsonrpc": "2.0", "id": 4, "method": "textDocument/formatting", "params": {
+            "textDocument": {"uri": uri},
+        }}),
+        _rpc({"jsonrpc": "2.0", "id": 5, "method": "shutdown"}),
+        _rpc({"jsonrpc": "2.0", "method": "exit"}),
+    ]))
+    out = io.BytesIO()
+    assert serve(inp, out) == 0
+    msgs = _frames(out.getvalue())
+    assert msgs[0]["id"] == 1
+    caps = msgs[0]["result"]["capabilities"]
+    assert caps["textDocumentSync"] == 1
+    assert caps["definitionProvider"] is True
+    assert caps["documentFormattingProvider"] is True
+    assert "codeActionProvider" not in caps
+    opened = next(m for m in msgs if m.get("method") == "textDocument/publishDiagnostics")
+    assert opened["params"]["diagnostics"] == []
+    pulled = next(m for m in msgs if m.get("id") == 2)
+    assert pulled["result"] == {"kind": "full", "items": []}
+    defined = next(m for m in msgs if m.get("id") == 3)
+    assert defined["result"]["uri"] == uri
+    assert defined["result"]["range"]["start"] == {"line": 0, "character": 2}
+    formatted = next(m for m in msgs if m.get("id") == 4)
+    assert formatted["result"][0]["newText"] == text
+    assert next(m for m in msgs if m.get("id") == 5)["result"] is None
+    assert serve(io.BytesIO(_rpc({"jsonrpc": "2.0", "method": "exit"})), io.BytesIO()) == 1
+    assert serve(io.BytesIO(b""), io.BytesIO()) == 1
+    broken = Server()
+    broken.docs["u"] = "$nope"
+    reply = broken.handle({
+        "jsonrpc": "2.0", "id": 9, "method": "textDocument/formatting",
+        "params": {"textDocument": {"uri": "u"}},
+    })
+    assert reply[0]["error"]["message"].startswith("zerr[")
+
+
+def test_lsp_did_change_republishes():
+    from zown.lsp import Server
+    server = Server()
+    uri = "file:///t.zn"
+    opened = server.handle({
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "text": "1 .\n"}},
+    })
+    assert opened[0]["params"]["diagnostics"] == []
+    changed = server.handle({
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": uri},
+            "contentChanges": [{"text": "zz\n"}],
+        },
+    })
+    diags = changed[0]["params"]["diagnostics"]
+    assert len(diags) == 1 and diags[0]["code"] == NAME_UNRESOLVED
+    assert "zz" in diags[0]["message"]
+
+
+def test_doc_prints_stored_fields_and_a_null_sig():
+    from zown.blake3 import blake3_hex
+    from zown.cli import main
+    from zown.doc import render
+    src = "[ 1 ] :n\n"
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "app.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    os.environ.pop("ZOWN_SIGN", None)
+    text = render(path)
+    digest = "zown:" + blake3_hex(src.encode("utf-8"))
+    assert f"content: {digest}" in text
+    assert "sig: null" in text
+    assert "ed25519:" not in text
+    assert "symbol: n" in text
+    assert not os.path.exists(path + ".json")
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["doc", path])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0, err.getvalue()
+    assert out.getvalue() == text
+
+
+def test_pkg_resolves_a_local_content_hash():
+    from zown.blake3 import blake3_hex
+    from zown.cli import main
+    from zown.pkg import resolve
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "a"))
+    os.makedirs(os.path.join(d, "b"))
+    blob = b"hello\n"
+    for rel in ("a/hello.txt", "b/hello.txt"):
+        with open(os.path.join(d, rel), "wb") as fh:
+            fh.write(blob)
+    digest = "zown:" + blake3_hex(blob)
+    missing = "zown:" + ("0" * 64)
+    pkg = os.path.join(d, "app.zpkg")
+    with open(pkg, "w", encoding="utf-8") as fh:
+        json.dump({"name": "app", "deps": [digest]}, fh)
+    assert resolve(pkg) == [(digest, "a/hello.txt")]
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["pkg", pkg])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0, err.getvalue()
+    assert out.getvalue() == f"{digest} a/hello.txt\n"
+    with open(pkg, "w", encoding="utf-8") as fh:
+        json.dump({"name": "app", "deps": [missing]}, fh)
+    try:
+        resolve(pkg)
+        assert False, "a missing hash resolved"
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "pkg"
+    out, err = io.StringIO(), io.StringIO()
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["pkg", pkg])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 1
+    assert "BOUNDS" in err.getvalue()
+    with open(pkg, "w", encoding="utf-8") as fh:
+        fh.write("{")
+    try:
+        resolve(pkg)
+        assert False, "broken JSON was accepted"
+    except ZownError as e:
+        assert e.code == TYPE_MISMATCH and e.op == "pkg"
+
+
+def test_bare_boot_skips_only_when_qemu_is_absent():
+    import conformance.bare_boot as boot
+    buf = io.StringIO()
+    old_which = boot.shutil.which
+    old_out = sys.stdout
+    boot.shutil.which = lambda _name: None
+    sys.stdout = buf
+    try:
+        code = boot.main()
+    finally:
+        boot.shutil.which = old_which
+        sys.stdout = old_out
+    assert code == 0, buf.getvalue()
+    assert "skip" in buf.getvalue()
+    assert "qemu-system-i386 not found" in buf.getvalue()
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

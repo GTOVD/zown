@@ -7,6 +7,9 @@ Usage:
     zown check <file.zn>      static checker (M8): names, match shape, capability flow
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
+    zown doc <file.zn>        print the manifest fields that exist
+    zown pkg <file.zpkg>      resolve deps by content hash from a local directory
+    zown lsp                  language server on stdin (check, definition, fmt)
     zown repl                 interactive stack session
     zown tune [N]             how many real-time lanes this machine pins
     zown fmt [-w] <file.zn>   canonical whitespace; -w writes the file
@@ -166,6 +169,35 @@ def cmd_manifest(args) -> int:
         return 1
     sys.stderr.write(f"wrote {path}\n")
     return 0
+
+
+def cmd_doc(args) -> int:
+    from .doc import render
+    try:
+        sys.stdout.write(render(args.file))
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return 1
+    return 0
+
+
+def cmd_pkg(args) -> int:
+    from .pkg import resolve
+    try:
+        rows = resolve(args.file, args.root)
+    except ZownError as e:
+        e.file = e.file or args.file
+        _emit_error(e, args.zerr, args.zerr_out)
+        return 1
+    for digest, path in rows:
+        sys.stdout.write(f"{digest} {path}\n")
+    return 0
+
+
+def cmd_lsp(_args) -> int:
+    from .lsp import serve
+    return serve()
 
 
 def cmd_repl(args) -> int:
@@ -403,6 +435,18 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("file")
     pm.set_defaults(func=cmd_manifest)
 
+    pdoc = sub.add_parser("doc", help="print the manifest fields that exist")
+    pdoc.add_argument("file")
+    pdoc.set_defaults(func=cmd_doc)
+
+    ppkg = sub.add_parser("pkg", help="resolve package deps by content hash in a directory")
+    ppkg.add_argument("file")
+    ppkg.add_argument("--root", default=None, help="directory of dependency files (default: the package's directory)")
+    ppkg.set_defaults(func=cmd_pkg)
+
+    plsp = sub.add_parser("lsp", help="language server on stdin: check, definition, format")
+    plsp.set_defaults(func=cmd_lsp)
+
     prp = sub.add_parser("repl", help="interactive session")
     prp.set_defaults(func=cmd_repl)
 
@@ -462,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
-    known = {"run", "check", "ast", "manifest", "repl", "tune", "fmt", "test", "mesh", "draw", "keep", "watch", "stage"}
+    known = {"run", "check", "ast", "manifest", "doc", "pkg", "lsp", "repl", "tune", "fmt", "test", "mesh", "draw", "keep", "watch", "stage"}
     positional = [a for a in argv if not a.startswith("-")]
     if positional and positional[0] not in known:
         idx = argv.index(positional[0])

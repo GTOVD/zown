@@ -9,7 +9,7 @@ goal: fit *dramatically* more working code inside an LLM's context window, and
 run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
 boot sector.
 
-> Milestones **M0–M29** are in this tree. The Python package is the behavioral
+> Milestones **M0–M30** are in this tree. The Python package is the behavioral
 > oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
 > LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
 > [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
@@ -45,6 +45,8 @@ python3 bin/zown --zerr examples/hello.zn
 
 # generate the shadow manifest (meaning for the dense symbols)
 python3 bin/zown manifest examples/fib.zn   # writes examples/fib.zn.json
+python3 bin/zown doc examples/fib.zn        # print those fields; a null sig stays null
+python3 bin/zown pkg app.zpkg               # resolve zown: hashes in a directory
 
 # interactive stack session
 python3 bin/zown repl
@@ -54,6 +56,7 @@ python3 bin/zown tune
 
 # canonical whitespace, and the Zown test runner (tests/zn by default)
 python3 bin/zown fmt examples/hello.zn
+python3 bin/zown lsp                        # check, definition, and format on stdin
 python3 bin/zown test
 
 # two local IPv6 peers exchange one BLAKE3-addressed bundle
@@ -195,11 +198,15 @@ python3 conformance/stage2_parity.py # IR fixed point and boot-image bytes
 python3 conformance/stream_pair.py   # two peers on [::1]
 python3 conformance/map_reopen.py    # snapshot file, new process
 python3 conformance/fleet_pair.py   # trace id and drift across one socket
+python3 conformance/bare_boot.py    # QEMU; skips only when qemu-system-i386 is absent
 ```
+
+The same oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_parity`,
+`parse_parity`, and `bare_boot` run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Status
 
-**M0–M29 are done.** The same programs run three ways, held to one conformance
+**M0–M30 are done.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -230,8 +237,13 @@ a checked decimal and `cx` is a Gaussian integer.
 signature checks and its test passes. A failure leaves the old word.
 Two peers on `[::1]` share a trace id and print the same drift.
 
-**Next is M30:** CI for the suite, then an editor protocol for
-`zown check` and `zown fmt`. QUIC and a kernel are later. The map is
+`zown lsp` reports the same diagnostic text as `zown check`, jumps to a
+user binding, and formats with `zown fmt`. `zown doc` prints the manifest
+fields a file has, and leaves `sig` null when nothing signed it. `zown pkg`
+resolves a dependency named by its BLAKE3 in a local directory.
+
+**Next is M31:** Opus decode, then one AV1 frame. QUIC and a kernel are
+later. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

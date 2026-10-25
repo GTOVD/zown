@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M29: signed word swap, trace across one socket, shared drift).
+Last updated: 2026-10-25 (M30: CI, LSP, doc generator, local package hashes).
 
 ---
 
@@ -82,7 +82,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M27 | UI completion | ✅ | Bitmap glyphs, `pk`/`ky` on `bh`, `an` adds ticks to the width, `gp` readback. |
 | M28 | Collections and remaining numbers | ✅ | List, map, set, queue, ring, B-tree, trie, bloom, heap, bit vector. `iz` `uz` `dc` `cx`. |
 | M29 | Control plane completion | ✅ | `sw` replaces a `wd` word after the signature and the test. Two peers share a trace and a drift line. |
-| M30 | Tooling | ⬜ | CI, LSP, doc generator, package manifest. CI does not wait on the rest |
+| M30 | Tooling | ✅ | CI runs the oracle, `cargo test`, parity, and `bare_boot`. `zown lsp`, `zown doc`, `zown pkg`. No registry |
 | M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
 | M32 | Kernel | ⬜ | Long mode, one hardware IRQ, then a microkernel with capability isolation. Needs M23 |
 
@@ -125,7 +125,7 @@ machines it has been developed on.
 Full verification (what "green" means for the oracle side, ~2 s):
 
 ```bash
-python3 tests/test_zown.py          # unit tests (101)
+python3 tests/test_zown.py          # unit tests (147)
 python3 tests/test_examples.py      # the shipped examples
 python3 conformance/run.py          # v0.1 goldens (20)
 python3 conformance/v2.py           # v0.2 goldens (39)
@@ -825,10 +825,10 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** CI depends on nothing else. LSP wants the checker. The package manifest wants M24.
 **Goal:** a push runs the suite, and an editor can ask the checker.
 
-- [ ] **M30a.** CI. One workflow runs the five oracle commands, `cargo test`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot` when QEMU is present. `bare_boot` skips with a visible reason when QEMU is absent, and does not skip when it is present.
-- [ ] **M30b.** LSP over stdio: diagnostics from `zown check`, go to definition for a user binding, format via `zown fmt`. No speculative fixes.
-- [ ] **M30c.** Doc generator. It prints the manifest fields that exist. It does not invent `sig`.
-- [ ] **M30d.** A package file that names a dependency by the M24 content hash. Fetch uses `~f` once M25 can carry it. Before that, the golden is a local file.
+- [x] **M30a.** CI. One workflow runs the five oracle commands, `cargo test`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot` when QEMU is present. `bare_boot` skips with a visible reason when QEMU is absent, and does not skip when it is present.
+- [x] **M30b.** LSP over stdio: diagnostics from `zown check`, go to definition for a user binding, format via `zown fmt`. No speculative fixes.
+- [x] **M30c.** Doc generator. It prints the manifest fields that exist. It does not invent `sig`.
+- [x] **M30d.** A package file that names a dependency by the M24 content hash. Fetch uses `~f` once M25 can carry it. Before that, the golden is a local file.
 
 **Acceptance:** CI fails when a golden fails. The LSP returns the same diagnostic text as `zown check`.
 **Not this slice:** a hosted registry.
@@ -896,6 +896,7 @@ memory type.)*
 | D24 | M27 UI is a **bitmap, a hit, a tick, and a software pipeline** (2026-10-25). `zown draw` paints 5×7 glyphs. `bh` stores a handler on a `bt`. `pk` and `ky` run it, or drop the event. `an` adds the tick count to the width of the shared node. `gp` fills a rectangle from a shader that must leave one color; a wrong shader is `TYPE_MISMATCH` and pushes nothing. Readback matches the CPU rectangle. A hardware device, a PDF exporter, and a widget set stay later | SPEC §25; M27 |
 | D25 | M28 collections are **fat pointers, and the remaining numbers stay checked** (2026-10-25). `ls` is the list. `gt` indexes it. `mp` `sc` `qu` `rg` `te` `ti` `bm` `pq` `bv` are the other DESIGN §10 structures, each with one golden. `iz` and `uz` are 64-bit pointer widths here. `dc` is a checked decimal. `cx` is a Gaussian integer. Neither shares a word with `float` or `b`. A block stays code | SPEC §11, §21; M28 |
 | D26 | M29 hot-swap is **one `wd` word, signed and tested** (2026-10-25). `cs` is the canonical text. `sw` checks an Ed25519 signature the way `ev` does, runs the test the way `ts` does, and restores the old word on failure. `~s` carries the trace and the wants. `~r` installs them. Two peers then `df` the same drift. No on-device model | SPEC §14, §27; M29 |
+| D27 | M30 tooling is **CI plus three commands** (2026-10-25). One workflow runs the five oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot`. `bare_boot` skips only when `qemu-system-i386` is absent. `zown lsp` reports the checker's human text, finds a user `:name`, and formats with `zown fmt`. `zown doc` prints stored manifest fields and does not invent `sig`. `zown pkg` resolves `zown:` hashes in a directory. No hosted registry. `tele.errors` stays authored | SPEC §9; `.github/workflows/ci.yml`; M30 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -911,12 +912,11 @@ the milestone noted.
 | `zownc llvm` needs `libzown_rt.a` (`cargo rustc -p zown-rt --crate-type staticlib`) and `clang` | `zown-codegen` | document in the README if the llvm path is used in CI |
 | Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
 | `$fmt_f64` prints `inf`/`-inf`/`nan` and `1e+30`, and is exact for dyadics (`2.5`). It is still not a full shortest-round-trip formatter for values like `0.1` | `zown-wasm` | later |
-| No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | **M30a** |
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
 | WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
 | The oracle has no resource limits for `big` (a `2 b 1000000000 pw` allocates ~125 MB; `ty`-wrapped recursion can be made exponential) — implementation-defined per §19, but a native runtime should expose a budget | `zown/builtins.py` | **M29** (a pinned budget on the log) |
 | `Res` err payload is the code string only. M15 records the code and op on the log; the message and position stay in the host `.zerr` | `zown/vm.py` | SPEC §27 |
-| `tele.errors` in the manifest could be auto-discovered from `ty`/`rq`/`??` usage | `zown/manifest.py` | **M30c** |
+| `tele.errors` stays authored. `zown doc` prints the field as stored and does not infer codes from `ty`/`rq`/`??` | `zown/manifest.py`, `zown/doc.py` | later |
 
 ---
 
@@ -945,13 +945,12 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M30 — tooling.** One workflow runs the oracle, `cargo test`,
-   `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot` when
-   QEMU is present. LSP over stdio reports `zown check`, finds a binding,
-   and formats with `zown fmt`.
-2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
-   `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
-   fractions; WASM lane ops (refused today); auto-discover `tele.errors`.
+1. **M31 — media.** Opus decode of a checked-in fixture into a `buf` of
+   PCM. The golden is a hash of that PCM. Then one AV1 frame. A truncated
+   fixture is `INTEGRITY_FAIL` or `BOUNDS`.
+2. **Carry-over:** Ryu/Grisu `$fmt_f64` for non-dyadic fractions; WASM lane
+   ops (refused today). `tele.errors` stays authored; `zown doc` prints the
+   field and does not infer codes from `ty`/`rq`/`??`.
 3. **Windows link.** No MSVC `link.exe` on the 2026-09 machine. Build with
    `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. Do not change
    `rust-toolchain.toml`.
