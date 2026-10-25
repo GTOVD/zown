@@ -1247,6 +1247,38 @@ def test_relay_forwards_one_frame_each_way():
     assert got["rel"][1] is None, got
 
 
+def test_mapped_snapshot_reopens_in_a_fresh_vm():
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "g.txt")
+    write = f"""$a$ gv
+$b$ gv
+$a$ $knows$ $b$ ge
+${folder}$ [
+  ${path}$ mm
+] gd
+gs .
+"""
+    first, vm = run(write)
+    read = f"""${folder}$ [
+  ${path}$ ml
+] gd
+gs .
+$a$ » $knows$ → « .
+"""
+    second, _ = run(read)
+    assert first == vm.graph.snapshot() + "\n"
+    assert second == first + "b\n"
+
+
+def test_merge_keeps_both_parents_either_order():
+    src = open(os.path.join("conformance", "cases_v2", "merge.zn"), encoding="utf-8").read()
+    want = open(os.path.join("conformance", "cases_v2", "merge.out"), encoding="utf-8").read()
+    got, _ = run(src)
+    assert got == want
+    halves = [block for block in got.split("\n\n") if block]
+    assert len(halves) == 2 and halves[0] == halves[1]
+
+
 # --- layout (M13) --------------------------------------------------------------
 def test_layout_dump_and_low_contrast():
     out, _ = run("""255 255 255 co :fg

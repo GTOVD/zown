@@ -802,7 +802,8 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `bg` / `bp` index outside the buffer | trap `BOUNDS` | `errors_v2/buf_oob` |
 | `bp` on a borrow | trap `TYPE_MISMATCH` | `errors_v2/buf_borrow` |
 | `bg` or `ln` after the exclusive buf was dropped | trap `BOUNDS` | `errors_v2/buf_freed` |
-| `fr` / `fw` / `en` / `tm` without the capability, or a path outside the `gd` root | trap `CAP_DENIED` (kind `sec`). Also static when the checker can prove it | `errors_v2/io_denied`, `io_escape`, `env_denied`, `clock_denied`; `check/io_denied` |
+| `fr` / `fw` / `mm` / `mo` / `ml` / `en` / `tm` without the capability, or a path outside the `gd` root | trap `CAP_DENIED` (kind `sec`). Also static when the checker can prove it | `errors_v2/io_denied`, `io_escape`, `map_denied`, `env_denied`, `clock_denied`; `check/io_denied` |
+| `mo` / `ml` on a file that is not a snapshot | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/map_short`, `map_load` |
 | `fr` of a missing file, or a file larger than 1048576 bytes | trap `BOUNDS` | `errors_v2/io_missing` (missing). The size limit is a unit test |
 | `ag` index outside `0 .. ac` | trap `BOUNDS` | `errors_v2/arg_oob` |
 | `en` of a name that is not set | trap `BOUNDS` | `errors_v2/env_unset` |
@@ -1098,7 +1099,7 @@ rectangles, not a GPU, a font, or an audio graph. Those stay design-only (§15).
 
 ## 26. The graph — **implemented (M14 bundle, M24 signature and log; oracle + Rust VM)**
 
-The store that runs is an in-memory graph plus a text bundle. Vertices and edges are single words: no whitespace, not empty. A duplicate vertex or edge is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes. This is not a memory map, not a column store, and not a CRDT. Those, and a signed patch that hot-swaps code, stay design-only (`DESIGN.md` §6–§7).
+The store that runs is an in-memory graph, a text bundle, a snapshot file a `buf` can reopen, a column table, and a set-union merge. Vertices, edges, column names, and cells are single words: no whitespace, not empty. A duplicate vertex, edge, or column is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes, until `mg` sorts the union. A signed patch that hot-swaps code stays design-only (`DESIGN.md` §7).
 
 | Word or op | Stack | Result |
 |------------|--------|--------|
@@ -1116,6 +1117,13 @@ The store that runs is an in-memory graph plus a text bundle. Vertices and edges
 | `la` | `la` | append this bundle's digest to the transparency log and push the new size |
 | `lp` | `lp` | push one `include` line for this bundle. `BOUNDS` when it is not in the log |
 | `lr` | `lr` | push the log root, 64 hex digits. An empty log pushes `""` |
+| `mm` | `path mm` | fsync the snapshot at `path`. Needs `` `d `` and a `gd` root |
+| `mo` | `path mo` | exclusive `buf` of that file, when it is a snapshot. Needs `` `d `` |
+| `ml` | `path ml` | replace the graph from that file. Needs `` `d `` |
+| `tc` | `name tc` | ensure a column. A duplicate name stays where it is |
+| `tu` | `cell cell tu` | append one row. One single-word cell per column, in column order |
+| `tq` | `name tq` | push that column, cells separated by newlines. Empty is `""` |
+| `mg` | `snapshot mg` | union that snapshot into the graph. Both edges stay. The result is sorted |
 
 A name that is not a string, or a string that is empty or contains whitespace, is `TYPE_MISMATCH`. `→` and `«` on a value that is not a cursor are `TYPE_MISMATCH`. The cursor's type name is `cur`. It is truthy when it holds at least one name. It prints as `cur(n)`, where `n` is how many names it holds.
 
@@ -1155,7 +1163,13 @@ include <index> <size> <sibling> <sibling>...
 
 The manifest `module` block's `content` is `zown:` plus the BLAKE3 of the source bytes. `sig` is `ed25519:` plus the signature of those bytes when `ZOWN_SIGN` is a 64-hex seed, and null otherwise. `log` stays empty. An absent proof is not written down as if it were valid.
 
-`cases_v2/graph` is the two-hop query and its head. `cases_v2/signed` opens an unsigned bundle and the signed bundle of the same graph. `cases_v2/log` appends, proves, and opens. `errors_v2/bundle_bad` is a trailer of 64 zeros. `errors_v2/signed_bad` is a flipped signature. `errors_v2/include_bad` is a proof on an empty log. `errors_v2/proof_absent` is `lp` with nothing logged.
+`mm` writes `gs` to the path. The bytes go to a temporary file in the same directory, that file is fsynced, then it replaces the path, then the directory is fsynced. A crash before the replace leaves the previous file. `mo` reads the file into an exclusive `buf`. `ml` reads it and replaces the graph. The bytes must be a snapshot: empty, or lines `v name` and `e src label dst`, each line ended by a newline. A short file, a bad line, or bytes that are not UTF-8 is `INTEGRITY_FAIL` with kind `sec`. A missing file is `BOUNDS`. A directory is `TYPE_MISMATCH`. The path rules are the same as `fr`.
+
+The column table is not the graph. `tc` appends a column name. `tu` pops one cell per column, top of stack last, and stores the row. `tq` pushes the cells of one column joined by newlines, with no extra blank line. `»` `→` `«` do not read the table.
+
+`mg` parses a snapshot and replaces the graph with the union of its vertices and edges and the ones already stored. Vertices are sorted by name. Edges are sorted by source, label, then destination. An edge from either side is kept, so two parents of the same source both remain. Merging A then B prints the same `gs` as merging B then A. A snapshot `mg` cannot read is `TYPE_MISMATCH`.
+
+`cases_v2/graph` is the two-hop query and its head. `cases_v2/signed` opens an unsigned bundle and the signed bundle of the same graph. `cases_v2/log` appends, proves, and opens. `cases_v2/map` writes the snapshot and loads it back. `cases_v2/table` scans two columns. `cases_v2/merge` unions two snapshots in either order. `errors_v2/bundle_bad` is a trailer of 64 zeros. `errors_v2/signed_bad` is a flipped signature. `errors_v2/include_bad` is a proof on an empty log. `errors_v2/proof_absent` is `lp` with nothing logged. `errors_v2/map_short` and `errors_v2/map_load` open a short file. `errors_v2/map_denied` is `mm` without `` `d ``.
 
 ## 27. The control plane — **implemented (M15, oracle + Rust VM)**
 

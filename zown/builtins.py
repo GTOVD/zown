@@ -21,9 +21,12 @@ from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
 from .buf import b_bf, b_bg, b_bp, release
-from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_la, b_lp, b_lr, b_sb, b_sl, b_so
+from .store import (
+    b_ge, b_gh, b_gl, b_gs, b_gv, b_la, b_lp, b_lr, b_mg, b_sb, b_sl, b_so,
+    b_tc, b_tq, b_tu,
+)
 from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
-from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_tm
+from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_ml, b_mm, b_mo, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
 
@@ -681,6 +684,13 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "la": (b_la, "log_append", "append this bundle's digest to the transparency log and push the new size"),
     "lp": (b_lp, "log_proof", "push an inclusion-proof line for this bundle, or BOUNDS if it was not logged"),
     "lr": (b_lr, "log_root", "push the log root as 64 hex digits, or \"\" when the log is empty"),
+    "mg": (b_mg, "merge", "snapshot mg -> union it into the graph, both edges kept, sorted"),
+    "tc": (b_tc, "table_col", "name tc -> ensure a column; a duplicate name stays put"),
+    "tu": (b_tu, "table_row", "cells tu -> append one row, one single-word cell per column"),
+    "tq": (b_tq, "table_scan", "name tq -> push that column, one cell per line"),
+    "mm": (b_mm, "map_write", "path mm -> fsync the snapshot at path; needs `d"),
+    "mo": (b_mo, "map_open", "path mo -> exclusive buf of that snapshot file; needs `d"),
+    "ml": (b_ml, "map_load", "path ml -> replace the graph from that snapshot file; needs `d"),
     "ch": (b_ch, "content", "64-hex ch -> tag later log lines with that content hash"),
     "vr": (b_vr, "version", "word vr -> tag later log lines with that version"),
     "td": (b_td, "trace", "word td -> tag later log lines with that trace id"),

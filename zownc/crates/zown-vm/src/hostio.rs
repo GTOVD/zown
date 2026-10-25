@@ -6,7 +6,8 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::buf::BUF_MAX;
-use super::error::{BOUNDS, CAP_DENIED, OVERFLOW, STACK_UNDERFLOW, TYPE_MISMATCH};
+use super::error::{BOUNDS, CAP_DENIED, INTEGRITY_FAIL, OVERFLOW, STACK_UNDERFLOW, TYPE_MISMATCH};
+use super::store::try_snapshot;
 use super::value::{BufAlloc, Value};
 use super::{RunError, Vm};
 
@@ -237,6 +238,150 @@ impl Vm {
         let res = self.invoke(blk, "gd");
         self.end_disk(fresh);
         res
+    }
+
+    fn map_bytes(&self, op: &str, path: &str) -> Result<Vec<u8>, RunError> {
+        let src = self.under_disk(op, path)?;
+        let meta = match fs::metadata(&src) {
+            Ok(m) => m,
+            Err(_) => {
+                return Err(self.err(
+                    BOUNDS,
+                    format!("`{op}` file is not there"),
+                    Some(op.to_string()),
+                    "write it with mm first",
+                ))
+            }
+        };
+        if meta.is_dir() {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                format!("`{op}` path is a directory"),
+                Some(op.to_string()),
+                "the map is one file",
+            ));
+        }
+        if meta.len() > BUF_MAX as u64 {
+            return Err(self.err(
+                BOUNDS,
+                format!("`{op}` file is larger than {BUF_MAX} bytes"),
+                Some(op.to_string()),
+                "",
+            ));
+        }
+        let data = fs::read(&src).map_err(|_| {
+            self.err(
+                BOUNDS,
+                format!("`{op}` file is not there"),
+                Some(op.to_string()),
+                "",
+            )
+        })?;
+        let text = std::str::from_utf8(&data).map_err(|_| {
+            self.sec(
+                INTEGRITY_FAIL,
+                op,
+                format!("`{op}` file is not a snapshot"),
+                "a crash can leave a short file; mm writes the whole snapshot",
+            )
+        })?;
+        if try_snapshot(text).is_none() {
+            return Err(self.sec(
+                INTEGRITY_FAIL,
+                op,
+                format!("`{op}` file is not a snapshot"),
+                "a crash can leave a short file; mm writes the whole snapshot",
+            ));
+        }
+        Ok(data)
+    }
+
+    pub(super) fn b_mm(&mut self) -> Result<(), RunError> {
+        let path = self.pop_host_str("mm")?;
+        let dest = self.under_disk("mm", &path)?;
+        if fs::metadata(&dest).is_ok_and(|m| m.is_dir()) {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`mm` path is a directory".into(),
+                Some("mm".into()),
+                "mm writes one file",
+            ));
+        }
+        if let Some(parent) = std::path::Path::new(&dest).parent() {
+            if !parent.as_os_str().is_empty() && !parent.is_dir() {
+                return Err(self.err(
+                    BOUNDS,
+                    "`mm` the host refused the write".into(),
+                    Some("mm".into()),
+                    "the parent directory has to exist",
+                ));
+            }
+        }
+        let text = self.graph.snapshot();
+        let tmp = format!("{dest}.tmp");
+        let wrote = (|| -> std::io::Result<()> {
+            let mut file = fs::File::create(&tmp)?;
+            use std::io::Write;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            fs::rename(&tmp, &dest)?;
+            if let Some(parent) = std::path::Path::new(&dest).parent() {
+                let dir = if parent.as_os_str().is_empty() {
+                    std::path::Path::new(".")
+                } else {
+                    parent
+                };
+                fs::File::open(dir)?.sync_all()?;
+            }
+            Ok(())
+        })();
+        if wrote.is_err() {
+            let _ = fs::remove_file(&tmp);
+            return Err(self.err(
+                BOUNDS,
+                "`mm` the host refused the write".into(),
+                Some("mm".into()),
+                "",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn b_mo(&mut self) -> Result<(), RunError> {
+        let path = self.pop_host_str("mo")?;
+        let data = self.map_bytes("mo", &path)?;
+        let n = data.len();
+        self.push(Value::Buf {
+            alloc: Rc::new(RefCell::new(BufAlloc {
+                data: Some(data),
+                n,
+            })),
+            exclusive: true,
+        });
+        Ok(())
+    }
+
+    pub(super) fn b_ml(&mut self) -> Result<(), RunError> {
+        let path = self.pop_host_str("ml")?;
+        let data = self.map_bytes("ml", &path)?;
+        let text = std::str::from_utf8(&data).map_err(|_| {
+            self.sec(
+                INTEGRITY_FAIL,
+                "ml",
+                "`ml` file is not a snapshot".into(),
+                "a crash can leave a short file; mm writes the whole snapshot",
+            )
+        })?;
+        let Some(graph) = try_snapshot(text) else {
+            return Err(self.sec(
+                INTEGRITY_FAIL,
+                "ml",
+                "`ml` file is not a snapshot".into(),
+                "a crash can leave a short file; mm writes the whole snapshot",
+            ));
+        };
+        self.graph = graph;
+        Ok(())
     }
 
     pub(super) fn b_fr(&mut self) -> Result<(), RunError> {

@@ -12,7 +12,7 @@ import os
 import time
 
 from .buf import BUF_MAX, Alloc, Buf
-from .errors import BOUNDS, CAP_DENIED, OVERFLOW, TYPE_MISMATCH, Pos
+from .errors import BOUNDS, CAP_DENIED, INTEGRITY_FAIL, OVERFLOW, TYPE_MISMATCH, Pos
 from .lexer import INT_MAX, INT_MIN
 
 _LINK_HOPS = 40
@@ -138,6 +138,103 @@ def _buf_bytes(vm, buf, op: str, pos: Pos) -> bytes:
         raise vm.err(BOUNDS, f"`{op}` buffer was freed",
                      op=op, pos=pos, hint="the exclusive owner was dropped with `,`")
     return bytes(buf.alloc.data)
+
+
+def _map_bytes(vm, op: str, pos: Pos, path: str) -> bytes:
+    src = _under_disk(vm, op, path, pos)
+    if os.path.isdir(src):
+        raise vm.err(TYPE_MISMATCH, f"`{op}` path is a directory",
+                     op=op, pos=pos, hint="the map is one file")
+    if not os.path.isfile(src):
+        raise vm.err(BOUNDS, f"`{op}` file is not there",
+                     op=op, pos=pos, hint="write it with mm first")
+    try:
+        size = os.path.getsize(src)
+    except OSError:
+        raise vm.err(BOUNDS, f"`{op}` file is not there", op=op, pos=pos)
+    if size > BUF_MAX:
+        raise vm.err(BOUNDS, f"`{op}` file is larger than {BUF_MAX} bytes",
+                     op=op, pos=pos)
+    try:
+        with open(src, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        raise vm.err(BOUNDS, f"`{op}` file is not there", op=op, pos=pos)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise vm.err(INTEGRITY_FAIL, f"`{op}` file is not a snapshot",
+                     op=op, pos=pos, kind="sec",
+                     hint="a crash can leave a short file; mm writes the whole snapshot")
+    from .store import try_snapshot
+    if try_snapshot(text) is None:
+        raise vm.err(INTEGRITY_FAIL, f"`{op}` file is not a snapshot",
+                     op=op, pos=pos, kind="sec",
+                     hint="a crash can leave a short file; mm writes the whole snapshot")
+    return data
+
+
+def _fsync_dir(path: str) -> None:
+    parent = os.path.dirname(path) or "."
+    fd = os.open(parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def b_mm(vm, pos: Pos) -> None:
+    # path mm -> atomic fsync of the current snapshot.
+    path = _pop_str(vm, "mm", pos)
+    dest = _under_disk(vm, "mm", path, pos)
+    if os.path.isdir(dest):
+        raise vm.err(TYPE_MISMATCH, "`mm` path is a directory",
+                     op="mm", pos=pos, hint="mm writes one file")
+    parent = os.path.dirname(dest) or "."
+    if not os.path.isdir(parent):
+        raise vm.err(BOUNDS, "`mm` the host refused the write",
+                     op="mm", pos=pos, hint="the parent directory has to exist")
+    data = vm.graph.snapshot().encode("utf-8")
+    tmp = dest + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        view = memoryview(data)
+        while view:
+            n = os.write(fd, view)
+            if n <= 0:
+                raise OSError("short write")
+            view = view[n:]
+        os.fsync(fd)
+    except OSError:
+        os.close(fd)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise vm.err(BOUNDS, "`mm` the host refused the write", op="mm", pos=pos)
+    os.close(fd)
+    os.replace(tmp, dest)
+    _fsync_dir(dest)
+
+
+def b_mo(vm, pos: Pos) -> None:
+    path = _pop_str(vm, "mo", pos)
+    data = _map_bytes(vm, "mo", pos, path)
+    alloc = Alloc(len(data))
+    if data and alloc.data is not None:
+        alloc.data[:] = data
+    vm.push(Buf(alloc, True))
+
+
+def b_ml(vm, pos: Pos) -> None:
+    path = _pop_str(vm, "ml", pos)
+    data = _map_bytes(vm, "ml", pos, path)
+    from .store import try_snapshot
+    graph = try_snapshot(data.decode("utf-8"))
+    if graph is None:
+        raise vm.err(INTEGRITY_FAIL, "`ml` file is not a snapshot",
+                     op="ml", pos=pos, kind="sec")
+    vm.graph = graph
 
 
 def b_fr(vm, pos: Pos) -> None:

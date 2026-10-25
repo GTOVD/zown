@@ -360,6 +360,76 @@ def b_lr(vm, pos) -> None:
     vm.push("" if root is None else root.hex())
 
 
+def _word_ok(text: str) -> bool:
+    return text != "" and not any(ch.isspace() for ch in text)
+
+
+def try_snapshot(text: str) -> Graph | None:
+    """A snapshot `gs` could have written, or None when the bytes are short."""
+    graph = Graph()
+    if text == "":
+        return graph
+    if not text.endswith("\n"):
+        return None
+    for line in text.splitlines():
+        parts = line.split(" ")
+        if len(parts) == 2 and parts[0] == "v" and _word_ok(parts[1]):
+            graph.add_vert(parts[1])
+        elif (len(parts) == 4 and parts[0] == "e"
+              and all(_word_ok(p) for p in parts[1:])):
+            graph.add_edge(parts[1], parts[2], parts[3])
+        else:
+            return None
+    return graph
+
+
+def merged(left: Graph, right: Graph) -> Graph:
+    """Set-union in lexicographic order. Both parents of an edge stay."""
+    graph = Graph()
+    graph.verts = sorted(set(left.verts) | set(right.verts))
+    graph.edges = sorted(set(left.edges) | set(right.edges))
+    return graph
+
+
+def b_mg(vm, pos) -> None:
+    text = vm.pop("mg", pos)
+    if not isinstance(text, str):
+        from .vm import type_name
+        raise vm.err(TYPE_MISMATCH, f"`mg` expected a snapshot string, got {type_name(text)}",
+                     op="mg", pos=pos)
+    extra = try_snapshot(text)
+    if extra is None:
+        raise vm.err(TYPE_MISMATCH, "`mg` cannot read that snapshot",
+                     op="mg", pos=pos, hint="a snapshot is the text gs pushes")
+    vm.graph = merged(vm.graph, extra)
+
+
+def b_tc(vm, pos) -> None:
+    name = _name(vm, "tc", pos, vm.pop("tc", pos))
+    if name not in vm.columns:
+        vm.columns.append(name)
+
+
+def b_tu(vm, pos) -> None:
+    if not vm.columns:
+        raise vm.err(TYPE_MISMATCH, "`tu` needs a column declared with tc",
+                     op="tu", pos=pos)
+    cells = []
+    for _ in vm.columns:
+        cells.append(_name(vm, "tu", pos, vm.pop("tu", pos)))
+    cells.reverse()
+    vm.rows.append(cells)
+
+
+def b_tq(vm, pos) -> None:
+    name = _name(vm, "tq", pos, vm.pop("tq", pos))
+    if name not in vm.columns:
+        raise vm.err(TYPE_MISMATCH, f"`tq` has no column {name}",
+                     op="tq", pos=pos, hint="declare it with tc before the rows")
+    idx = vm.columns.index(name)
+    vm.push("\n".join(row[idx] for row in vm.rows))
+
+
 def _parse_snapshot(vm, op: str, pos, text: str) -> Graph:
     graph = Graph()
     if text == "":

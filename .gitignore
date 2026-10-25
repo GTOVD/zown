@@ -10,6 +10,7 @@ venv/
 
 # written by examples/io.zn and cases_v2/io.zn
 /conformance/iofix/dst.txt
+/conformance/iofix/graph-live.txt
 
 # Zown
 # generated error packets

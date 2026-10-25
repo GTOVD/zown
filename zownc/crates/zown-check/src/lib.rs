@@ -36,7 +36,7 @@ fn net_cap(op: &str) -> Option<&'static str> {
 
 fn host_cap(name: &str) -> Option<&'static str> {
     match name {
-        "fr" | "fw" => Some("d"),
+        "fr" | "fw" | "mm" | "mo" | "ml" => Some("d"),
         "en" => Some("v"),
         "tm" => Some("c"),
         _ => None,
@@ -45,7 +45,7 @@ fn host_cap(name: &str) -> Option<&'static str> {
 
 fn host_hint(op: &str) -> &'static str {
     match op {
-        "fr" | "fw" => "grant a path: $path$ [ ... ] gd",
+        "fr" | "fw" | "mm" | "mo" | "ml" => "grant a path: $path$ [ ... ] gd",
         "en" => "grant it: `v [ ... ] gr",
         "tm" => "grant it: `c [ ... ] gr",
         "~o" | "~s" | "~c" => "grant it: `t [ ... ] gr",

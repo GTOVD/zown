@@ -2,7 +2,7 @@
 //!
 //! `so` checks the hash, then a signature when the bundle has one, then an
 //! inclusion proof when the bundle has one. A BLAKE3-only bundle still opens.
-//! CRDTs are not this log.
+//! `mg` is the set-union of two snapshots. A mapped file is not this module.
 
 use std::collections::HashSet;
 
@@ -71,6 +71,49 @@ impl Graph {
 
 fn bundle_body(graph: &Graph) -> String {
     format!("{HEADER}{}", graph.snapshot())
+}
+
+fn word_ok(text: &str) -> bool {
+    !text.is_empty() && !text.chars().any(|c| c.is_whitespace())
+}
+
+pub fn try_snapshot(text: &str) -> Option<Graph> {
+    if text.is_empty() {
+        return Some(Graph::default());
+    }
+    if !text.ends_with('\n') {
+        return None;
+    }
+    let body = &text[..text.len() - 1];
+    let mut graph = Graph::default();
+    if body.is_empty() {
+        return None;
+    }
+    for line in body.split('\n') {
+        let parts: Vec<&str> = line.split(' ').collect();
+        if parts.len() == 2 && parts[0] == "v" && word_ok(parts[1]) {
+            graph.add_vert(parts[1]);
+        } else if parts.len() == 4
+            && parts[0] == "e"
+            && parts[1..].iter().copied().all(word_ok)
+        {
+            graph.add_edge(parts[1], parts[2], parts[3]);
+        } else {
+            return None;
+        }
+    }
+    Some(graph)
+}
+
+pub fn merged(left: &Graph, right: &Graph) -> Graph {
+    let mut verts: Vec<String> = left.verts.iter().chain(right.verts.iter()).cloned().collect();
+    verts.sort();
+    verts.dedup();
+    let mut edges: Vec<(String, String, String)> =
+        left.edges.iter().chain(right.edges.iter()).cloned().collect();
+    edges.sort();
+    edges.dedup();
+    Graph { verts, edges }
 }
 
 pub fn seal(graph: &Graph) -> String {
@@ -341,6 +384,80 @@ impl Vm {
         }
         line.push('\n');
         self.push(Value::Str(line));
+        Ok(())
+    }
+
+    pub(super) fn b_mg(&mut self) -> Result<(), RunError> {
+        let text = match self.pop("mg")? {
+            Value::Str(s) => s,
+            other => {
+                let tn = other.type_name();
+                return Err(self.err(
+                    TYPE_MISMATCH,
+                    format!("`mg` expected a snapshot string, got {tn}"),
+                    Some("mg".into()),
+                    "",
+                ));
+            }
+        };
+        let Some(extra) = try_snapshot(&text) else {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`mg` cannot read that snapshot".into(),
+                Some("mg".into()),
+                "a snapshot is the text gs pushes",
+            ));
+        };
+        self.graph = merged(&self.graph, &extra);
+        Ok(())
+    }
+
+    pub(super) fn b_tc(&mut self) -> Result<(), RunError> {
+        let raw = self.pop("tc")?;
+        let name = self.need_name("tc", raw)?;
+        if !self.columns.iter().any(|c| c == &name) {
+            self.columns.push(name);
+        }
+        Ok(())
+    }
+
+    pub(super) fn b_tu(&mut self) -> Result<(), RunError> {
+        if self.columns.is_empty() {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                "`tu` needs a column declared with tc".into(),
+                Some("tu".into()),
+                "",
+            ));
+        }
+        let mut cells = Vec::with_capacity(self.columns.len());
+        for _ in 0..self.columns.len() {
+            let raw = self.pop("tu")?;
+            cells.push(self.need_name("tu", raw)?);
+        }
+        cells.reverse();
+        self.rows.push(cells);
+        Ok(())
+    }
+
+    pub(super) fn b_tq(&mut self) -> Result<(), RunError> {
+        let raw = self.pop("tq")?;
+        let name = self.need_name("tq", raw)?;
+        let Some(idx) = self.columns.iter().position(|c| c == &name) else {
+            return Err(self.err(
+                TYPE_MISMATCH,
+                format!("`tq` has no column {name}"),
+                Some("tq".into()),
+                "declare it with tc before the rows",
+            ));
+        };
+        let text = self
+            .rows
+            .iter()
+            .map(|row| row[idx].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.push(Value::Str(text));
         Ok(())
     }
 

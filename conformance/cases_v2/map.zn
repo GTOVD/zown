@@ -1,0 +1,14 @@
+$a$ gv
+$b$ gv
+$a$ $knows$ $b$ ge
+gs .
+$conformance/iofix$ [
+  $conformance/iofix/graph-live.txt$ mm
+] gd
+$$ gl
+gs .
+$conformance/iofix$ [
+  $conformance/iofix/graph-live.txt$ ml
+] gd
+gs .
+$a$ » $knows$ → « .

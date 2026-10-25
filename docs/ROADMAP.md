@@ -178,7 +178,10 @@ Drop the external DB; make the mesh the version-control system (see `DESIGN.md`
 - [x] In-memory graph and the query tokens `»` `«` `→` (SPEC §26). `gv` `ge`
       `gs` `gl` `gh` `sb` `so`. `zown keep` fsyncs a BLAKE3 bundle and rejects
       a changed one.
-- [ ] Memory-mapped graph and columnar stores; lazy schema evolution; CRDTs.
+- [x] The snapshot is a file a `buf` reopens (`mm` `mo` `ml`). A short file
+      is `INTEGRITY_FAIL`. `tc` `tu` `tq` are a column table; `»` stays the
+      graph query. `mg` unions two snapshots and keeps both parents.
+- [ ] Lazy schema evolution, and a map that is an OS address rather than a `buf`.
 - [x] Ed25519 on the sync bundle and an in-VM transparency log (SPEC §26).
       `sl` signs. `la` `lp` `lr` append, prove, and show the root. A bundle
       with no proof does not claim inclusion. The manifest records the source

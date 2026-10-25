@@ -195,9 +195,13 @@ an inclusion proof, and `lr` is the root (`""` when the log is empty).
 is the source hash; `sig` is set only from `ZOWN_SIGN`. **M25 ✅** —
 `~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. `` `t `` sends and
 `` `r `` receives. A name registered by `~l` is what `~c` dials. `~w`
-relays one frame each way. QUIC is not this transport. Next is **M26**
-(the graph in a file, then one table and one CRDT). The rest of the map
-is **M26–M32** in `docs/PLAN.md`.
+relays one frame each way. QUIC is not this transport. **M26 ✅** —
+`mm` fsyncs the graph snapshot to a file, `mo` reopens it as a `buf`,
+and `ml` loads it back. A short file is `INTEGRITY_FAIL`. `tc` `tu`
+`tq` are a column table. `mg` unions two snapshots, keeps both parents,
+and prints the same text either way. Next is **M27** (a font, then a
+button, then one animation tick). The rest of the map is **M27–M32**
+in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

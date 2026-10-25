@@ -1,0 +1,17 @@
+$b$ gv
+$a$ gv
+$a$ $p$ $b$ ge
+gs :one
+$$ gl
+$c$ gv
+$a$ gv
+$a$ $p$ $c$ ge
+gs :two
+$$ gl
+one mg
+two mg
+gs .
+$$ gl
+two mg
+one mg
+gs .

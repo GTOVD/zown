@@ -125,6 +125,9 @@ pub struct Vm {
     graph: store::Graph,
     /// Append-only transparency log. Each leaf is the raw BLAKE3 of a sealed body.
     log: Vec<[u8; 32]>,
+    /// Columnar table. The graph query does not read it.
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
     /// Logical control-plane log (SPEC §27). `err` appends faults through it.
     tele: RefCell<tele::Telemetry>,
 }
@@ -202,6 +205,8 @@ impl Vm {
             node_id: mesh::node_id(),
             graph: store::Graph::default(),
             log: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
             tele: RefCell::new(tele::Telemetry::default()),
         };
         vm.load_std();
@@ -975,6 +980,13 @@ impl Vm {
             "la" => self.b_la(),
             "lp" => self.b_lp(),
             "lr" => self.b_lr(),
+            "mg" => self.b_mg(),
+            "tc" => self.b_tc(),
+            "tu" => self.b_tu(),
+            "tq" => self.b_tq(),
+            "mm" => self.b_mm(),
+            "mo" => self.b_mo(),
+            "ml" => self.b_ml(),
             "ch" => self.b_ch(),
             "vr" => self.b_vr(),
             "td" => self.b_td(),
@@ -1890,6 +1902,13 @@ pub fn is_builtin(name: &str) -> bool {
             | "la"
             | "lp"
             | "lr"
+            | "mg"
+            | "tc"
+            | "tu"
+            | "tq"
+            | "mm"
+            | "mo"
+            | "ml"
             | "ch"
             | "vr"
             | "td"

@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M25: TCP streams on [::1], named connect, loopback relay).
+Last updated: 2026-10-25 (M26: snapshot file, column table, set-union merge).
 
 ---
 
@@ -78,7 +78,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M23 | Stage-2 compiler binary | ✅ | `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the print-subset boot sector. The linked executable's image matches `zownc bare` and boots in QEMU |
 | M24 | Signed distribution | ✅ | `sl` adds an Ed25519 trailer. `la` `lp` `lr` are the log and its proof. A BLAKE3-only bundle still opens. Manifest `content` is the source hash; `sig` needs `ZOWN_SIGN` |
 | M25 | Streams and mesh | ✅ | `~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. A grant is required. `zown mesh` announces the bundle hash before the fetch. QUIC is not this transport |
-| M26 | Store engine | ⬜ | mmap, columnar data, CRDT sync. Needs M18 and M24 |
+| M26 | Store engine | ✅ | `mm` `mo` `ml` reopen a snapshot file. `tc` `tu` `tq` are the column table. `mg` unions two snapshots and keeps both parents |
 | M27 | UI completion | ⬜ | Font, input, animation, then GPU and shaders. Needs M18 |
 | M28 | Collections and remaining numbers | ⬜ | One collection on `buf`, then the rest. `iz` `uz` `dc` `cx`. Needs M18 |
 | M29 | Control plane completion | ⬜ | Hot-swap of a verified block, a trace that crosses a socket, fleet intent. Needs M23 and M25 |
@@ -780,12 +780,12 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18 and M24. SPEC §26, DESIGN §6.
 **Goal:** the graph survives in a mapped file, and two replicas converge.
 
-- [ ] **M26a.** The graph snapshot is a file of bytes a `buf` can map. Reopen after process exit matches `gs`. Crash in the middle of a write still fails `so` or the map's open.
-- [ ] **M26b.** A columnar table: named columns, append a row, scan a column. The query tokens `»` `→` `«` stay the graph query. A table scan gets its own word, named in SPEC first.
-- [ ] **M26c.** A CRDT whose merge is deterministic. Two logs merge to one snapshot both VMs print identically. Conflicts keep both parents.
+- [x] **M26a.** `mm` fsyncs the snapshot to a path under `gd`. `mo` maps that file into an exclusive `buf`. `ml` loads it back into the graph. A new process that `ml`s the file prints the same `gs`. A short file is `INTEGRITY_FAIL`.
+- [x] **M26b.** `tc` declares a column, `tu` appends a row, `tq` scans one column. `»` `→` `«` stay the graph query.
+- [x] **M26c.** `mg` unions a snapshot into the graph. Vertices and edges are sorted. An edge from either side is kept, so two parents both remain. Either merge order prints the same `gs`.
 
-**Acceptance:** kill the process after a synced write, reopen, and query the same graph. Merge is order-independent for the operations the CRDT claims.
-**Not this slice:** a SQL front end.
+**Acceptance:** kill the process after a synced write, reopen, and query the same graph. Merge is order-independent. Met by `cases_v2/map`, `cases_v2/table`, `cases_v2/merge`, and `conformance/map_reopen.py`.
+**Not this slice:** a SQL front end. The map is a `buf` of the file bytes, not an address the program can read.
 
 ### M27 — UI completion
 **Depends on:** M18. SPEC §15, DESIGN §4–§5.
@@ -892,6 +892,7 @@ memory type.)*
 | D20 | The M23 fixed point is the **print-subset boot sector**, not a Cranelift ELF (2026-10-25). `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the 512-byte image. Stage-0 compiles that program; the image matches `zownc bare` and boots in QEMU. The sector cannot host a second compiler | SPEC §28, §29; M23 |
 | D21 | The M24 log is **per VM and BLAKE3-Merkle** (2026-10-25). `sl` signs the bundle body. `la` appends that body's digest. `so` checks a carried proof against this VM's root. An empty log is `""`, not a hash. The manifest `sig` stays null unless `ZOWN_SIGN` is set. No hot-swap | SPEC §26; M24 |
 | D22 | M25 streams are **TCP on `[::1]`** (2026-10-25). `~o` connects, `~l` accepts and registers a name, `~c` dials that name, `~s`/`~r` move one UTF-8 frame, `~w` relays one frame each way. `` `t `` sends, `` `r `` receives. QUIC is not this transport | SPEC §14; M25 |
+| D23 | The M26 map is **a `buf` of a snapshot file** (2026-10-25). `mm` fsyncs `gs`. `mo` and `ml` reject a short file. `tq` scans a column. `mg` is a sorted set-union that keeps both parents. No SQL, and no integer address | SPEC §26; M26 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -941,9 +942,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M26 — store engine.** Map the graph into a file a `buf` can reopen.
-   A columnar table gets its own word, named in SPEC first. Then one CRDT
-   whose merge both VMs print the same way.
+1. **M27 — UI completion.** A bitmap font in `zown draw`, then a pointer
+   event on a button, then one animation clock tied to the tick. GPU
+   readback is the last slice.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

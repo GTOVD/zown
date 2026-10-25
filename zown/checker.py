@@ -89,11 +89,14 @@ _BOX_CTORS = {"rw", "cm"}
 _INVOKING_OPS = {"@", ";", "??"}
 _INVOKING_WORDS = {"gr", "ty", "gd"} | _VEC_CTORS | _BOX_CTORS
 # Host words that require a capability the way `rq` does (SPEC §23).
-_HOST_CAP = {"fr": "d", "fw": "d", "en": "v", "tm": "c"}
+_HOST_CAP = {"fr": "d", "fw": "d", "mm": "d", "mo": "d", "ml": "d", "en": "v", "tm": "c"}
 _NET_CAP = {"~o": "t", "~s": "t", "~c": "t", "~l": "r", "~r": "r"}
 _HOST_HINT = {
     "fr": "grant a path: $path$ [ ... ] gd",
     "fw": "grant a path: $path$ [ ... ] gd",
+    "mm": "grant a path: $path$ [ ... ] gd",
+    "mo": "grant a path: $path$ [ ... ] gd",
+    "ml": "grant a path: $path$ [ ... ] gd",
     "en": "grant it: `v [ ... ] gr",
     "tm": "grant it: `c [ ... ] gr",
     "~o": "grant it: `t [ ... ] gr",
