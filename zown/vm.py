@@ -43,6 +43,7 @@ from .errors import (
     ZownError,
 )
 from .lanes import Lanes, op_pipe, op_spawn, op_tilde
+from .buf import Buf, release
 from .store import Cursor, Graph, op_close, op_follow, op_open
 from .tele import Telemetry
 from .ui import Color, UiNode
@@ -192,6 +193,8 @@ def truthy(v: Any) -> bool:
         return True  # a token, a color, or a node is a present value
     if isinstance(v, Cursor):
         return len(v.names) > 0
+    if isinstance(v, Buf):
+        return v.alloc.n > 0
     if isinstance(v, Vec):
         return len(v.lanes) > 0
     if isinstance(v, Big):
@@ -351,7 +354,9 @@ class VM:
 
     def _exec_name(self, name: str, pos: Pos) -> None:
         if name in self.env:
-            self.push(self.env[name])
+            v = self.env[name]
+            # A bare name is a borrow. The binding keeps the exclusive buf.
+            self.push(v.borrow() if isinstance(v, Buf) and v.exclusive else v)
             return
         word = self.words.get(name)
         if word is not None:
@@ -417,6 +422,8 @@ def type_name(v: Any) -> str:
         return "node"
     if isinstance(v, Cursor):
         return "cur"
+    if isinstance(v, Buf):
+        return "buf"
     if isinstance(v, Big):
         return "big"
     if isinstance(v, Res):
@@ -570,11 +577,12 @@ def op_neg(vm: VM, pos: Pos) -> None:
 def op_dup(vm: VM, pos: Pos) -> None:
     if not vm.stack:
         raise vm.err(STACK_UNDERFLOW, "`=` (dup) needs a value", op="=", pos=pos)
-    vm.push(vm.stack[-1])
+    v = vm.stack[-1]
+    vm.push(v.borrow() if isinstance(v, Buf) else v)
 
 
 def op_drop(vm: VM, pos: Pos) -> None:
-    vm.pop(",", pos)
+    release(vm.pop(",", pos))
 
 
 def op_swap(vm: VM, pos: Pos) -> None:
@@ -587,13 +595,15 @@ def op_swap(vm: VM, pos: Pos) -> None:
 def op_over(vm: VM, pos: Pos) -> None:
     if len(vm.stack) < 2:
         raise vm.err(STACK_UNDERFLOW, "`&` (over) needs two values", op="&", pos=pos)
-    vm.push(vm.stack[-2])
+    v = vm.stack[-2]
+    vm.push(v.borrow() if isinstance(v, Buf) else v)
 
 
 def op_print(vm: VM, pos: Pos) -> None:
     v = vm.pop(".", pos)
     vm.out.write(_as_str(v))
     vm.out.write("\n")
+    release(v)
 
 
 def op_invoke(vm: VM, pos: Pos) -> None:
@@ -625,7 +635,7 @@ def op_while(vm: VM, pos: Pos) -> None:
 # result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
 # The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur"}
+_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf"}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -731,6 +741,8 @@ def _as_str(v: Any) -> str:
         return f"{v.kind}({len(v.children)})"
     if isinstance(v, Cursor):
         return f"cur({len(v.names)})"
+    if isinstance(v, Buf):
+        return v.text()
     return str(v)
 
 

@@ -1,5 +1,6 @@
 //! Zown runtime values (parity with the Python reference VM).
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
@@ -92,7 +93,10 @@ pub enum Value {
     /// A block compiled to a native function. `nodes` is the AST length, so
     /// truthiness and `[blk:N]` match the interpreter. The tree-walker never
     /// builds these; the Cranelift backend does.
-    Func { id: u32, nodes: u32 },
+    Func {
+        id: u32,
+        nodes: u32,
+    },
     /// Capability token (SPEC §12). Holding it is not a grant.
     Cap(String),
     Width(WidthTag),
@@ -104,6 +108,18 @@ pub enum Value {
     Ui(UiNode),
     /// A graph query cursor. Names are the vertices it currently sits on.
     Cur(Vec<String>),
+    /// A heap buffer. `exclusive` may `bp`. Dropping that value frees `alloc`.
+    Buf {
+        alloc: Rc<RefCell<BufAlloc>>,
+        exclusive: bool,
+    },
+}
+
+/// Bytes behind a `buf`. `None` means the exclusive owner was dropped.
+#[derive(Debug)]
+pub struct BufAlloc {
+    pub data: Option<Vec<u8>>,
+    pub n: usize,
 }
 
 /// An sRGB color. The layout contrast test uses these channels linearly.
@@ -162,6 +178,7 @@ impl Value {
             Value::Func { nodes, .. } => *nodes != 0,
             Value::Cap(_) | Value::Width(_) | Value::Color(_) | Value::Ui(_) => true,
             Value::Cur(names) => !names.is_empty(),
+            Value::Buf { alloc, .. } => alloc.borrow().n > 0,
             Value::Vec(v) => !v.lanes.is_empty(),
             Value::Res(r) => r.ok,
         }
@@ -181,6 +198,7 @@ impl Value {
             Value::Color(_) => "color",
             Value::Ui(_) => "node",
             Value::Cur(_) => "cur",
+            Value::Buf { .. } => "buf",
         }
     }
 
@@ -213,6 +231,7 @@ impl Value {
                 }
             }
             Value::Cur(names) => format!("cur({})", names.len()),
+            Value::Buf { alloc, exclusive } => buf_text(alloc, *exclusive),
         }
     }
 
@@ -247,6 +266,7 @@ impl Value {
             Value::Color(c) => json_str(&format!("co:{} {} {}", c.r, c.g, c.b)),
             Value::Ui(n) => json_str(&format!("{}:{}", n.kind, n.children.len())),
             Value::Cur(names) => json_str(&format!("cur:{}", names.len())),
+            Value::Buf { alloc, exclusive } => json_str(&buf_text(alloc, *exclusive)),
         }
     }
 
@@ -272,8 +292,32 @@ impl Value {
             (Value::Color(a), Value::Color(b)) => a == b,
             (Value::Ui(a), Value::Ui(b)) => ui_eq(a, b),
             (Value::Cur(a), Value::Cur(b)) => a == b,
+            (
+                Value::Buf {
+                    alloc: a,
+                    exclusive: ea,
+                },
+                Value::Buf {
+                    alloc: b,
+                    exclusive: eb,
+                },
+            ) => Rc::ptr_eq(a, b) && ea == eb,
             _ => matches!(num_partial_cmp(self, other), Some(Ordering::Equal)),
         }
+    }
+}
+
+fn buf_text(alloc: &Rc<RefCell<BufAlloc>>, exclusive: bool) -> String {
+    let g = alloc.borrow();
+    let body = if g.data.is_none() {
+        "-".to_string()
+    } else {
+        g.n.to_string()
+    };
+    if exclusive {
+        format!("bf({body})")
+    } else {
+        format!("bf&({body})")
     }
 }
 

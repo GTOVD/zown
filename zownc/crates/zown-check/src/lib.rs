@@ -17,7 +17,7 @@ const BAD_PATTERN: &str = "BAD_PATTERN";
 const NO_MATCH: &str = "NO_MATCH";
 
 const PATTERN_TYPES: &[&str] = &[
-    "int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur",
+    "int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf",
 ];
 const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];

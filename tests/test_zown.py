@@ -1379,6 +1379,27 @@ def test_zown_lexer_matches_the_host():
     assert saw_self
 
 
+# --- buffers (M18) -------------------------------------------------------------
+def test_buf_owner_borrow_and_free():
+    out, _ = run("""
+4 bf
+= ln .
+0 65 bp
+0 bg .
+= :r
+1 66 bp
+r 1 bg .
+""")
+    assert out == "4\n65\n66\n"
+    _fails("4 bf = 0 1 bp", TYPE_MISMATCH, "bp")
+    _fails("4 bf 4 bg", BOUNDS, "bg")
+    _fails("4 bf = :r , r 0 bg", BOUNDS, "bg")
+    _fails("1 _ bf", TYPE_MISMATCH, "bf")
+    _fails("1048577 bf", BOUNDS, "bf")
+    out, _ = run("4 bf :e 'e 0 7 bp 0 bg .\n")
+    assert out == "7\n"
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

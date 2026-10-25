@@ -783,6 +783,11 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `se` when no span is open | trap `TYPE_MISMATCH` | `errors_v2/span_empty` |
 | `ch` given a string that is not 64 hex digits | trap `TYPE_MISMATCH` | (unit test) |
 | `hd` on an empty string | trap `BOUNDS` | `errors_v2/head_empty` |
+| `bf` length above 1048576 | trap `BOUNDS` | (unit test) |
+| `bf` given a negative int | trap `TYPE_MISMATCH` | (unit test) |
+| `bg` / `bp` index outside the buffer | trap `BOUNDS` | `errors_v2/buf_oob` |
+| `bp` on a borrow | trap `TYPE_MISMATCH` | `errors_v2/buf_borrow` |
+| `bg` or `ln` after the exclusive buf was dropped | trap `BOUNDS` | `errors_v2/buf_freed` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
@@ -834,18 +839,14 @@ x                  # NAME_UNRESOLVED (static and run time)
   place when memory arrives. The heap those moves will own is specified in §21
   and is not implemented: the oracle does not allocate a `buf`.
 
-## 21. Memory — fat pointers (`buf`) — *design-only (M9)*
-
-> Not implemented. A byte array with a bounds check can be faked in the oracle,
-> but exclusive drop, a borrow that dies with its owner, and use-after-free
-> cannot — a copying interpreter would be pretending to have a heap. This
-> section is the contract. No runtime in this repository allocates a `buf`.
+## 21. Memory — fat pointers (`buf`) — **implemented (M18, oracle + Rust VM)**
 
 A `buf` is the only reference to heap memory. It is a fat pointer: a base the
 program cannot observe, a byte length, and a permission. There is no integer
 address, no null, and no way to forge one. An index outside `0 .. length`, or
 a use after the exclusive owner has been dropped, is `BOUNDS`. It is never a
-raw load.
+raw load. The runtime grants at most 1048576 bytes per `bf`. A larger request
+is `BOUNDS`. mmap and sharing across processes are not this value.
 
 | Word | Effect |
 |------|--------|
@@ -857,6 +858,12 @@ raw load.
 `bg` and `bp` are three characters or fewer and do not reuse `at` (vector
 index), `st` (saturate), or `b` (big).
 
+Stack effects: `n bf` pushes the buf. `buf idx bg` leaves the buf and pushes the byte. `buf idx byte bp` leaves the buf. `buf ln` consumes the buf and pushes the length, the same shape as `ln` on a string. Consuming the exclusive value (`ln`, `.`, `pr`, `s`, or `,`) frees the bytes. `bg` and `bp` do not consume it, so the owner can keep writing.
+
+A bare name of an exclusive binding pushes a borrow. The binding stays exclusive. `=` on a buf pushes a borrow and leaves the original value under it. `'name` moves the value as it is: an exclusive stays exclusive, and the bytes are not freed by the move.
+
+It prints as `bf(n)` when exclusive and `bf&(n)` when borrowed. A freed buffer prints as `bf(-)` or `bf&(-)`. The number in parentheses is the length, never an address. The type name for `??` is `buf`. A buf is truthy when its length is greater than 0.
+
 **Ownership.** Allocation is exclusive.
 
 - `=` on a `buf` pushes a **borrow** and leaves the exclusive value under it.
@@ -865,13 +872,12 @@ index), `st` (saturate), or `b` (big).
   borrow drops only the borrow.
 - `'name` moves whatever the binding held. Exclusive stays exclusive. The
   bytes are freed only when that exclusive value is dropped.
-- A borrow whose exclusive owner has already been dropped is dangling. `bg`,
-  `bp`, and `ln` on it are `BOUNDS`. The fat pointer does not become an
-  address the program can reuse.
+- A borrow whose exclusive owner has already been dropped is dangling. `bg`
+  and `ln` on it are `BOUNDS`. `bp` on any borrow is `TYPE_MISMATCH`. The fat
+  pointer does not become an address the program can reuse.
 
 `"` stays reserved for a future mutable reference that is not exclusive
-ownership (§17, §20). Until §21 is implemented, a program cannot construct a
-`buf`; `bf` is not a word.
+ownership (§17, §20). It is not a word.
 
 ## 22. Concurrency — fast lanes — **implemented (M10, oracle + Rust VM)**
 

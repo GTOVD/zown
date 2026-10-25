@@ -70,7 +70,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M15 | AI control plane + rolling execution | ✅ | logical log: spans, intent, faults (`ch vr td sp se nt wn ob df rm lg`, `zown watch`). No clock. Hot-swap, a fleet, and on-device ML are not implemented |
 | M16 | **Self-hosting**: compiler rewritten in Zown | ✅ | `zown/std/lex.zn` matches the host token dump, including on its own source. Native runs it (`stage_parity`). A stage-2 compiler binary is not produced |
 | M17 | Zown OS / bare metal | ✅ | `zownc bare` writes a 512-byte real-mode sector. QEMU shows the text at `0xB8000`. `int 0x20` stores `0xB1` at `0x8000`. Not a microkernel |
-| M18 | Memory (`buf`) | ⏳ | §21. `bf` `bg` `bp`, exclusive owner and borrow. Keystone for files, collections, and a compiler that emits bytes |
+| M18 | Memory (`buf`) | ✅ | `bf` `bg` `bp`. Exclusive owner, borrow, free. No address is visible. `native_parity` 84/84 |
 | M19 | Parser in Zown | ⏳ | Stage-2 frontend. Same kind of fixed point as `lex.zn`. No `buf` required |
 | M20 | Host I/O | ⬜ | Files, clock, args, env, each behind a capability. Needs M18. Words named in SPEC before code |
 | M21 | Crypto | ⬜ | `ae` `ad` `es` `ev` `xk`. Real algorithms. Needs M18. `h3` already exists |
@@ -691,11 +691,11 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** nothing new. SPEC §21 is already the contract.
 **Goal:** the first heap value. Exclusive owner, borrow, drop.
 
-- [ ] **M18a.** `n bf` allocates `n` zero bytes. `ln` on a `buf` is its length. `bg` reads a byte. `bp` writes a byte. An index outside `0 .. length` is `BOUNDS`.
-- [ ] **M18b.** `=` on a `buf` pushes a borrow and leaves the exclusive value. A borrow may `bg` and `ln`. It may not `bp`. `,` on the exclusive value frees the bytes. A use after that free is `BOUNDS`.
-- [ ] **M18c.** `'name` moves the exclusive value. `"` stays reserved and is not a word.
+- [x] **M18a.** `n bf` allocates `n` zero bytes. `ln` on a `buf` is its length. `bg` reads a byte. `bp` writes a byte. An index outside `0 .. length` is `BOUNDS`. A length above 1048576 is `BOUNDS`. A negative length is `TYPE_MISMATCH`.
+- [x] **M18b.** `=` on a `buf` pushes a borrow and leaves the original value. A bare name of an exclusive binding pushes a borrow. A borrow may `bg` and `ln`. It may not `bp`. `,` on the exclusive value frees the bytes. A use after that free is `BOUNDS`.
+- [x] **M18c.** `'name` moves the exclusive value. `"` stays reserved and is not a word.
 
-**Acceptance:** a program allocates, writes, reads, borrows, and frees. A dangling borrow is `BOUNDS` in both VMs. No integer address is visible.
+**Acceptance:** a program allocates, writes, reads, borrows, and frees. A dangling borrow is `BOUNDS` in both VMs. No integer address is visible. Met by `cases_v2/buf` and `errors_v2/buf_*`. `native_parity` is 84/84.
 **Not this slice:** mmap, shared memory across processes, a garbage collector.
 
 ### M19 — Parser in Zown
@@ -938,10 +938,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M18 and M19 together.** `buf` is the keystone (§21). The parser in
-   Zown is the stage-2 frontend and does not wait on `buf`. The
-   byte-identical compiler is M23 and waits on both. The map is the
-   remainder section above.
+1. **M19 — parser in Zown.** The stage-2 frontend. `buf` is SPEC §21.
+   The byte-identical compiler is still M23.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity`); Ryu/Grisu
    `$fmt_f64`; emit WASM tags 4–8 (lane ops included — they are refused today);
    auto-discover `tele.errors`.

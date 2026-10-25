@@ -74,6 +74,9 @@ python3 bin/zown stage zown/std/lex.zn
 # a boot sector whose VGA text is the string this program prints
 # (after `cd zownc && cargo build`)
 ./zownc/target/debug/zownc bare examples/bare.zn -o zown.bin
+
+# an exclusive buffer, a stored byte, and a borrow's read
+python3 bin/zown examples/buf.zn
 ```
 
 Install the `zown` command for real:

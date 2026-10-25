@@ -20,6 +20,7 @@ from .errors import (
 from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
+from .buf import b_bf, b_bg, b_bp, release
 from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
@@ -54,14 +55,23 @@ def b_tail(vm, pos: Pos) -> None:
 
 
 def b_len(vm, pos: Pos) -> None:
+    from .buf import Buf
     from .vm import Block
     v = vm.pop("ln", pos)
     if isinstance(v, str):
         vm.push(len(v))
     elif isinstance(v, Block):
         vm.push(len(v.nodes))
+    elif isinstance(v, Buf):
+        data = v.alloc.data
+        if data is None:
+            raise vm.err(BOUNDS, "`ln` buffer was freed", op="ln", pos=pos,
+                         hint="the exclusive owner was dropped with `,`")
+        n = len(data)
+        release(v)
+        vm.push(n)
     else:
-        raise vm.err(TYPE_MISMATCH, "`ln` expected a string or block", op="ln", pos=pos)
+        raise vm.err(TYPE_MISMATCH, "`ln` expected a string, block, or buf", op="ln", pos=pos)
 
 
 def b_trim(vm, pos: Pos) -> None:
@@ -82,7 +92,9 @@ def b_rev(vm, pos: Pos) -> None:
 
 def b_print_raw(vm, pos: Pos) -> None:
     from .vm import _as_str
-    vm.out.write(_as_str(vm.pop("pr", pos)))
+    v = vm.pop("pr", pos)
+    vm.out.write(_as_str(v))
+    release(v)
 
 
 # --- math words ----------------------------------------------------------------
@@ -198,7 +210,9 @@ b_round = _to_int_word("rd", round)  # banker's rounding, as the oracle always d
 # --- conversion words ----------------------------------------------------------
 def b_to_str(vm, pos: Pos) -> None:
     from .vm import _as_str
-    vm.push(_as_str(vm.pop("s", pos)))
+    v = vm.pop("s", pos)
+    vm.push(_as_str(v))
+    release(v)
 
 
 def b_cat(vm, pos: Pos) -> None:
@@ -617,6 +631,9 @@ def b_at(vm, pos: Pos) -> None:
 
 # word -> (handler, alias, description)
 WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
+    "bf": (b_bf, "buf", "n bf -> an exclusive buffer of n zero bytes"),
+    "bg": (b_bg, "buf_get", "buf idx bg -> the byte at idx; the buf stays"),
+    "bp": (b_bp, "buf_put", "buf idx byte bp -> store byte; exclusive buf only; the buf stays"),
     "hd": (b_head, "head", "str hd -> the first character (BOUNDS if the string is empty)"),
     "tl": (b_tail, "tail", "str tl -> the string after the first character (empty stays empty)"),
     "ln": (b_len, "length", "length of a string (chars) or block (nodes)"),

@@ -7,6 +7,7 @@
 
 mod bigint;
 mod blake3;
+mod buf;
 mod error;
 mod lanes;
 mod mesh;
@@ -429,7 +430,14 @@ impl Vm {
 
     fn exec_name(&mut self, name: &str) -> Result<(), RunError> {
         if let Some(v) = self.env.get(name) {
-            let v = v.clone();
+            // A bare name is a borrow. The binding keeps the exclusive buf.
+            let v = match v {
+                Value::Buf { alloc, .. } => Value::Buf {
+                    alloc: alloc.clone(),
+                    exclusive: false,
+                },
+                other => other.clone(),
+            };
             self.push(v);
             return Ok(());
         }
@@ -730,6 +738,14 @@ impl Vm {
 
     fn op_dup(&mut self) -> Result<(), RunError> {
         match self.stack.last() {
+            Some(Value::Buf { alloc, .. }) => {
+                let alloc = alloc.clone();
+                self.push(Value::Buf {
+                    alloc,
+                    exclusive: false,
+                });
+                Ok(())
+            }
             Some(v) => {
                 let v = v.clone();
                 self.push(v);
@@ -745,7 +761,8 @@ impl Vm {
     }
 
     fn op_drop(&mut self) -> Result<(), RunError> {
-        self.pop(",")?;
+        let v = self.pop(",")?;
+        self.release_buf(v);
         Ok(())
     }
 
@@ -766,7 +783,13 @@ impl Vm {
                 "",
             ));
         }
-        let v = self.stack[self.stack.len() - 2].clone();
+        let v = match &self.stack[self.stack.len() - 2] {
+            Value::Buf { alloc, .. } => Value::Buf {
+                alloc: alloc.clone(),
+                exclusive: false,
+            },
+            other => other.clone(),
+        };
         self.push(v);
         Ok(())
     }
@@ -775,6 +798,7 @@ impl Vm {
         let v = self.pop(".")?;
         self.out.push_str(&v.display());
         self.out.push('\n');
+        self.release_buf(v);
         Ok(())
     }
 
@@ -866,6 +890,9 @@ impl Vm {
     // --- builtins --------------------------------------------------------------
     fn try_builtin(&mut self, name: &str) -> Option<Result<(), RunError>> {
         Some(match name {
+            "bf" => self.b_bf(),
+            "bg" => self.b_bg(),
+            "bp" => self.b_bp(),
             "hd" => self.b_hd(),
             "tl" => self.b_tl(),
             "ln" => self.b_len(),
@@ -1009,11 +1036,31 @@ impl Vm {
             Value::Str(s) => self.push(Value::Int(s.chars().count() as i64)),
             Value::Block(b) => self.push(Value::Int(b.len() as i64)),
             Value::Func { nodes, .. } => self.push(Value::Int(nodes as i64)),
+            Value::Buf { alloc, exclusive } => {
+                let n = {
+                    let g = alloc.borrow();
+                    match g.data.as_ref() {
+                        Some(d) => d.len(),
+                        None => {
+                            return Err(self.err(
+                                BOUNDS,
+                                "`ln` buffer was freed".into(),
+                                Some("ln".into()),
+                                "the exclusive owner was dropped with `,`",
+                            ))
+                        }
+                    }
+                };
+                if exclusive {
+                    alloc.borrow_mut().data = None;
+                }
+                self.push(Value::Int(n as i64));
+            }
             other => {
                 let tn = other.type_name();
                 return Err(self.err(
                     TYPE_MISMATCH,
-                    format!("`ln` expected a string or block, got {tn}"),
+                    format!("`ln` expected a string, block, or buf, got {tn}"),
                     Some("ln".into()),
                     "",
                 ));
@@ -1044,6 +1091,7 @@ impl Vm {
     fn b_print_raw(&mut self) -> Result<(), RunError> {
         let v = self.pop("pr")?;
         self.out.push_str(&v.display());
+        self.release_buf(v);
         Ok(())
     }
 
@@ -1256,6 +1304,7 @@ impl Vm {
     fn b_to_str(&mut self) -> Result<(), RunError> {
         let v = self.pop("s")?;
         self.push(Value::Str(v.display()));
+        self.release_buf(v);
         Ok(())
     }
 
@@ -1706,7 +1755,10 @@ impl Vm {
 pub fn is_builtin(name: &str) -> bool {
     matches!(
         name,
-        "hd" | "tl"
+        "bf" | "bg"
+            | "bp"
+            | "hd"
+            | "tl"
             | "ln"
             | "tr"
             | "up"
@@ -1809,6 +1861,7 @@ fn is_type_pattern(s: &str) -> bool {
             | "color"
             | "node"
             | "cur"
+            | "buf"
     )
 }
 
