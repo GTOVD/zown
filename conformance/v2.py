@@ -111,6 +111,10 @@ def check_errors(bless: bool) -> tuple[int, int]:
 
 
 def main(argv: list[str]) -> int:
+    # Clock and env goldens print these pins. A real clock would not match.
+    os.environ["ZOWN_TICK"] = "1"
+    os.environ["ZOWN_WALL"] = "0"
+    os.chdir(ROOT)
     bless = "--bless" in argv
     if "--list" in argv:
         for fn in _zn_files(CASES):

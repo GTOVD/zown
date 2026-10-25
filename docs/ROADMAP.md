@@ -118,9 +118,12 @@ One correct implementation of everything an app needs (see `DESIGN.md` §10).
 The first slice is in: `mx`, `mn`, and `cl` are Zown (`zown/std/core.zn`),
 and `zown test` / `zown fmt` run. SPEC §23 names the rest and does not stub it.
 
-- [ ] Crypto suite (BLAKE3, ChaCha20-Poly1305, Ed25519, X25519), collections, complete
-      numerics, UTF-8 strings, time/clocks, filesystem, env/secrets. Names are
-      frozen in SPEC §23; none of those words exist yet.
+- [x] Host I/O (SPEC §23). `gd` `fr` `fw` are path-scoped disk. `ac` `ag` are
+      the program's arguments. `en` looks up one variable. `tm` reads the clock.
+      `ZOWN_TICK` and `ZOWN_WALL` pin the golden.
+- [ ] Crypto suite (ChaCha20-Poly1305, Ed25519, X25519; BLAKE3 `h3` already
+      exists), collections, and the rest of the numbers. Names are frozen in
+      SPEC §23.
 - [x] Developer toolchain, the part that can be honest today: `zown test`
       (goldens, plus `ts` / `pp`) and `zown fmt` (canonical whitespace).
       LSP, the doc generator, and a mesh REPL are still §23.
@@ -219,8 +222,8 @@ local inference.
       Not started. The sector halts after the one software interrupt.
 
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md). `buf`
-(M18) and the parser (M19) are done. Next is host I/O (M20). The
-byte-identical stage-2 compiler is M23.
+(M18), the parser (M19), and host I/O (M20) are done. Next is crypto (M21).
+The byte-identical stage-2 compiler is M23.
 
 ---
 

@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M19: parser in Zown, host AST fixed point).
+Last updated: 2026-10-24 (M20: host I/O behind capabilities).
 
 ---
 
@@ -72,7 +72,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M17 | Zown OS / bare metal | ✅ | `zownc bare` writes a 512-byte real-mode sector. QEMU shows the text at `0xB8000`. `int 0x20` stores `0xB1` at `0x8000`. Not a microkernel |
 | M18 | Memory (`buf`) | ✅ | `bf` `bg` `bp`. Exclusive owner, borrow, free. No address is visible. `native_parity` 84/84 |
 | M19 | Parser in Zown | ✅ | `zown/std/parse.zn` matches the host AST, including on its own source. `zown stage parse`. Native `parse_parity` is 5/5. No executable |
-| M20 | Host I/O | ⬜ | Files, clock, args, env, each behind a capability. Needs M18. Words named in SPEC before code |
+| M20 | Host I/O | ✅ | `gd` `fr` `fw` under `` `d ``. `ac` `ag`. `en` under `` `v ``. `tm` under `` `c ``. `native_parity` 95/95 |
 | M21 | Crypto | ⬜ | `ae` `ad` `es` `ev` `xk`. Real algorithms. Needs M18. `h3` already exists |
 | M22 | WASM v0.2 | ⬜ | Emit tags 4–8, `??`, `ty`, moves. Overflow is a `.zerr`. Shortest float format. Parallel with M18 |
 | M23 | Stage-2 compiler binary | ⬜ | Lowering in Zown, then `stage1 == stage2` bytes. Needs M18, M19, and a byte emitter |
@@ -713,11 +713,11 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18. SPEC §23.
 **Goal:** the program can touch the machine through capabilities, not ambient authority.
 
-- [ ] **M20a.** A file word pair, named in SPEC before code, reads and writes bytes in a `buf`. The path is granted with a capability. A path outside the grant is `CAP_DENIED`.
-- [ ] **M20b.** Args and env. One word pushes the argument count and another reads one argument. Env is a granted lookup, not a dump of the whole process environment.
-- [ ] **M20c.** A clock word. `` `c `` is already the capability. The word pushes a monotonic tick the tests can pin, plus a wall time when the capability is granted. Goldens use the pinned tick.
+- [x] **M20a.** `path fr` reads bytes into an exclusive `buf`. `buf path fw` writes them and leaves the `buf`. `$path$ [body] gd` grants `` `d `` and that path for the body. A resolved path outside the root, including through `..` or a symlink, is `CAP_DENIED`.
+- [x] **M20b.** `ac` pushes the argument count and `idx ag` reads one argument. The vector is what the host passed after `--`, empty by default, not the toolchain argv. `name en` looks up one variable and needs `` `v ``. An unset name is `BOUNDS`.
+- [x] **M20c.** `tm` needs `` `c `` and pushes a monotonic tick, then wall unix seconds. `ZOWN_TICK` and `ZOWN_WALL` pin them. `cases_v2/clock` prints the pins `0` and `1`.
 
-**Acceptance:** a program reads a fixture file and writes it back under a grant. A missing grant is `CAP_DENIED`. Both VMs agree.
+**Acceptance:** a program reads a fixture file and writes it back under a grant. A missing grant is `CAP_DENIED`. Both VMs agree. Met by `cases_v2/io`, `args`, `env`, `clock` and `errors_v2/io_*`, `arg_oob`, `env_*`, `clock_denied`. `native_parity` is 95/95.
 **Not this slice:** a subprocess API, signals, or a network socket.
 
 ### M21 — Crypto
@@ -887,6 +887,7 @@ memory type.)*
 | D15 | Self-hosting starts at the **lexer** (2026-10-24). `std/lex.zn` prints the same `KIND lexeme` lines as the host, including on its own source. Stage-0 executes it. A stage-2 compiler binary is not produced | SPEC §28; M16 |
 | D16 | The bare-metal slice is a **512-byte real-mode boot sector** (2026-10-24). It prints string literals to the VGA text buffer and runs `int 0x20`. It is not long mode and not a microkernel | SPEC §29; M17 |
 | D17 | The canonical AST is **indented text with raw lexemes** (2026-10-24). Two spaces per block. `blk` and `end` bracket a block. A leaf is `tag` plus the source lexeme, so `007` and `1.50` are not rewritten. `zown ast` JSON stays the debug form | SPEC §28; M19 |
+| D18 | Host I/O is **capability-scoped** (2026-10-24). Disk is `` `d `` plus a `gd` path root, not a second `` `f ``. Env lookup is `` `v `` and one name. Arguments are the program vector after `--`, default empty. `ZOWN_TICK` and `ZOWN_WALL` pin `tm` | SPEC §12, §23; M20 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -939,9 +940,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M20 — host I/O.** Files, a clock, args, and env. Each one is a capability.
-   Name the words in SPEC before writing them. The byte-identical compiler is
-   still M23: the parser fixed point is done, and lowering is not.
+1. **M21 — crypto.** `ae` `ad` with ChaCha20-Poly1305, `es` `ev` with Ed25519,
+   `xk` with X25519. Real test vectors. Keys live in a `buf`. The byte-identical
+   compiler is still M23: the parser fixed point is done, and lowering is not.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64`; emit WASM tags 4–8
    (lane ops included — they are refused today); auto-discover `tele.errors`.

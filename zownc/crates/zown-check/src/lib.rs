@@ -23,7 +23,25 @@ const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];
 const BOX_CTORS: &[&str] = &["rw", "cm"];
 const INVOKING_OPS: &[&str] = &["@", ";", "??"];
-const INVOKING_WORDS: &[&str] = &["gr", "ty", "vf", "vd", "vi", "vu", "rw", "cm"];
+const INVOKING_WORDS: &[&str] = &["gr", "ty", "gd", "vf", "vd", "vi", "vu", "rw", "cm"];
+
+fn host_cap(name: &str) -> Option<&'static str> {
+    match name {
+        "fr" | "fw" => Some("d"),
+        "en" => Some("v"),
+        "tm" => Some("c"),
+        _ => None,
+    }
+}
+
+fn host_hint(op: &str) -> &'static str {
+    match op {
+        "fr" | "fw" => "grant a path: $path$ [ ... ] gd",
+        "en" => "grant it: `v [ ... ] gr",
+        "tm" => "grant it: `c [ ... ] gr",
+        _ => "run it inside a grant",
+    }
+}
 
 /// One static finding. `render_lines` is the conformance format.
 #[derive(Debug, Clone)]
@@ -155,10 +173,12 @@ impl Checker {
     }
 
     fn collect_grantable(&mut self, nodes: &[Node]) {
-        if self.bound.contains("gr") {
-            return;
+        if !self.bound.contains("gr") {
+            self.scan_free_caps(nodes);
         }
-        self.scan_free_caps(nodes);
+        if !self.bound.contains("gd") && self.uses_word(nodes, "gd") {
+            self.grantable.insert("d".into());
+        }
     }
 
     fn scan_free_caps(&mut self, nodes: &[Node]) {
@@ -204,6 +224,11 @@ impl Checker {
                             "a bare name is a borrow; move it last, or rebind it",
                         );
                     }
+                    if !self.bound.contains(name) && !in_at {
+                        if let Some(cap) = host_cap(name) {
+                            self.check_require(cap, n.pos, known, name);
+                        }
+                    }
                 }
                 NodeKind::Move(name) => {
                     if !self.bound.contains(name) {
@@ -234,7 +259,7 @@ impl Checker {
                     let nxt = at(nodes, i as isize + 1);
                     if self.is_word(nxt, "rq") && !in_at {
                         let pos = nxt.unwrap().pos;
-                        self.check_require(name, pos, known);
+                        self.check_require(name, pos, known, "rq");
                     }
                 }
                 NodeKind::Blk(_) => self.walk_block(nodes, i, known, in_at, &moved),
@@ -313,6 +338,14 @@ impl Checker {
             && Self::is_op(nxt3, "@")
         {
             inner = known.cloned();
+        } else if self.is_word(nxt, "gd") {
+            if let Some(known) = known {
+                let mut set = known.clone();
+                set.insert("d".into());
+                inner = Some(set);
+            } else {
+                inner = None;
+            }
         } else if self.is_word(nxt, "gr") {
             if let (
                 Some(Node {
@@ -351,7 +384,13 @@ impl Checker {
         self.walk(children, inner.as_ref(), in_at, inherit);
     }
 
-    fn check_require(&mut self, cap: &str, pos: Pos, known: Option<&BTreeSet<String>>) {
+    fn check_require(
+        &mut self,
+        cap: &str,
+        pos: Pos,
+        known: Option<&BTreeSet<String>>,
+        op: &str,
+    ) {
         if let Some(known) = known {
             if !known.contains(cap) {
                 let held = if known.is_empty() {
@@ -363,27 +402,49 @@ impl Checker {
                         .collect::<Vec<_>>()
                         .join(" ")
                 };
+                let (msg, hint) = if op == "rq" {
+                    (
+                        format!(
+                            "`{cap} is required here but the authority in scope is exactly {held}; this `rq` can never succeed"
+                        ),
+                        "run it inside a grant",
+                    )
+                } else {
+                    (
+                        format!("`{op}` needs `{cap}, and the authority in scope is exactly {held}"),
+                        host_hint(op),
+                    )
+                };
                 self.diag(
                     CAP_DENIED,
-                    format!(
-                        "`{cap} is required here but the authority in scope is exactly {held}; this `rq` can never succeed"
-                    ),
+                    msg,
                     pos,
-                    Some("rq".into()),
+                    Some(op.to_string()),
                     Some(cap.to_string()),
-                    "run it inside a grant",
+                    hint,
                 );
                 return;
             }
         }
         if !self.grantable.contains(cap) && !self.uses_at {
+            let (msg, hint) = if op == "rq" {
+                (
+                    format!("`{cap} is required but never granted anywhere in the program"),
+                    "add a grant scope around the caller",
+                )
+            } else {
+                (
+                    format!("`{op}` needs `{cap}, which is never granted anywhere in the program"),
+                    host_hint(op),
+                )
+            };
             self.diag(
                 CAP_DENIED,
-                format!("`{cap} is required but never granted anywhere in the program"),
+                msg,
                 pos,
-                Some("rq".into()),
+                Some(op.to_string()),
                 Some(cap.to_string()),
-                "add a grant scope around the caller",
+                hint,
             );
         }
     }

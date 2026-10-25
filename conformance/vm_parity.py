@@ -29,14 +29,25 @@ ERRORS_V2 = os.path.join(ROOT, "conformance", "errors_v2")
 GREEN, RED, RST = "\033[32m", "\033[31m", "\033[0m"
 
 
+def _env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["ZOWN_TICK"] = "1"
+    env["ZOWN_WALL"] = "0"
+    return env
+
+
 def run_case(path: str) -> str:
-    out = subprocess.run([ZOWNC, "run", "--unchecked", path], capture_output=True, text=True)
+    out = subprocess.run(
+        [ZOWNC, "run", "--unchecked", path],
+        capture_output=True, text=True, env=_env(), cwd=ROOT,
+    )
     return out.stdout
 
 
 def run_error(path: str) -> str:
     out = subprocess.run(
-        [ZOWNC, "run", "--unchecked", "--zerr", path], capture_output=True, text=True
+        [ZOWNC, "run", "--unchecked", "--zerr", path],
+        capture_output=True, text=True, env=_env(), cwd=ROOT,
     )
     if out.returncode == 0:
         raise RuntimeError(f"expected an error, exited 0 with stdout {out.stdout!r}")

@@ -464,7 +464,8 @@ code; the manifest maps the code to its full name + scope.
 | `` `g `` | gpu-compute | |
 | `` `p `` | spawn-process | |
 | `` `k `` | secret | gates `Secret[T]` |
-| `` `c `` | clock | wall + monotonic |
+| `` `c `` | clock | wall + monotonic. `tm` reads it (§23) |
+| `` `v `` | environment | one-name lookup. `en` reads it (§23). Not a dump |
 | `` `x `` | sensor | sub-scoped: `sensor:gps`, camera/mic explicit |
 | `` `e `` | secure-enclave | TPM/TrustZone/SGX |
 
@@ -788,6 +789,10 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `bg` / `bp` index outside the buffer | trap `BOUNDS` | `errors_v2/buf_oob` |
 | `bp` on a borrow | trap `TYPE_MISMATCH` | `errors_v2/buf_borrow` |
 | `bg` or `ln` after the exclusive buf was dropped | trap `BOUNDS` | `errors_v2/buf_freed` |
+| `fr` / `fw` / `en` / `tm` without the capability, or a path outside the `gd` root | trap `CAP_DENIED` (kind `sec`). Also static when the checker can prove it | `errors_v2/io_denied`, `io_escape`, `env_denied`, `clock_denied`; `check/io_denied` |
+| `fr` of a missing file, or a file larger than 1048576 bytes | trap `BOUNDS` | `errors_v2/io_missing` (missing). The size limit is a unit test |
+| `ag` index outside `0 .. ac` | trap `BOUNDS` | `errors_v2/arg_oob` |
+| `en` of a name that is not set | trap `BOUNDS` | `errors_v2/env_unset` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
@@ -964,22 +969,48 @@ native backend that runs the program must reproduce the trace and the traps in
 §19. Two hosts may report different `hw` values; a conformance program that
 needs a stable trace calls `1 lc`, which grants one slot on every machine.
 
-## 23. Batteries — *design-only, except the slice M11 shipped*
+## 23. Batteries — **implemented for host I/O (M20)**; crypto is still design-only
 
-M11 ships three things: the std words in §7 (`mx`, `mn`, `cl`), `zown test`,
-and `zown fmt`. The rest of the zero-install stdlib is named here so it is not
-invented later under a second spelling, and it is **not implemented**. A stub
-that hashed with a stand-in or pretended to read a file would be a lie.
+M11 ships the std words in §7 (`mx`, `mn`, `cl`), `zown test`, and `zown fmt`.
+M20 ships host I/O. Crypto stays named here and is not implemented. A stub that
+hashed with a stand-in would be a lie.
 
-| Area | Frozen choice | Word, when it exists |
-|------|----------------|----------------------|
+| Area | Frozen choice | Word |
+|------|----------------|------|
 | Hash | BLAKE3 | `h3` — **implemented** (§24). The digest is 64 hex digits, not a separate value type yet |
-| Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens |
-| Signature | Ed25519 | `es` signs, `ev` verifies |
-| Key agreement | X25519 | `xk` |
-| Files | capability-scoped paths | not a word yet; needs `` `f `` |
-| Clock | wall and monotonic | already the capability `` `c ``; no word reads it |
-| Env | the process environment | not a word; `ZOWN_CPUS` is the one override that exists (§22) |
+| Symmetric box | ChaCha20-Poly1305 | `ae` seals, `ad` opens. Not implemented |
+| Signature | Ed25519 | `es` signs, `ev` verifies. Not implemented |
+| Key agreement | X25519 | `xk`. Not implemented |
+| Files | `` `d ``, path-scoped | `gd` `fr` `fw` — **implemented** below |
+| Clock | `` `c `` | `tm` — **implemented** below |
+| Arguments | the program vector | `ac` `ag` — **implemented** below. Not a capability |
+| Env | `` `v ``, one name | `en` — **implemented** below |
+
+### Host I/O — **implemented (M20, oracle + Rust VM)**
+
+The program does not start with a view of the disk, the environment, or the clock. `` `d [body] gr `` grants the disk capability and does not grant a path. File words still refuse until a root is live.
+
+| Word | Stack | Result |
+|------|--------|--------|
+| `gd` | `path [body] gd` | run `body` with `` `d `` granted and `path` as a root, then restore both |
+| `fr` | `path fr` | an exclusive `buf` of that file's bytes |
+| `fw` | `buf path fw` | write every byte. The `buf` stays. A borrow may be the source |
+| `ac` | `ac` | how many program arguments the host passed |
+| `ag` | `idx ag` | that argument. An index outside `0 .. ac` is `BOUNDS` |
+| `en` | `name en` | the value of that variable. Needs `` `v ``. An unset name is `BOUNDS` |
+| `tm` | `tm` | push the monotonic tick, then wall unix seconds. Needs `` `c `` |
+
+A path is a string. The separator is `/`. A relative path starts at the process working directory. The check walks the path: `.` is skipped, `..` pops a component, and a symlink is followed, up to 40 links. The candidate that remains must equal a live root, or sit inside a root that is not an existing file (`root/` is the prefix, so a grant of `/tmp/zown` does not cover `/tmp/zown2`). A symlink that resolves outside the root is `CAP_DENIED`. An existing-file root allows only that file.
+
+`fr` of a directory is `TYPE_MISMATCH`. A missing file is `BOUNDS`. A file larger than 1048576 bytes is `BOUNDS`, the same budget as `bf`. `fw` creates or truncates the file. It does not create a missing parent directory; that refusal is `BOUNDS`. A freed `buf` is `BOUNDS`. An empty path or a NUL in a path or a variable name is `TYPE_MISMATCH`.
+
+`ac` and `ag` read the vector the host passed after `--` (`zown run file.zn -- a b`). They do not read the toolchain's own argv, so `zown run` and `zownc run` agree when no words follow `--`. The default vector is empty.
+
+`en` looks up one name. It does not list the environment. `` `v `` is the capability.
+
+`tm` pushes two ints. `ZOWN_TICK`, when it is an integer that fits `int`, replaces the monotonic reading. `ZOWN_WALL` does the same for the wall clock. Anything else in those variables is ignored and the host clock is used. The conformance runners set `ZOWN_TICK=1` and `ZOWN_WALL=0`, and `cases_v2/clock` prints `0` then `1`. An unpinned monotonic reading is host-specific and is not a golden.
+
+There is no subprocess word, no signal word, no socket word, and no delete word. Those stay out of this slice.
 
 Collections (`List`, `Map`, …) are not a second kind of block. A block is code.
 A value collection waits on the fat pointer (§21). LSP, a doc generator, and a

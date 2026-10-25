@@ -220,12 +220,16 @@ def fits_int(n: int) -> bool:
 
 
 class VM:
-    def __init__(self, file: str | None = None, out=None):
+    def __init__(self, file: str | None = None, out=None, args: list[str] | None = None):
         self.stack: list[Any] = []
         self.env: dict[str, Any] = {}
         # Granted capabilities. Empty by default: a program has zero authority
         # until a `gr` block brings a capability into scope (SPEC Part II §12).
         self.caps: set[str] = set()
+        # Path roots granted by `gd` (SPEC §23). File words require one of these.
+        self.roots: list[str] = []
+        # Program arguments, not the toolchain argv. Empty unless the host passed some.
+        self.args: list[str] = list(args or [])
         self.depth = 0  # current block-invocation depth (see MAX_INVOKE_DEPTH)
         self.lanes = Lanes()  # cooperative fast lanes (SPEC §22)
         # Auto-running words loaded from std/core.zn. A user binding shadows one.

@@ -1,0 +1,9 @@
+$conformance/iofix$ [
+  $conformance/iofix/src.txt$ fr
+  = ln .
+  $conformance/iofix/dst.txt$ fw
+  ,
+  $conformance/iofix/dst.txt$ fr
+  0 bg .
+  ln .
+] gd

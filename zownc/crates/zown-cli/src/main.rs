@@ -19,7 +19,9 @@ USAGE:
     zownc <COMMAND> [ARGS]
 
 COMMANDS:
-    run <file.zn>     Check, then run (shorthand: `zownc <file.zn>`)
+    run <file.zn> [-- args]
+                      Check, then run (shorthand: `zownc <file.zn>`).
+                      Words after -- are the program's arguments (`ac` / `ag`)
     check <file.zn>   Static checker: names, match shape, caps, results, moves
     lex <file.zn>     Tokenize a source file and print the token stream
     ast <file.zn>     Parse a source file and print the AST as JSON
@@ -65,6 +67,11 @@ fn main() -> ExitCode {
     args.retain(|a| a != "--unchecked");
     let fast = args.iter().any(|a| a == "-O");
     args.retain(|a| a != "-O");
+    let mut prog_args: Vec<String> = Vec::new();
+    if let Some(i) = args.iter().position(|a| a == "--") {
+        prog_args = args.split_off(i);
+        prog_args.remove(0);
+    }
 
     // extract `-o <path>` (used by `build`)
     let mut out_path: Option<String> = None;
@@ -99,7 +106,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "run" => match args.get(1) {
-            Some(path) => cmd_run(path, zerr, unchecked),
+            Some(path) => cmd_run(path, zerr, unchecked, prog_args),
             None => {
                 eprintln!("zownc run: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
@@ -148,7 +155,7 @@ fn main() -> ExitCode {
             }
         },
         "native" => match args.get(1) {
-            Some(path) => cmd_native(path, zerr, unchecked, fast, out_path.as_deref()),
+            Some(path) => cmd_native(path, zerr, unchecked, fast, out_path.as_deref(), prog_args),
             None => {
                 eprintln!("zownc native: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
@@ -203,7 +210,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn cmd_run(path: &str, zerr: bool, unchecked: bool) -> ExitCode {
+fn cmd_run(path: &str, zerr: bool, unchecked: bool, prog_args: Vec<String>) -> ExitCode {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -232,6 +239,7 @@ fn cmd_run(path: &str, zerr: bool, unchecked: bool) -> ExitCode {
         }
     }
     let mut vm = Vm::new(Some(path.to_string()));
+    vm.set_args(prog_args);
     let result = vm.run_str(&src);
     // Print whatever the program emitted before any fault (print-as-you-go parity).
     print!("{}", vm.out);
@@ -311,7 +319,14 @@ fn cmd_llvm(path: &str, out: &str) -> ExitCode {
     }
 }
 
-fn cmd_native(path: &str, zerr: bool, unchecked: bool, fast: bool, out: Option<&str>) -> ExitCode {
+fn cmd_native(
+    path: &str,
+    zerr: bool,
+    unchecked: bool,
+    fast: bool,
+    out: Option<&str>,
+    prog_args: Vec<String>,
+) -> ExitCode {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -352,7 +367,7 @@ fn cmd_native(path: &str, zerr: bool, unchecked: bool, fast: bool, out: Option<&
             }
         };
     }
-    match zown_codegen::execute_tuned(&src, path, fast) {
+    match zown_codegen::execute_with(&src, path, fast, &prog_args) {
         Ok(r) => {
             print!("{}", r.stdout);
             if r.exit == 0 {

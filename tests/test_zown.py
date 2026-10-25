@@ -1445,6 +1445,67 @@ def test_zown_parser_matches_the_host():
         assert e.code == REPAIR_SYNTAX
 
 
+# --- host I/O (M20) ------------------------------------------------------------
+def test_host_io_grant_clock_and_args():
+    import stat
+    d = tempfile.mkdtemp()
+    box = os.path.join(d, "box")
+    os.mkdir(box)
+    open(os.path.join(box, "a.txt"), "wb").write(b"Z")
+    os.symlink("/etc/hostname", os.path.join(box, "out"))
+    other = os.path.join(d, "box2")
+    os.mkdir(other)
+    open(os.path.join(other, "a.txt"), "wb").write(b"no")
+    # A borrow can be the bytes fw writes. The owner stays exclusive.
+    out, _ = run(f"""
+${box}$ [
+  1 bf
+  0 90 bp
+  = ${box}/c.txt$ fw
+  ,
+  0 bg .
+] gd
+""")
+    assert out == "90\n"
+    assert open(os.path.join(box, "c.txt"), "rb").read() == b"Z"
+    _fails(f"${box}/a.txt$ fr", CAP_DENIED, "fr")
+    _fails(f"${box}$ [ ${box}/out$ fr ] gd", CAP_DENIED, "fr")
+    _fails(f"${box}$ [ ${other}/a.txt$ fr ] gd", CAP_DENIED, "fr")
+    _fails(f"${box}$ [ ${box}/../box2/a.txt$ fr ] gd", CAP_DENIED, "fr")
+    _fails(f"${box}$ [ ${box}/missing$ fr ] gd", BOUNDS, "fr")
+    _fails(f"${box}$ [ ${box}$ fr ] gd", TYPE_MISMATCH, "fr")
+    _fails("tm", CAP_DENIED, "tm")
+    _fails("$PATH$ en", CAP_DENIED, "en")
+    _fails("`v [ $ZOWN_NOT_SET_zz$ en ] gr", BOUNDS, "en")
+    _fails("0 ag", BOUNDS, "ag")
+    buf = io.StringIO()
+    vm = VM(out=buf, args=["one", "two"])
+    vm.run_src("ac . 0 ag . 1 ag .")
+    assert buf.getvalue() == "2\none\ntwo\n"
+    old_tick = os.environ.get("ZOWN_TICK")
+    old_wall = os.environ.get("ZOWN_WALL")
+    os.environ["ZOWN_TICK"] = "7"
+    os.environ["ZOWN_WALL"] = "9"
+    try:
+        out, _ = run("`c [ tm . . ] gr")
+    finally:
+        if old_tick is None:
+            os.environ.pop("ZOWN_TICK", None)
+        else:
+            os.environ["ZOWN_TICK"] = old_tick
+        if old_wall is None:
+            os.environ.pop("ZOWN_WALL", None)
+        else:
+            os.environ["ZOWN_WALL"] = old_wall
+    assert out == "9\n7\n"
+    # A file past the buffer budget is BOUNDS, not a partial buf.
+    huge = os.path.join(box, "huge")
+    with open(huge, "wb") as fh:
+        fh.write(b"x" * (1048576 + 1))
+    _fails(f"${box}$ [ ${huge}$ fr ] gd", BOUNDS, "fr")
+    assert stat.S_ISREG(os.stat(huge).st_mode)
+
+
 # --- buffers (M18) -------------------------------------------------------------
 def test_buf_owner_borrow_and_free():
     out, _ = run("""

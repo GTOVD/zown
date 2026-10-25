@@ -87,7 +87,15 @@ _VEC_CTORS = {"vf", "vd", "vi", "vu"}
 _BOX_CTORS = {"rw", "cm"}
 # Nodes that may run arbitrary code — and therefore rebind any name.
 _INVOKING_OPS = {"@", ";", "??"}
-_INVOKING_WORDS = {"gr", "ty"} | _VEC_CTORS | _BOX_CTORS
+_INVOKING_WORDS = {"gr", "ty", "gd"} | _VEC_CTORS | _BOX_CTORS
+# Host words that require a capability the way `rq` does (SPEC §23).
+_HOST_CAP = {"fr": "d", "fw": "d", "en": "v", "tm": "c"}
+_HOST_HINT = {
+    "fr": "grant a path: $path$ [ ... ] gd",
+    "fw": "grant a path: $path$ [ ... ] gd",
+    "en": "grant it: `v [ ... ] gr",
+    "tm": "grant it: `c [ ... ] gr",
+}
 
 # `known` authority: a frozenset of granted capability names when the set is
 # exact, or UNKNOWN when the block may be invoked from any context.
@@ -153,9 +161,18 @@ class Checker:
         """Rule 2 pre-pass: every `` `c `` literal not immediately consumed by
         `rq`/`hv` is *free* — it may flow to `gr`. If the grant word itself is
         shadowed by a user binding, nothing can ever be granted."""
-        if "gr" in self.bound:
-            return
-        self._scan_free_caps(nodes)
+        if "gr" not in self.bound:
+            self._scan_free_caps(nodes)
+        if "gd" not in self.bound and self._mentions(nodes, "gd"):
+            self.grantable.add("d")
+
+    def _mentions(self, nodes: list, word: str) -> bool:
+        for n in nodes:
+            if self._is_word(n, word):
+                return True
+            if n[0] == "blk" and self._mentions(n[1], word):
+                return True
+        return False
 
     def _scan_free_caps(self, nodes: list) -> None:
         for i, n in enumerate(nodes):
@@ -186,6 +203,8 @@ class Checker:
                                f"`{name}` was moved out by '{name} above and not rebound",
                                n[2], op=name,
                                hint=f"a bare name is a borrow; move it last, or rebind with :{name}")
+                if name not in self.bound and not in_at and name in _HOST_CAP:
+                    self._check_require(_HOST_CAP[name], n[2], known, name)
             elif tag == "move":
                 name = n[1]
                 if name not in self.bound:
@@ -203,7 +222,7 @@ class Checker:
             elif tag == "cap":
                 nxt = self._at(nodes, i + 1)
                 if self._is_word(nxt, "rq") and not in_at:
-                    self._check_require(n[1], nxt[2], known)
+                    self._check_require(n[1], nxt[2], known, "rq")
             elif tag == "blk":
                 self._walk_block(nodes, i, known, in_at, moved)
             # Anything that runs code may have rebound any name: forget the marks.
@@ -244,6 +263,8 @@ class Checker:
                 inner = known | {prev[1]}
             else:
                 inner = UNKNOWN  # the granted capability came through a name
+        elif self._is_word(nxt, "gd"):                              # path [b] gd
+            inner = known | {"d"} if known is not UNKNOWN else UNKNOWN
         elif self._is_word(nxt, "ty"):                              # [b] ty
             inner, in_at = known, True  # runs inline, but its faults are caught
         elif nxt is not None and nxt[0] == "name" and nxt[1] in _VEC_CTORS | _BOX_CTORS \
@@ -254,19 +275,25 @@ class Checker:
         self._walk(blk[1], inner, in_at, inherit)
 
     # --- capability flow (M8b) ---------------------------------------------------
-    def _check_require(self, cap: str, pos, known) -> None:
+    def _check_require(self, cap: str, pos, known, op: str = "rq") -> None:
         if known is not UNKNOWN and cap not in known:
             held = " ".join(f"`{c}" for c in sorted(known)) or "nothing"
-            self._diag(CAP_DENIED,
-                       f"`{cap} is required here but the authority in scope is exactly "
-                       f"{held}; this `rq` can never succeed",
-                       pos, op="rq", cap=cap,
-                       hint=f"run it inside a grant: `{cap} [ ... ] gr")
+            if op == "rq":
+                msg = (f"`{cap} is required here but the authority in scope is exactly "
+                       f"{held}; this `rq` can never succeed")
+                hint = f"run it inside a grant: `{cap} [ ... ] gr"
+            else:
+                msg = f"`{op}` needs `{cap}, and the authority in scope is exactly {held}"
+                hint = _HOST_HINT[op]
+            self._diag(CAP_DENIED, msg, pos, op=op, cap=cap, hint=hint)
         elif cap not in self.grantable and not self.uses_at:
-            self._diag(CAP_DENIED,
-                       f"`{cap} is required but never granted anywhere in the program",
-                       pos, op="rq", cap=cap,
-                       hint=f"add a grant scope `{cap} [ ... ] gr around the caller")
+            if op == "rq":
+                msg = f"`{cap} is required but never granted anywhere in the program"
+                hint = f"add a grant scope `{cap} [ ... ] gr around the caller"
+            else:
+                msg = f"`{op}` needs `{cap}, which is never granted anywhere in the program"
+                hint = _HOST_HINT[op]
+            self._diag(CAP_DENIED, msg, pos, op=op, cap=cap, hint=hint)
 
     # --- match arms (M8a) + result exhaustiveness (M8c-ii) -----------------------
     def _check_match_arms(self, blk, known, in_at: bool, subject_is_res: bool,

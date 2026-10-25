@@ -20,6 +20,10 @@ pub struct Rt {
 }
 
 impl Rt {
+    pub fn set_args(&mut self, args: Vec<String>) {
+        self.vm.set_args(args);
+    }
+
     pub fn new(file: &str) -> Self {
         Rt {
             vm: Vm::new(Some(file.to_string())),
@@ -275,6 +279,7 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
     if !(*rt).vm.is_bound(&name) {
         match name.as_str() {
             "gr" => return grant(rt),
+            "gd" => return grant_disk(rt),
             "rn" => return exec_rn(rt),
             "ts" => return exec_ts(rt),
             "pp" => return exec_pp(rt),
@@ -622,6 +627,24 @@ unsafe fn call_block(rt: *mut Rt, id: u32, op: &str) -> i32 {
     f(rt);
     (*rt).depth -= 1;
     rt_failed(rt)
+}
+
+unsafe fn grant_disk(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("gd") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let path = match (*rt).vm.pop_host_str("gd") {
+        Ok(path) => path,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let fresh = match (*rt).vm.begin_disk(&path) {
+        Ok(fresh) => fresh,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let code = call_block(rt, id, "gd");
+    (*rt).vm.end_disk(fresh);
+    code
 }
 
 unsafe fn grant(rt: *mut Rt) -> i32 {

@@ -61,9 +61,19 @@ pub fn execute(src: &str, file: &str) -> Result<ExecResult, NativeError> {
 
 /// `fast` selects Cranelift `opt_level=speed` (`zownc native -O`).
 pub fn execute_tuned(src: &str, file: &str, fast: bool) -> Result<ExecResult, NativeError> {
+    execute_with(src, file, fast, &[])
+}
+
+/// `args` is the program vector `ac`/`ag` read. It is not the toolchain argv.
+pub fn execute_with(
+    src: &str,
+    file: &str,
+    fast: bool,
+    args: &[String],
+) -> Result<ExecResult, NativeError> {
     let nodes = parse(src).map_err(NativeError::Parse)?;
     let ir = lower(&nodes);
-    run_jit(&ir, file, fast).map_err(NativeError::Unsupported)
+    run_jit(&ir, file, fast, args).map_err(NativeError::Unsupported)
 }
 
 /// Compile `src` to a native executable at `out`. The binary links the same
@@ -159,7 +169,7 @@ fn compile_program<M: Module>(
     Ok((module, ids))
 }
 
-fn run_jit(ir: &IrProgram, file: &str, fast: bool) -> Result<ExecResult, String> {
+fn run_jit(ir: &IrProgram, file: &str, fast: bool, args: &[String]) -> Result<ExecResult, String> {
     let isa = host_isa(false, fast)?;
     let mut jb = JITBuilder::with_isa(isa, default_libcall_names());
     for (name, sym) in host_symbols() {
@@ -170,6 +180,7 @@ fn run_jit(ir: &IrProgram, file: &str, fast: bool) -> Result<ExecResult, String>
     module.finalize_definitions().map_err(|e| e.to_string())?;
 
     let rt = Box::into_raw(Box::new(Rt::new(file)));
+    unsafe { (*rt).set_args(args.to_vec()) };
     for (i, id) in ids.iter().enumerate() {
         let p = module.get_finalized_function(*id);
         let f = unsafe { transmute::<_, unsafe extern "C" fn(*mut Rt)>(p) };

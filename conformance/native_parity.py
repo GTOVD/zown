@@ -25,8 +25,8 @@ CASES = os.path.join(ROOT, "conformance", "cases")
 ERRORS = os.path.join(ROOT, "conformance", "errors")
 CASES_V2 = os.path.join(ROOT, "conformance", "cases_v2")
 ERRORS_V2 = os.path.join(ROOT, "conformance", "errors_v2")
-# v0.1 (20) + v0.2 (64). Drops if a program starts getting refused or diverges.
-MIN_PASS = 84
+# v0.1 (20) + v0.2 (75). Drops if a program starts getting refused or diverges.
+MIN_PASS = 95
 
 GREEN, RED, RST = "\033[32m", "\033[31m", "\033[0m"
 
@@ -43,9 +43,17 @@ def _skipped(stderr: str) -> str | None:
     return None
 
 
+def _env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["ZOWN_TICK"] = "1"
+    env["ZOWN_WALL"] = "0"
+    return env
+
+
 def run_case(path: str) -> str:
     out = subprocess.run(
-        [ZOWNC, "native", "--unchecked", path], capture_output=True, text=True
+        [ZOWNC, "native", "--unchecked", path],
+        capture_output=True, text=True, env=_env(), cwd=ROOT,
     )
     why = _skipped(out.stderr)
     if why:
@@ -59,7 +67,8 @@ def run_case(path: str) -> str:
 
 def run_error(path: str) -> str:
     out = subprocess.run(
-        [ZOWNC, "native", "--unchecked", "--zerr", path], capture_output=True, text=True
+        [ZOWNC, "native", "--unchecked", "--zerr", path],
+        capture_output=True, text=True, env=_env(), cwd=ROOT,
     )
     why = _skipped(out.stderr)
     if why:

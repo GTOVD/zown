@@ -9,6 +9,7 @@ mod bigint;
 mod blake3;
 mod buf;
 mod error;
+mod hostio;
 mod lanes;
 mod mesh;
 mod native;
@@ -100,6 +101,10 @@ pub struct Vm {
     pub env: HashMap<String, Value>,
     /// Capabilities granted right now. Empty until a `gr` block adds one.
     caps: HashSet<String>,
+    /// Path roots from `gd`. File words require `d` and one of these.
+    roots: Vec<String>,
+    /// Program arguments. Empty unless the host passed some. Not process argv.
+    args: Vec<String>,
     depth: u32,
     pub out: String,
     pub file: Option<String>,
@@ -178,6 +183,8 @@ impl Vm {
             stack: Vec::new(),
             env: HashMap::new(),
             caps: HashSet::new(),
+            roots: Vec::new(),
+            args: Vec::new(),
             depth: 0,
             out: String::new(),
             file,
@@ -945,6 +952,13 @@ impl Vm {
             "df" => self.b_df(),
             "rm" => self.b_rm(),
             "lg" => self.b_lg(),
+            "gd" => self.b_gd(),
+            "fr" => self.b_fr(),
+            "fw" => self.b_fw(),
+            "ac" => self.b_ac(),
+            "ag" => self.b_ag(),
+            "en" => self.b_en(),
+            "tm" => self.b_tm(),
             "ty" => self.b_attempt(),
             "gr" => self.b_grant(),
             "rq" => self.b_require(),
@@ -1844,6 +1858,13 @@ pub fn is_builtin(name: &str) -> bool {
             | "df"
             | "rm"
             | "lg"
+            | "gd"
+            | "fr"
+            | "fw"
+            | "ac"
+            | "ag"
+            | "en"
+            | "tm"
     )
 }
 

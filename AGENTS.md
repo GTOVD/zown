@@ -69,8 +69,8 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/bare_boot.py
 ```
 
-All five oracle commands must end in `0 failed` (128 unit tests, 20 +
-64 + 14 goldens). `--bless` on a runner rewrites its goldens from the oracle —
+All five oracle commands must end in `0 failed` (129 unit tests, 20 +
+75 + 16 goldens). `--bless` on a runner rewrites its goldens from the oracle —
 only after an *intentional* semantics change, and commit the `.zn` with its
 `.out`/`.code`/`.diag`. Beware when probing by hand: `zown run` is gated, so use
 `--unchecked` to observe the *runtime* packet of a program the checker rejects,
@@ -151,8 +151,8 @@ SPEC §21 and is not implemented. **M10 ✅** — cooperative fast lanes
 (`~m` `~n` `^` `|`, `zown tune`). The trace is the timing model (SPEC §22).
 WASM tags 4–8 are assigned and not emitted, and WASM
 refuses the lane operators. **M11 ✅** — `mx`, `mn`, and `cl` are Zown in
-`zown/std/core.zn`; `zown test` and `zown fmt` ship. Crypto, files, and LSP
-are SPEC §23 and are not implemented. **M12 ✅** — BLAKE3 `h3`, local
+`zown/std/core.zn`; `zown test` and `zown fmt` ship. Crypto and LSP stayed
+design-only in that slice. **M12 ✅** — BLAKE3 `h3`, local
 `~p`/`~f`, and `zown mesh` (two IPv6 UDP peers on `[::1]`). QUIC, the DHT,
 and Ed25519 are not implemented. **M13 ✅** — layout tree (`co`, `tx`,
 `bt`, `rw`, `cm`, `ly`) and `zown draw` (PPM). GPU, audio, and input
@@ -170,12 +170,15 @@ sector. QEMU reads `Zown` from the VGA text buffer, and `int 0x20` stores
 `0xB1` at `0x8000`. A microkernel is not implemented. **M18 ✅** —
 `bf` `bg` `bp` are an exclusive `buf`. A bare name or `=` pushes a
 borrow. `,` on the owner frees the bytes. No address is visible.
-`native_parity` is 84/84. **M19 ✅** — `zown/std/parse.zn` is the parser.
+`native_parity` is 95/95. **M19 ✅** — `zown/std/parse.zn` is the parser.
 `zown stage parse` checks its AST against the host, including on its own
 source. A leaf keeps the raw lexeme (`int 007`, `float 1.50`). `parse_parity`
 runs that program natively (5/5). A stage-2 compiler binary is not produced.
-Next is **M20** (host I/O behind capabilities). The byte-identical stage-2
-compiler is M23. The rest of the map is **M18–M32** in `docs/PLAN.md`.
+**M20 ✅** — `gd` `fr` `fw` read and write a `buf` under a `` `d `` path
+grant. `ac` `ag` are the program's arguments. `en` looks up one variable
+under `` `v ``. `tm` reads a pinned clock under `` `c ``. A path outside the
+grant is `CAP_DENIED`. Next is **M21** (real crypto). The byte-identical
+stage-2 compiler is M23. The rest of the map is **M18–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

@@ -22,6 +22,7 @@ from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
 from .buf import b_bf, b_bg, b_bp, release
 from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
+from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_bt, b_cm, b_co, b_ly, b_rw, b_tx
 
@@ -686,6 +687,13 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "df": (b_df, "drift", "push the current drift report (ok when every want is met)"),
     "rm": (b_rm, "remedy", "code note rm -> remember a note for the next fault with that code"),
     "lg": (b_lg, "log", "push the telemetry log"),
+    "gd": (b_gd, "grant_disk", "path [body] gd -> run body with `d and this path as a root"),
+    "fr": (b_fr, "file_read", "path fr -> exclusive buf of the file bytes; path must be under a gd root"),
+    "fw": (b_fw, "file_write", "buf path fw -> write every byte; the buf stays; path must be under a gd root"),
+    "ac": (b_ac, "argc", "ac -> how many program arguments the host passed"),
+    "ag": (b_ag, "arg", "idx ag -> that program argument (BOUNDS outside 0..count)"),
+    "en": (b_en, "env", "name en -> that variable; unset is BOUNDS; needs `v"),
+    "tm": (b_tm, "time", "tm -> monotonic tick, then wall seconds; needs `c; ZOWN_TICK and ZOWN_WALL pin them"),
     "ct": (b_cat, "concat", "concatenate two strings (a b ct)"),
     "rp": (b_repeat, "repeat", "str count rp -> the string repeated count times (count <= 0 yields \"\")"),
     "hw": (b_hw, "cpus", "push the CPU count (ZOWN_CPUS overrides the host)"),

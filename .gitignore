@@ -8,6 +8,9 @@ dist/
 .venv/
 venv/
 
+# written by examples/io.zn and cases_v2/io.zn
+/conformance/iofix/dst.txt
+
 # Zown
 # generated error packets
 *.zerr

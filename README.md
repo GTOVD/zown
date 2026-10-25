@@ -80,6 +80,9 @@ python3 bin/zown stage parse zown/std/parse.zn
 
 # an exclusive buffer, a stored byte, and a borrow's read
 python3 bin/zown examples/buf.zn
+
+# read a fixture under a path grant, write it back, read the copy
+python3 bin/zown examples/io.zn
 ```
 
 Install the `zown` command for real:

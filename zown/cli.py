@@ -1,8 +1,9 @@
 """The `zown` command-line driver.
 
 Usage:
-    zown <file.zn>            run a program (shorthand for `run`)
-    zown run <file.zn>        check, then run a program
+    zown <file.zn> [-- args]  run a program (shorthand for `run`)
+    zown run <file.zn> [-- args]
+                              check, then run. Words after -- are the program's arguments
     zown check <file.zn>      static checker (M8): names, match shape, capability flow
     zown ast <file.zn>        print the parsed AST (debug)
     zown manifest <file.zn>   generate/update the shadow manifest (<file>.json)
@@ -106,7 +107,7 @@ def cmd_run(args) -> int:
                         f"rejected: {args.file} — {len(diags)} issue(s) found by the "
                         f"static checker; not run (--unchecked overrides)")
             return EXIT_REJECTED
-    vm = VM(file=args.file)
+    vm = VM(file=args.file, args=getattr(args, "prog_args", None))
     try:
         vm.run_src(src)
     except ZownError as e:
@@ -438,6 +439,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    prog_args: list[str] = []
+    if "--" in argv:
+        cut = argv.index("--")
+        prog_args = argv[cut + 1:]
+        argv = argv[:cut]
     parser = build_parser()
 
     # shorthand: `zown file.zn` == `zown run file.zn`
@@ -448,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = argv[:idx] + ["run"] + argv[idx:]
 
     args = parser.parse_args(argv)
+    args.prog_args = prog_args
     if not getattr(args, "func", None):
         parser.print_help()
         return 0
