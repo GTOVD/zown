@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (remainder map: M18–M32, everything still design-only).
+Last updated: 2026-10-24 (M18: exclusive buf, borrow, and free).
 
 ---
 
