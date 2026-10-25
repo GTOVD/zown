@@ -192,6 +192,7 @@ python3 conformance/vm_parity.py
 python3 conformance/native_parity.py
 python3 conformance/wasm_parity.py   # needs wasmtime
 python3 conformance/stage2_parity.py # IR fixed point and boot-image bytes
+python3 conformance/stream_pair.py   # two peers on [::1]
 ```
 
 ## Status
