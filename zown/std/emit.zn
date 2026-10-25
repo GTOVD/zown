@@ -1,0 +1,163 @@
+# Stage-2 boot emitter (M23). `z` is a print-subset program
+# (`$text$ pr` or `$text$ .`). `ex` prints the 512-byte sector
+# `zownc bare` writes, as lowercase hex. The stub is the real-mode
+# image up to the message; the message follows, then a NUL, then
+# the 0xAA55 signature. `sq` is sqrt, so this file does not use it.
+
+# Skip spaces, tabs, newlines, and `#` comments. Stops on the next
+# character that belongs to the program.
+[ 1 :sg
+  [ sg z ln 0 > && ] [
+    z hd $ $ == [ z tl :z ] [
+    z hd $\t$ == [ z tl :z ] [
+    z hd $\n$ == [ z tl :z ] [
+    z hd $\r$ == [ z tl :z ] [
+      z hd $#$ == [
+        [ z ln 0 > [ z hd $\n$ != ] [ 0 ] ? @ ] [ z tl :z ] ;
+        z ln 0 > [ z hd $\n$ == [ z tl :z ] [ ] ? @ ] [ ] ? @
+      ] [ 0 :sg ] ? @
+    ] ? @ ] ? @ ] ? @ ] ? @
+  ] ;
+] $sw$ wd
+
+# Read one `$...$` from z into u. The opening `$` is still there.
+[ $$ :u
+  z tl :z
+  1 :q
+  [ q z ln 0 > && ] [
+    z hd $\\$ == [
+      u z hd ct :u
+      z tl :z
+      z ln 0 > [ u z hd ct :u z tl :z ] [ ] ? @
+    ] [
+      z hd $\$$ == [ z tl :z 0 :q ] [
+        u z hd ct :u
+        z tl :z
+      ] ? @
+    ] ? @
+  ] ;
+  u
+] $gs$ wd
+
+# Decode a `$...$` lexeme (quotes included) to the text it prints.
+[ :s
+  s tl :s
+  $$ :u
+  1 :q
+  [ q s ln 0 > && ] [
+    s hd $\$$ == [ 0 :q ] [
+      s hd $\\$ == [
+        s tl :s
+        s hd :c
+        s tl :s
+        c $n$ == [ u $\n$ ct :u ] [
+        c $t$ == [ u $\t$ ct :u ] [
+        c $r$ == [ u $\r$ ct :u ] [
+        c $\\$ == [ u $\\$ ct :u ] [
+        c $\$$ == [ u $\$$ ct :u ] [
+          u c ct :u
+        ] ? @ ] ? @ ] ? @ ] ? @ ] ? @
+      ] [
+        u s hd ct :u
+        s tl :s
+      ] ? @
+    ] ? @
+  ] ;
+  u
+] $un$ wd
+
+# One code point to its byte. Print text is ASCII plus newline.
+[ :c
+  c $\n$ == [ 10 ] [
+  c $\r$ == [ 13 ] [
+  c $\t$ == [ 9 ] [
+    $ !"#\$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~$ :al
+    32 :k
+    [ al ln 0 > [ al hd c != ] [ 0 ] ? @ ] [
+      al tl :al
+      k 1 + :k
+    ] ;
+    k
+  ] ? @ ] ? @ ] ? @
+] $oc$ wd
+
+# Nibble 0..15 to one hex character, printed.
+[ :k
+  $0123456789abcdef$ :al
+  [ k 0 > ] [ al tl :al k 1 - :k ] ;
+  al hd pr
+] $hx$ wd
+
+# Value of one hex digit.
+[ :c
+  $0123456789abcdef$ :al
+  0 :k
+  [ al ln 0 > [ al hd c != ] [ 0 ] ? @ ] [
+    al tl :al
+    k 1 + :k
+  ] ;
+  k
+] $xn$ wd
+
+# buf is the exclusive binding m. idx byte wb writes one byte.
+[ :b :i
+  'm i b bp :m
+] $wb$ wd
+
+# The fixed real-mode stub. 89 bytes. The message begins at offset 89.
+[ $ea057c0000fa31c08ed88ed0bc007cfcc7068000537cc70682000000c606008000be597cb800b88ec031ffac84c0741d3c0a7407b407abe6e9ebf0e6e989f831d2bba000f7f340f7e389c7ebdecd20faf4ebfdc6060080b1cf$ :h
+  0 :i
+  [ h ln 0 > ] [
+    h hd xn :hi
+    h tl :h
+    h hd xn :lo
+    h tl :h
+    i hi 16 * lo + wb
+    i 1 + :i
+  ] ;
+] $st$ wd
+
+# Print the 512 bytes of m as hex.
+[ 0 :j
+  [ j 512 < ] [
+    m j bg :b ,
+    b 16 % :lo
+    b lo - 16 / hx
+    lo hx
+    j 1 + :j
+  ] ;
+  $\n$ pr
+] $ph$ wd
+
+# Build the sector for z and print it.
+[ $$ :msg
+  1 :go
+  [ go ] [
+    sw
+    z ln 0 == [ 0 :go ] [
+      $\$$ gs ct $\$$ ct un :pc
+      sw
+      z hd $.$ == [
+        msg pc ct $\n$ ct :msg
+        z tl :z
+      ] [
+        msg pc ct :msg
+        z tl tl :z
+      ] ? @
+    ] ? @
+  ] ;
+  512 bf :m
+  st
+  89 :i
+  msg :t
+  [ t ln 0 > ] [
+    t hd oc :b
+    i b wb
+    i 1 + :i
+    t tl :t
+  ] ;
+  i 0 wb
+  510 85 wb
+  511 170 wb
+  ph
+] $ex$ wd

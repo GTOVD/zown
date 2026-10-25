@@ -21,6 +21,10 @@ Usage:
     zown stage <file.zn>      token-dump a file with the Zown lexer; it must match the host
     zown stage parse <file.zn>
                               parse a file with the Zown parser; it must match the host AST
+    zown stage lower <file.zn>
+                              lower a file to the IR text `zownc ir` prints
+    zown stage emit <file.zn>
+                              write a 512-byte boot sector for a print-subset program
 
 `run` is **gated by the static checker** (PLAN M8c-0, decision D2): a program
 with any static finding is rejected before a single node executes. The findings
@@ -261,14 +265,25 @@ def cmd_test(args) -> int:
 
 
 def cmd_stage(args) -> int:
-    from .stage import StageMismatch, stage_file, stage_parse
-    parsing = args.mode_or_file == "parse"
-    path = args.file if parsing else args.mode_or_file
-    if parsing and not path:
-        sys.stderr.write("usage: zown stage parse <file.zn>\n")
-        return 2
+    from .stage import StageMismatch, stage_emit, stage_file, stage_lower, stage_parse
+    mode = args.mode_or_file
+    if mode in ("parse", "lower", "emit"):
+        path = args.file
+        if not path:
+            sys.stderr.write(f"usage: zown stage {mode} <file.zn>\n")
+            return 2
+    else:
+        path = mode
+        mode = "lex"
     try:
-        sys.stdout.write(stage_parse(path) if parsing else stage_file(path))
+        if mode == "parse":
+            sys.stdout.write(stage_parse(path))
+        elif mode == "lower":
+            sys.stdout.write(stage_lower(path))
+        elif mode == "emit":
+            sys.stdout.buffer.write(stage_emit(path))
+        else:
+            sys.stdout.write(stage_file(path))
     except ZownError as e:
         e.file = e.file or path
         _emit_error(e, args.zerr, args.zerr_out)
@@ -415,9 +430,9 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("file")
     pd.set_defaults(func=cmd_draw)
 
-    ps = sub.add_parser("stage", help="check the Zown lexer, or `stage parse` for the parser")
-    ps.add_argument("mode_or_file", help="a .zn file, or parse")
-    ps.add_argument("file", nargs="?", help="file to parse when the first argument is parse")
+    ps = sub.add_parser("stage", help="run the Zown lexer, parser, lowerer, or boot emitter")
+    ps.add_argument("mode_or_file", help="a .zn file, or parse, lower, or emit")
+    ps.add_argument("file", nargs="?", help="source file when the first argument is a mode")
     ps.set_defaults(func=cmd_stage)
 
     pw = sub.add_parser("watch", help="run a program, then print its telemetry log")

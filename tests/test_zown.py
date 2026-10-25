@@ -1561,6 +1561,58 @@ r 1 bg .
     assert out == "7\n"
 
 
+# --- stage-2 compiler (M23) ----------------------------------------------------
+def test_zown_lower_matches_block_shape():
+    from zown.cli import main
+    from zown.stage import zown_ir
+    hello = open(os.path.join("examples", "hello.zn"), encoding="utf-8").read()
+    ir = zown_ir(hello, os.path.join("examples", "hello.zn"))
+    assert ir == (
+        "; zown ir  (2 blocks)\n"
+        "main = b1\n"
+        "\n"
+        "b0:\n"
+        "  push.s   \"Hello, World!\"\n"
+        "  op       .\n"
+        "\n"
+        "b1:\n"
+        "  push.blk b0\n"
+        "  bind     h\n"
+        "  load     h\n"
+        "  invoke\n"
+        "\n"
+    )
+    bare = zown_ir("$Zown$ .\n")
+    assert "push.s   \"Zown\"" in bare
+    assert bare.startswith("; zown ir  (1 blocks)\nmain = b0\n")
+    own = open(os.path.join("zown", "std", "lower.zn"), encoding="utf-8").read()
+    fixed = zown_ir(own, os.path.join("zown", "std", "lower.zn"))
+    assert fixed.startswith("; zown ir  (")
+    assert "\nmain = b" in fixed
+    assert 'push.s   "lw"' in fixed
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = out, err
+    try:
+        code = main(["stage", "lower", os.path.join("examples", "hello.zn")])
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    assert code == 0, err.getvalue()
+    assert out.getvalue() == ir
+
+
+def test_zown_emit_boot_sector():
+    from zown.stage import stage_emit, zown_image
+    img = zown_image(open(os.path.join("examples", "bare.zn"), encoding="utf-8").read())
+    assert len(img) == 512
+    assert img[-2:] == b"\x55\xaa"
+    assert img[89:95] == b"Zown\n\x00"
+    row = zown_image("$A$ .\n$B$ pr\n")
+    assert row[89:93] == b"A\nB\x00"
+    same = stage_emit(os.path.join("examples", "bare.zn"))
+    assert same == img
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(

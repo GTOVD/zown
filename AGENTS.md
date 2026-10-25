@@ -182,9 +182,13 @@ grant is `CAP_DENIED`. **M21 ✅** — `ae` `ad` are ChaCha20-Poly1305,
 `INTEGRITY_FAIL`. A bad signature is `SIG_INVALID`. `ni` stays the BLAKE3
 id. **M22 ✅** — WASM emits big, cap, width, vec, and res, plus moves, `??`,
 and `ty`. Checked overflow is a `.zerr`. `wasm_parity` skips files, buffers,
-crypto, and lanes with the compiler's reason. Next is **M23** (the
-byte-identical stage-2 compiler). The rest of the map is **M23–M32** in
-`docs/PLAN.md`.
+crypto, and lanes with the compiler's reason. **M23 ✅** —
+`zown/std/lower.zn` prints the IR text `zownc ir` prints, including on its
+own source. `zown/std/emit.zn` writes the 512-byte print-subset boot sector.
+`zownc native` and the executable it links emit the same bytes as
+`zownc bare`, and QEMU boots that image (`stage2_parity`). The sector does
+not recompile Zown. Next is **M24** (a signed bundle and an inclusion proof).
+The rest of the map is **M24–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

@@ -104,6 +104,68 @@ def stage_parse(path: str) -> str:
     return got
 
 
+def lower_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "std", "lower.zn")
+
+
+def lower_program(src: str, lower: str | None = None, file: str | None = None) -> str:
+    """Bind the canonical AST of `src` to `a` and append `lw`."""
+    body = lower if lower is not None else open(lower_path(), encoding="utf-8").read()
+    return quote(ast_dump(src, file)) + " :a\n" + body + "\nlw\n"
+
+
+def zown_ir(src: str, file: str | None = None) -> str:
+    """IR text of `src`, printed by `std/lower.zn`."""
+    import io
+    buf = io.StringIO()
+    vm = VM(file="<stage>", out=buf)
+    vm.run_src(lower_program(src, file=file))
+    return buf.getvalue()
+
+
+def stage_lower(path: str) -> str:
+    """IR text of `path`. The same text `zownc ir` prints; parity is stage2_parity."""
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    return zown_ir(src, path)
+
+
+def emit_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "std", "emit.zn")
+
+
+def emit_program(src: str, emitter: str | None = None) -> str:
+    """Bind a print-subset program to `z` and append `ex`."""
+    body = emitter if emitter is not None else open(emit_path(), encoding="utf-8").read()
+    return quote(src) + " :z\n" + body + "\nex\n"
+
+
+def image_from_hex(text: str) -> bytes:
+    """512 bytes from the lowercase hex `ex` prints."""
+    raw = "".join(text.split())
+    if len(raw) != 1024 or any(c not in "0123456789abcdef" for c in raw):
+        raise StageMismatch(
+            f"emitter printed {len(raw)} hex digits, want 1024 lowercase digits"
+        )
+    return bytes.fromhex(raw)
+
+
+def zown_image(src: str) -> bytes:
+    """Boot sector of a print-subset program, built by `std/emit.zn`."""
+    import io
+    buf = io.StringIO()
+    vm = VM(file="<stage>", out=buf)
+    vm.run_src(emit_program(src))
+    return image_from_hex(buf.getvalue())
+
+
+def stage_emit(path: str) -> bytes:
+    """512-byte boot sector of `path`. The source is the print subset in SPEC §29."""
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    return zown_image(src)
+
+
 def _diff(host: str, got: str) -> str:
     hl, gl = host.splitlines(), got.splitlines()
     n = min(len(hl), len(gl))

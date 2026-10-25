@@ -5,6 +5,7 @@ tree-shaped and convenient for parsing; the IR is **flat and addressable**, whic
 is what code generators (WASM, native) want.
 
 Defined in `zownc/crates/zown-ir`. Inspect it with `zownc ir <file.zn>`.
+`zown/std/lower.zn` prints the same text (`zown stage lower`).
 
 ## Shape
 

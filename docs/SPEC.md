@@ -1153,7 +1153,7 @@ Every runtime fault is a log line `fault CODE op note`, written when the fault i
 
 `cases_v2/intent` declares a want, watches it drift and then meet, and records a `DIV_ZERO` whose note was set with `rm`. `errors_v2/span_empty` is a bare `se`.
 
-## 28. The frontend — **implemented (M16 lexer, M19 parser, both on stage-0)**
+## 28. The frontend — **implemented (M16 lexer, M19 parser, M23 lowering and boot image)**
 
 Stage-0 is still the Rust toolchain and this Python VM. The lexer and the parser are also Zown programs, `zown/std/lex.zn` and `zown/std/parse.zn`. They are not loaded with the other std words.
 
@@ -1181,7 +1181,11 @@ end
 
 The lexeme is the source text, not the value the host stores on the node. `007` stays `007`. `1.50` stays `1.50`. A string keeps both `$` quotes and the escape characters. A real newline inside a string stays inside the lexeme, and the dump's token separator is the newline after the closing `$`. Comments are absent, because the dump has already dropped them. `zown ast` still prints JSON for debugging. That JSON is not this text.
 
-An integer literal past the `int` range, a file the host lexer rejects, and a file the host parser rejects (`REPAIR_SYNTAX`, including a block nested past 256) stay host errors. This slice does not reimplement them. The lowering and a compiler binary produced by Zown are not in this slice. A byte-identical stage-2 executable is still M23.
+An integer literal past the `int` range, a file the host lexer rejects, and a file the host parser rejects (`REPAIR_SYNTAX`, including a block nested past 256) stay host errors. This slice does not reimplement them.
+
+`zown stage lower file.zn` binds that canonical AST to `a` and runs `lw` from `zown/std/lower.zn`. `lw` prints the IR text `zownc ir` prints. A nested block is finished, and given the next block id, before the `push.blk` that names it. The fixed point is `zown stage lower zown/std/lower.zn`. `conformance/stage2_parity.py` runs that program through `zownc native` as well.
+
+`zown stage emit file.zn` binds the source to `z` and runs `ex` from `zown/std/emit.zn`. The source is the print subset from §29 (`$text$ pr` and `$text$ .`). `ex` fills a 512-byte `buf` with the boot sector and the command writes those bytes. They are the bytes `zownc bare` writes. The sector is the one loadable image this milestone emits. It does not recompile Zown. Stage-0 still builds the compiler: `zownc native` runs it in-process, and `zownc native -o` writes an executable. Both print the sector as lowercase hex. Those bytes match `zownc bare`. `stage2_parity` boots the linked image in QEMU the way `bare_boot.py` does.
 
 ## 29. Bare metal — **implemented (M17, boot sector)**
 

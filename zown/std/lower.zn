@@ -1,0 +1,168 @@
+# Stage-2 lowering (M23). `a` is the canonical AST text (`px`).
+# `lw` prints the IR text `zownc ir` prints. Blocks are numbered
+# in the same order the host lowers them: a nested block is
+# finished before the instruction that pushes it. `sq` is sqrt,
+# so this file does not use that name.
+
+# One AST line. Empty input sets ef and returns "".
+[ a ln 0 == [ 1 :ef $$ ] [
+  0 :ef
+  $$ :u
+  [ a ln 0 > [ a hd $\n$ != ] [ 0 ] ? @ ] [
+    u a hd ct :u
+    a tl :a
+  ] ;
+  a ln 0 > [ a hd $\n$ == [ a tl :a ] [ ] ? @ ] [ ] ? @
+  u
+] ? @ ] $gl$ wd
+
+# Line on the stack. Sets iv (indent) and tx (text).
+[ :l
+  0 :iv
+  [ l ln 0 > [ l hd $ $ == ] [ 0 ] ? @ ] [
+    iv 1 + :iv
+    l tl :l
+  ] ;
+  l :tx
+] $cut$ wd
+
+# Push a string onto sk. Newest first: decimal length, a newline,
+# then that many characters. Pop reads the front, so the stack is LIFO.
+[ :x
+  x ln s $\n$ ct x ct sk ct :sk
+] $pu$ wd
+
+# Pop that string.
+[ $$ :num
+  [ sk ln 0 > [ sk hd $\n$ != ] [ 0 ] ? @ ] [
+    num sk hd ct :num
+    sk tl :sk
+  ] ;
+  sk tl :sk
+  num n :k
+  $$ :out
+  [ k 0 > ] [
+    out sk hd ct :out
+    sk tl :sk
+    k 1 - :k
+  ] ;
+  out
+] $po$ wd
+
+# `$...$` lexeme to the characters it holds.
+# `w` is the lexeme. `s` stays the to-string builtin; a binding
+# of that name would hide it for every later word.
+[ :w
+  w tl :w
+  $$ :u
+  1 :q
+  [ q w ln 0 > && ] [
+    w hd $\$$ == [ 0 :q ] [
+      w hd $\\$ == [
+        w tl :w
+        w hd :c
+        w tl :w
+        c $n$ == [ u $\n$ ct :u ] [
+        c $t$ == [ u $\t$ ct :u ] [
+        c $r$ == [ u $\r$ ct :u ] [
+        c $\\$ == [ u $\\$ ct :u ] [
+        c $\$$ == [ u $\$$ ct :u ] [
+          u c ct :u
+        ] ? @ ] ? @ ] ? @ ] ? @ ] ? @
+      ] [
+        u w hd ct :u
+        w tl :w
+      ] ? @
+    ] ? @
+  ] ;
+  u
+] $ds$ wd
+
+# Decoded text to the Rust debug form `zownc ir` prints.
+[ :w
+  $\"$ :o
+  [ w ln 0 > ] [
+    w hd :c
+    w tl :w
+    c $\"$ == [ o $\\"$ ct :o ] [
+    c $\\$ == [ o $\\\\$ ct :o ] [
+    c $\n$ == [ o $\\n$ ct :o ] [
+    c $\t$ == [ o $\\t$ ct :o ] [
+    c $\r$ == [ o $\\r$ ct :o ] [
+      o c ct :o
+    ] ? @ ] ? @ ] ? @ ] ? @ ] ? @
+  ] ;
+  o $\"$ ct
+] $rs$ wd
+
+# One leaf line (`tag lexeme`) to one IR line, indent included.
+[ :c
+  $$ :tg
+  [ c ln 0 > [ c hd $ $ != ] [ 0 ] ? @ ] [
+    tg c hd ct :tg
+    c tl :c
+  ] ;
+  c ln 0 > [ c hd $ $ == [ c tl :c ] [ ] ? @ ] [ ] ? @
+  c :lx
+  tg $int$ == [ $  push.i   $ lx n s ct $\n$ ct ] [
+  tg $float$ == [ $  push.f   $ lx n s ct $\n$ ct ] [
+  tg $str$ == [ $  push.s   $ lx ds rs ct $\n$ ct ] [
+  tg $name$ == [
+    lx $ty$ == [ $  attempt\n$ ] [ $  load     $ lx ct $\n$ ct ] ? @
+  ] [
+  tg $bind$ == [ $  bind     $ lx tl ct $\n$ ct ] [
+  tg $move$ == [ $  move     $ lx tl ct $\n$ ct ] [
+  tg $cap$ == [ $  push.cap $ lx tl ct $\n$ ct ] [
+    lx $@$ == [ $  invoke\n$ ] [
+    lx $?$ == [ $  select\n$ ] [
+    lx $;$ == [ $  while\n$ ] [
+    lx $??$ == [ $  match\n$ ] [
+      $  op       $ lx ct $\n$ ct
+    ] ? @ ] ? @ ] ? @ ] ? @
+  ] ? @ ] ? @ ] ? @ ] ? @ ] ? @ ] ? @ ] ? @
+] $ir$ wd
+
+# Close the block in bd. Its id is left in id.
+[ ou
+  $b$ ct ni s ct $:\n$ ct
+  bd ln 0 == [ $  ; (empty)\n$ ] [ bd ] ? @
+  ct $\n$ ct :ou
+  ni :id
+  ni 1 + :ni
+] $fin$ wd
+
+# Lower a. Children are saved on sk so a nested block can finish
+# before the push.blk that names it.
+[ 0 :ni
+  0 :ef
+  $$ :ou
+  $$ :bd
+  $$ :sk
+  1 _ :sp
+  1 :go
+  [ go ] [
+    a ln 0 == [
+      fin
+      0 :go
+    ] [
+      gl cut
+      tx $end$ == iv sp == && [
+        fin
+        po n :sp
+        po :bd
+        bd $  push.blk b$ ct id s ct $\n$ ct :bd
+      ] [
+        tx $blk$ == [
+          bd pu
+          sp s pu
+          iv :sp
+          $$ :bd
+        ] [
+          bd tx ir ct :bd
+        ] ? @
+      ] ? @
+    ] ? @
+  ] ;
+  $; zown ir  ($ ni s ct $ blocks)\nmain = b$ ct
+  ni 1 - s ct $\n\n$ ct ou ct pr
+] $lw$ wd

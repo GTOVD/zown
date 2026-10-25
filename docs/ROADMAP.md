@@ -207,9 +207,13 @@ local inference.
 - [x] The parser is Zown (`zown/std/parse.zn`). `zown stage parse` checks it
       against the host AST, including on its own source. A leaf keeps the raw
       lexeme. `zownc native` runs that program too.
-- [ ] A lowering written in Zown.
-- [ ] Stage-1 and stage-2 compiler binaries, byte-identical.
-      Not started. Stage-0 still emits every executable.
+- [x] The lowering is Zown (`zown/std/lower.zn`). `zown stage lower` prints
+      the IR text `zownc ir` prints, including on the lowerer's own source.
+      `zownc native` runs that program too.
+- [x] The print-subset boot sector is emitted by Zown (`zown/std/emit.zn`).
+      Stage-0 compiles that program. The image matches `zownc bare` and boots
+      in QEMU. The sector is not itself a compiler. Stage-0 still emits every
+      other executable.
 
 ---
 

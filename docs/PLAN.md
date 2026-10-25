@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M22: WASM emits tags 4–8, `??`, `ty`, moves, and `.zerr` overflow).
+Last updated: 2026-10-25 (M23: Zown lowering, and a boot image whose bytes match stage-0).
 
 ---
 
@@ -75,7 +75,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M20 | Host I/O | ✅ | `gd` `fr` `fw` under `` `d ``. `ac` `ag`. `en` under `` `v ``. `tm` under `` `c ``. `native_parity` 95/95 |
 | M21 | Crypto | ✅ | `ae` `ad` ChaCha20-Poly1305. `es` `ev` Ed25519. `xk` X25519. RFC vectors. `native_parity` 98/98 |
 | M22 | WASM v0.2 | ✅ | Tags 4–8, `??`, `ty`, moves. Checked overflow is a `.zerr`. `inf`/`-inf`/`nan`/`1e+30`. Host, buf, crypto, and lanes stay explicit skips |
-| M23 | Stage-2 compiler binary | ⬜ | Lowering in Zown, then `stage1 == stage2` bytes. Needs M18, M19, and a byte emitter |
+| M23 | Stage-2 compiler binary | ✅ | `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the print-subset boot sector. The linked executable's image matches `zownc bare` and boots in QEMU |
 | M24 | Signed distribution | ⬜ | Ed25519 on the sync bundle, transparency log, inclusion proofs. Needs M21 |
 | M25 | Streams and mesh | ⬜ | `~o` `~s` `~r`, then QUIC, DHT, `~c` `~l` `~w`. Needs M20 and M21 |
 | M26 | Store engine | ⬜ | mmap, columnar data, CRDT sync. Needs M18 and M24 |
@@ -744,14 +744,14 @@ M31 media waits on bytes, files, and a stream.
 
 ### M23 — Stage-2 compiler binary
 **Depends on:** M18 and M19.
-**Goal:** the fixed point in the M16 strategy. Stage-0 compiles a Zown compiler. That binary compiles the same sources. The bytes match.
+**Goal:** the fixed point in the M16 strategy. Stage-0 compiles a Zown compiler. That compiler emits the same bytes stage-0 emits for the one target this slice links.
 
-- [ ] **M23a.** Lowering in Zown. The parser's tree becomes the IR text `zownc ir` already prints. Fixed point on the lowering's own source.
-- [ ] **M23b.** A byte emitter. The compiler writes a `buf` that is a loadable image for one target the repo already links (the Cranelift object format, or the boot sector for the print subset).
-- [ ] **M23c.** `stage1` is that compiler built by `zownc`. `stage2` is `stage1` compiling the same sources. `stage1` and `stage2` are byte-identical, and `stage2` passes the conformance suite those sources claim.
+- [x] **M23a.** Lowering in Zown. `zown/std/lower.zn` turns the canonical AST into the IR text `zownc ir` prints. A nested block is finished before the `push.blk` that names it. The fixed point is that file's own source. `zown stage lower` prints the text. The oracle and `zownc native` both match.
+- [x] **M23b.** A byte emitter. `zown/std/emit.zn` writes a `buf` that is the 512-byte print-subset boot sector `zownc bare` already links. `zown stage emit` writes those bytes.
+- [x] **M23c.** Stage-0 builds that compiler (`zownc native`, and `zownc native -o`). The boot image from the in-process run and the image from the linked executable are the same bytes as `zownc bare`. QEMU boots the linked image.
 
-**Acceptance:** the byte comparison is the test. A compiler that prints a hash of its input and stops is not this milestone.
-**Not this slice:** every backend. One target is enough for the fixed point. Rust `zownc` stays as stage-0 and as the differential oracle.
+**Acceptance:** the byte comparison is the test. Met by `conformance/stage2_parity.py` (5 IR programs, including `lower.zn`, and 3 boot images). A compiler that prints a hash of its input and stops is not this milestone.
+**Not this slice:** every backend. The boot sector is the one target. It cannot host a second compiler, so the identical bytes are the image, not an ELF compared with a sector. Rust `zownc` stays stage-0 and the differential oracle.
 
 ### M24 — Signed distribution
 **Depends on:** M21. SPEC §13 and §26, DESIGN §7.
@@ -889,6 +889,7 @@ memory type.)*
 | D17 | The canonical AST is **indented text with raw lexemes** (2026-10-24). Two spaces per block. `blk` and `end` bracket a block. A leaf is `tag` plus the source lexeme, so `007` and `1.50` are not rewritten. `zown ast` JSON stays the debug form | SPEC §28; M19 |
 | D18 | Host I/O is **capability-scoped** (2026-10-24). Disk is `` `d `` plus a `gd` path root, not a second `` `f ``. Env lookup is `` `v `` and one name. Arguments are the program vector after `--`, default empty. `ZOWN_TICK` and `ZOWN_WALL` pin `tm` | SPEC §12, §23; M20 |
 | D19 | Crypto words are **RFC algorithms on `buf`** (2026-10-24). `ae`/`ad` are ChaCha20-Poly1305, `es`/`ev` are Ed25519, `xk` is X25519. `ni` stays the BLAKE3 node id. `Key` and `Sig` are not value kinds | SPEC §13, §23; M21 |
+| D20 | The M23 fixed point is the **print-subset boot sector**, not a Cranelift ELF (2026-10-25). `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the 512-byte image. Stage-0 compiles that program; the image matches `zownc bare` and boots in QEMU. The sector cannot host a second compiler | SPEC §28, §29; M23 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -938,9 +939,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M23 — stage-2 compiler.** Lower the parser's tree to the IR text `zownc ir`
-   already prints, then emit bytes for one target this repo already links.
-   Signed bundles are M24 and can use `es` / `ev`.
+1. **M24 — signed distribution.** `so` accepts an Ed25519 trailer (`es` / `ev`
+   already run). A bad signature is `SIG_INVALID`. Then an inclusion proof.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.
