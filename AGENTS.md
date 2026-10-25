@@ -32,7 +32,7 @@ checker faults** (exit 2); there is no undefined behavior (SPEC §19).
    observable behavior *is* the semantics.
 2. **`zownc/` — the Rust toolchain** (lexer, parser, IR, VM, checker, WASM,
    Cranelift). Differentially tested against the oracle. The VM and checker
-   implement v0.2, including fast lanes (SPEC §22). Cranelift runs v0.2. WASM still refuses `??`, `ty`, `gr`, vectors, and the lane operators.
+   implement v0.2, including fast lanes (SPEC §22). Cranelift runs v0.2. WASM emits tags 4–8, `??`, `ty`, and moves. Lane operators, buffers, files, and crypto stay refused.
 3. **The conformance corpus (`conformance/`)** — language-agnostic goldens that
    both must satisfy.
 
@@ -118,7 +118,8 @@ checklist is in `PLAN.md` → "How a slice is done"; the short form:
   `null` until M14 computes real hashes/signatures.
 - **Don't touch Rust parity accidentally.** `vm_parity.py` scans v0.1 and v0.2
   (59). `ast_parity.py` / `ir_roundtrip.py` scan v0.2 as well. `wasm_parity.py`
-  is still the 13 v0.1 cases — a v0.2 change must not alter a v0.1 golden.
+  runs the v0.1 and v0.2 cases wasmtime can compile, plus their `.zerr`s, and
+  skips the rest with a reason. A v0.2 change must not alter a v0.1 golden.
 
 ## Layout cheat-sheet
 
@@ -149,8 +150,7 @@ WASM `int`, `zownc check` gates `run`; `check_parity` 14/14, `wasm_parity` 13/13
 `native -o` exes, `native -O`, and `zownc llvm` (`clang -O2`). `buf` is
 SPEC §21 and is not implemented. **M10 ✅** — cooperative fast lanes
 (`~m` `~n` `^` `|`, `zown tune`). The trace is the timing model (SPEC §22).
-WASM tags 4–8 are assigned and not emitted, and WASM
-refuses the lane operators. **M11 ✅** — `mx`, `mn`, and `cl` are Zown in
+WASM emits tags 4–8 and refuses the lane operators. **M11 ✅** — `mx`, `mn`, and `cl` are Zown in
 `zown/std/core.zn`; `zown test` and `zown fmt` ship. Crypto and LSP stayed
 design-only in that slice. **M12 ✅** — BLAKE3 `h3`, local
 `~p`/`~f`, and `zown mesh` (two IPv6 UDP peers on `[::1]`). QUIC, the DHT,
@@ -180,8 +180,11 @@ under `` `v ``. `tm` reads a pinned clock under `` `c ``. A path outside the
 grant is `CAP_DENIED`. **M21 ✅** — `ae` `ad` are ChaCha20-Poly1305,
 `es` `ev` are Ed25519, and `xk` is X25519. Keys are `buf`s. A bad tag is
 `INTEGRITY_FAIL`. A bad signature is `SIG_INVALID`. `ni` stays the BLAKE3
-id. Next is **M22** (WASM v0.2). The byte-identical stage-2 compiler is
-M23. The rest of the map is **M18–M32** in `docs/PLAN.md`.
+id. **M22 ✅** — WASM emits big, cap, width, vec, and res, plus moves, `??`,
+and `ty`. Checked overflow is a `.zerr`. `wasm_parity` skips files, buffers,
+crypto, and lanes with the compiler's reason. Next is **M23** (the
+byte-identical stage-2 compiler). The rest of the map is **M23–M32** in
+`docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

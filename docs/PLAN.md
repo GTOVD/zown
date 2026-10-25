@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-24 (M21: ChaCha20-Poly1305, Ed25519, X25519).
+Last updated: 2026-10-24 (M22: WASM emits tags 4–8, `??`, `ty`, moves, and `.zerr` overflow).
 
 ---
 
@@ -74,7 +74,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M19 | Parser in Zown | ✅ | `zown/std/parse.zn` matches the host AST, including on its own source. `zown stage parse`. Native `parse_parity` is 5/5. No executable |
 | M20 | Host I/O | ✅ | `gd` `fr` `fw` under `` `d ``. `ac` `ag`. `en` under `` `v ``. `tm` under `` `c ``. `native_parity` 95/95 |
 | M21 | Crypto | ✅ | `ae` `ad` ChaCha20-Poly1305. `es` `ev` Ed25519. `xk` X25519. RFC vectors. `native_parity` 98/98 |
-| M22 | WASM v0.2 | ⬜ | Emit tags 4–8, `??`, `ty`, moves. Overflow is a `.zerr`. Shortest float format. Parallel with M18 |
+| M22 | WASM v0.2 | ✅ | Tags 4–8, `??`, `ty`, moves. Checked overflow is a `.zerr`. `inf`/`-inf`/`nan`/`1e+30`. Host, buf, crypto, and lanes stay explicit skips |
 | M23 | Stage-2 compiler binary | ⬜ | Lowering in Zown, then `stage1 == stage2` bytes. Needs M18, M19, and a byte emitter |
 | M24 | Signed distribution | ⬜ | Ed25519 on the sync bundle, transparency log, inclusion proofs. Needs M21 |
 | M25 | Streams and mesh | ⬜ | `~o` `~s` `~r`, then QUIC, DHT, `~c` `~l` `~w`. Needs M20 and M21 |
@@ -735,9 +735,9 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** nothing new. Carry-over from M9. Can run beside M18.
 **Goal:** the web backend stops refusing the v0.2 values.
 
-- [ ] **M22a.** Emit tags 4–8 (big, cap, width, vec, res) and the `Move` / `??` / `ty` forms. D8 already assigned the numbers.
-- [ ] **M22b.** Checked `int` overflow is a `.zerr`, not `unreachable`.
-- [ ] **M22c.** Shortest float format (`inf`, `-inf`, `nan`, `1e+30`) matches §11.
+- [x] **M22a.** Emit tags 4–8 (big, cap, width, vec, res) and the `Move` / `??` / `ty` forms. D8 already assigned the numbers.
+- [x] **M22b.** Checked `int` overflow is a `.zerr`, not `unreachable`.
+- [x] **M22c.** Shortest float format (`inf`, `-inf`, `nan`, `1e+30`) matches §11.
 
 **Acceptance:** `wasm_parity` covers the v0.2 corpus that wasmtime can run, or records an explicit skip with the missing host. A v0.2 value is not silently dropped.
 **Not this slice:** SIMD in the browser beyond what the VM already does through calls.
@@ -877,7 +877,7 @@ memory type.)*
 | D5 | `.zerr` version **0.2** (2026-09-07) | `errors.py`; SPEC §8 |
 | D6 | **One token, one meaning. A prebuilt word is 1, then 2, then at most 3 characters** (2026-10-24). `+`/`*` are numeric (`ct` concatenates, `rp` repeats). `_` negates (`any` is the default pattern; there is no `bool` type). `ty` attempts; `at` indexes. Vectors are `vf vd vi vu` with `va vs vm vh`. Widths are `i8…i64 ix` and `u8…u64 ux`. `cl` clears. Standard net-send is `` `t ``, because `s` is `to_str`. Retired spellings are unbound, not aliases | SPEC §4, §7, §11, §12, §16 |
 | D7 | Native `big` is a sign plus little-endian base-2^32 limbs, no leading zero, zero non-negative (2026-10-24) | SPEC §11; `zown-vm` `BigInt` |
-| D8 | WASM tags 4–8 are big, cap, width, vec, res (2026-10-24). Not emitted yet | `WASM.md` |
+| D8 | WASM tags 4–8 are big, cap, width, vec, res (2026-10-24). Emitted by M22. Lane ops, buf, files, crypto, and the mesh stay refused | `WASM.md` |
 | D9 | Fast lanes are a **cooperative tick trace**, not OS threads (2026-10-24). `room = max(cpus-1, 1)`, grant `min(request, room)`, default request `min(2, room)`. Each tick runs every registered lane, then at most one job. `\|` sends; `pm`/`pn` pull. Pipe capacity 8. `~m`/`~n` only; other `~name` is `UNSUPPORTED` | SPEC §22; M10 |
 | D10 | Std words are Zown blocks registered with `wd` (2026-10-24). `mx`, `mn`, and `cl` live in `std/core.zn`. `ab` stays a host word because `<` cannot see `-0.0`. Crypto and files are named in §23 and not stubbed | SPEC §7, §23; M11 |
 | D11 | The mesh slice is **BLAKE3 plus IPv6 UDP**, not QUIC (2026-10-24). `h3`/`~p`/`~f` are the content address. The node id is not an Ed25519 key. `zown mesh` exchanges one bundle on `[::1]` | SPEC §24; M12 |
@@ -900,13 +900,10 @@ the milestone noted.
 
 | Debt | Where | Attach to |
 |------|-------|-----------|
-| WASM has no tags for cap/width/vec/big/res; those programs are `UNSUPPORTED` (not a silent wrong answer). Checked `int` traps with `unreachable`, not a `.zerr` | `zown-wasm` | **M22** |
-| WASM still does not *emit* tags 4–8, `Move`, `??`, or `ty` (the numbers are D8). Checked `int` overflow in WASM is `unreachable`, not a `.zerr` | `zown-wasm` | **M22** |
 | `vm` of a `vu` vector is not a Cranelift `imul.i8x16` (the x86 backend has no such instruction); it runs on the VM | `zown-codegen` | only if a future Cranelift grows the op |
 | `zownc llvm` needs `libzown_rt.a` (`cargo rustc -p zown-rt --crate-type staticlib`) and `clang` | `zown-codegen` | document in the README if the llvm path is used in CI |
 | Rust runtime `.zerr` packets omit `pos` (no spans in the Rust AST) | `zown-ast`, `zown-vm` | M8d-i |
-| `zownc check` gates `run`; IR has `Match`/`Attempt`. WASM still refuses v0.2 values | `zown-wasm` | **M9** |
-| `$fmt_f64` is exact for dyadic floats but not shortest-round-trip (Ryu/Grisu); must also print `inf`/`-inf`/`nan` and keep `1e+30` per §11 | `zown-wasm` | **M22** |
+| `$fmt_f64` prints `inf`/`-inf`/`nan` and `1e+30`, and is exact for dyadics (`2.5`). It is still not a full shortest-round-trip formatter for values like `0.1` | `zown-wasm` | later |
 | No CI: nothing runs `tests/` + the oracle runners (+ `cargo test`) on push | repo | **M30a** |
 | `pyproject.toml` says `>=3.10`; 3.9 works — either lower the floor or start using 3.10 syntax deliberately | `pyproject.toml` | maintainer call |
 | WASM float formatting only exercised by one fractional value (`2.5`) in the v0.1 corpus (the v0.2 corpus now has `float_ieee`) | `conformance/cases` | M8d-iv |
@@ -941,12 +938,12 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M22 — WASM v0.2.** Emit tags 4–8, `??`, `ty`, and moves. Checked `int`
-   overflow is a `.zerr`. The byte-identical compiler is still M23. Signed
-   bundles are M24 and can use `es` / `ev`.
+1. **M23 — stage-2 compiler.** Lower the parser's tree to the IR text `zownc ir`
+   already prints, then emit bytes for one target this repo already links.
+   Signed bundles are M24 and can use `es` / `ev`.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
-   `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64`; emit WASM tags 4–8
-   (lane ops included — they are refused today); auto-discover `tele.errors`.
+   `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
+   fractions; WASM lane ops (refused today); auto-discover `tele.errors`.
 3. **Windows link.** No MSVC `link.exe` on the 2026-09 machine. Build with
    `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. Do not change
    `rust-toolchain.toml`.

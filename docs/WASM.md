@@ -110,20 +110,18 @@ divisor-signed modulo for both. Math words map to native ops where possible —
 to a number; `s` renders one; `dp`/`cl` use the stack pointer; `pr` prints
 without a newline.
 
-**Float formatting.** `$fmt_f64` applies the display rule (whole-valued finite
-floats render as integers, e.g. `7.0` → `7`) and otherwise emits the integer part
-then a terminating long-division expansion of the fraction. This is *exact* for
-dyadic values — the only fractional float the suite prints is `2.5` — but is not
-the shortest round-tripping representation for values like `0.1`. A Ryu/Grisu
-formatter is future work.
+**Float formatting.** `$fmt_f64` prints non-finite values as `inf`, `-inf`, and
+`nan`. A whole finite value that fits `int` prints as that int (`7.0` → `7`).
+Larger magnitudes use Python's scientific form (`1e+30`). Dyadic fractions such
+as `2.5` still expand by long division. A full shortest-round-trip formatter
+for values like `0.1` is not in this backend yet.
 
-**Checked `int` (M8d-iv).** Integer `+ - * _`, `ab` on an int, and the integer
-`pw` fast path call `$iadd` / `$isub` / `$imul` / `$ineg`. A result outside
-`i64` traps the module (`unreachable`) instead of wrapping. That trap is not
-yet a `.zerr` packet — the v0.1 suite never overflows, so `wasm_parity` is
-unchanged. v0.2 values (`ConstCap`, `Move`, `Match`, `Attempt`, and the v0.2
-words) are a structured `UNSUPPORTED` that names M9. They do not compile to a
-silently different program.
+**Checked `int` (M22).** Integer `+ - * _` and the integer `pw` path call
+`$iadd` / `$isub` / `$imul` / `$ineg`. A result outside `i64` writes a `.zerr`
+(`OVERFLOW`) and `proc_exit`s, unless it is inside `ty`, which turns the same
+fault into `err(OVERFLOW)`. Division by zero is `DIV_ZERO`, for ints, bigs,
+and floats. `wasm_parity` checks those packets against `errors/` and
+`errors_v2/`.
 
 **Binary `.wasm`.** `emit_wasm` assembles the `.wat` and encodes it with the
 `wat` crate. `zownc build -o x.wasm` writes a binary module (`\0asm` …); any other
@@ -143,13 +141,16 @@ bytes themselves.
 | `1` | float | `f64` bit pattern |
 | `2` | str | pointer to `[i32 len][bytes…]` |
 | `3` | block | funcref table index |
-| `4` | big | index into the big table (sign + little-endian `u32` limbs, SPEC §11) |
-| `5` | cap | index into the string table of the capability name |
+| `4` | big | pointer to a decimal `[i32 len][digits]` (optional leading `-`) |
+| `5` | cap | pointer to the capability name, length-prefixed like a string |
 | `6` | width | `(signed << 16) \| bit_width` (`ix`/`ux` are bit width 128) |
-| `7` | vec | index into the vector table (lane bytes, kind in the table entry) |
-| `8` | res | index into the result table (`ok`/`err` + payload index) |
+| `7` | vec | pointer to kind, count, then one `i64` lane each (`vi`/`vf`/`vd`/`vu`) |
+| `8` | res | pointer to `i32 ok`, then the inner tag and payload |
 
-This backend still emits a structured `UNSUPPORTED` for `ConstCap`, `Move`,
-`??`, and `ty`, and for any word that builds a tag `4`–`8`. It does not guess
-a v0.1 value for them. Running those programs under `wasmtime` is the next
-slice of this backend; the numbers above are the ABI.
+M22 emits these. `??` reads a side table of block instructions (patterns are
+not executed). `ty` runs on a saved stack and catches faults as `err(CODE)`.
+`'name` clears a per-binding flag; an unbound name falls through to the builtin.
+Vector arithmetic is scalar calls, not WASM SIMD opcodes. Lane operators
+(`|`, `^`, `~name`), buffers, files, crypto, the graph, and the mesh still
+compile to `UNSUPPORTED` and `wasm_parity` records that skip. They are not
+given a guessed value.

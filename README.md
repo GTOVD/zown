@@ -184,9 +184,11 @@ v0.1 runs three ways that are kept byte-for-byte identical via a conformance sui
 - the **Python reference interpreter** (`zown`, the behavioral oracle),
 - the **native Rust toolchain** (`zownc`, in `zownc/`) — lexer, parser, IR, and
   stack VM, verified so `zownc run` matches the oracle on all conformance cases, and
-- the **WASM backend** (`zownc build`) — the full v0.1 language compiles to
-  WebAssembly text (`.wat`) **and** binary (`.wasm`); all 13 conformance cases run
-  under `wasmtime` and match the goldens (`conformance/wasm_parity.py`).
+- the **WASM backend** (`zownc build`) — v0.1 and the v0.2 values (big, caps,
+  widths, vectors, results, moves, `??`, `ty`) compile to WebAssembly text
+  (`.wat`) **and** binary (`.wasm`). `conformance/wasm_parity.py` runs both
+  under `wasmtime`. Files, buffers, crypto, and lane operators are an explicit
+  skip, not a wrong answer.
 
 The v0.2 design freeze (M7) is done: capabilities, fixed-width + SIMD numerics,
 and pattern matching run in the oracle (`conformance/v2.py`), and a static

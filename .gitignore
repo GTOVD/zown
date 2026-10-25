@@ -24,9 +24,10 @@ venv/
 # rustc incremental cache if a link step is run from a crate directory
 zownc/**/off/
 
-# Generated WASM build artifacts
+# Generated WASM build artifacts. The runtime spliced into every module is source.
 *.wat
 *.wasm
+!zownc/crates/zown-wasm/src/*.wat
 
 # OS / editor
 .DS_Store
