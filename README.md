@@ -3,17 +3,18 @@
 **An AI-native, token-dense, stack-based programming language.**
 
 Zown is built for machines to read and write, not humans. Keywords are single
-ASCII characters, the standard library uses 1–2 character words, and the
-stack-based model means programs rarely need variable names at all. The goal: fit
-*dramatically* more working code inside an LLM's context window, while compiling
-(eventually) straight to bare-metal and WebAssembly speed.
+ASCII characters, the standard library uses words of one to three characters,
+and the stack-based model means programs rarely need variable names at all. The
+goal: fit *dramatically* more working code inside an LLM's context window, and
+run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
+boot sector.
 
-> This repo is the **v0.1 reference implementation** — a complete, runnable
-> language (lexer → parser → stack VM → stdlib → CLI) plus a Rust toolchain and a
-> full WASM backend. The bigger goal is a **self-contained, decentralized
-> substrate** where networking, graphics/UI, database, security, and distribution
-> are all native — no external libraries, no servers. The full architecture is in
-> [`docs/DESIGN.md`](docs/DESIGN.md); it's phased in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Milestones **M0–M22** are in this tree. The Python package is the behavioral
+> oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
+> LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
+> [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
+> [`docs/DESIGN.md`](docs/DESIGN.md); the phases are
+> [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Hello, World
 
@@ -26,7 +27,8 @@ pushes it, and `@` runs it.
 
 ## Quickstart
 
-No dependencies — just Python 3.10+.
+The interpreter needs only Python 3.10+. The `zownc` lines need a Rust
+build (`cd zownc && cargo build`); `wasmtime run` needs wasmtime.
 
 ```bash
 # run a program (the static checker runs first; a program it faults is
@@ -74,8 +76,12 @@ python3 bin/zown stage zown/std/lex.zn
 # the Zown parser prints the same AST as the host, including on its own source
 python3 bin/zown stage parse zown/std/parse.zn
 
+# native toolchain (after `cd zownc && cargo build`)
+./zownc/target/debug/zownc run examples/fib.zn
+./zownc/target/debug/zownc build examples/fib.zn -o fib.wasm
+wasmtime run fib.wasm
+
 # a boot sector whose VGA text is the string this program prints
-# (after `cd zownc && cargo build`)
 ./zownc/target/debug/zownc bare examples/bare.zn -o zown.bin
 
 # an exclusive buffer, a stored byte, and a borrow's read
@@ -117,7 +123,7 @@ zown examples/fizzbuzz.zn
 - `cond [then] [else] ? @` is if/else; `[cond] [body] ;` is a while loop
 - `.` prints; stdlib words like `tr` (trim), `ln` (length), `up` (upper) auto-run
 
-And the v0.2 safety surface, all live in the oracle:
+And the v0.2 safety surface, live in the oracle and in `zownc`:
 
 ```
 `t [ `t rq $sending$ . ] gr          # capabilities: zero authority unless granted
@@ -156,18 +162,14 @@ Three ideas make density safe rather than confusing:
 ## Repo layout
 
 ```
-zown/            reference implementation (the language itself)
-  lexer.py         two-state lexer (code/literal modes)
-  parser.py        tokens -> nested AST
-  vm.py            stack virtual machine + core operators
-  builtins.py      token-dense standard library (WORDS)
-  errors.py        structured .zerr diagnostics
-  manifest.py      shadow manifest generator
-  cli.py           the `zown` command
+zown/            Python oracle: lexer, parser, checker, VM, stdlib
+zown/std/        lexer and parser written in Zown
+zownc/           Rust toolchain (`zownc`)
 bin/zown         dev launcher (no install needed)
-examples/        hello / fib / fizzbuzz
-tests/           run with: python3 tests/test_zown.py
-docs/            DESIGN.md · SPEC.md · ROADMAP.md · PLAN.md · MANIFEST.md · WASM.md · IR.md
+examples/        hello, fib, fizzbuzz, buf, io, ui, graph, intent, bare
+conformance/     goldens and parity runners
+tests/           python3 tests/test_zown.py
+docs/            SPEC · DESIGN · PLAN · ROADMAP · WASM · IR · MANIFEST
 ```
 
 ## Tests
@@ -175,60 +177,41 @@ docs/            DESIGN.md · SPEC.md · ROADMAP.md · PLAN.md · MANIFEST.md ·
 ```bash
 python3 tests/test_zown.py
 python3 tests/test_examples.py
+python3 conformance/run.py       # v0.1 goldens
+python3 conformance/v2.py        # v0.2 goldens
+python3 conformance/check.py     # static checker
+
+# after: cd zownc && cargo build
+python3 conformance/vm_parity.py
+python3 conformance/native_parity.py
+python3 conformance/wasm_parity.py   # needs wasmtime
 ```
 
-## Status & roadmap
+## Status
 
-v0.1 runs three ways that are kept byte-for-byte identical via a conformance suite:
+**M0–M22 are done.** The same programs run three ways, held to one conformance
+suite:
 
-- the **Python reference interpreter** (`zown`, the behavioral oracle),
-- the **native Rust toolchain** (`zownc`, in `zownc/`) — lexer, parser, IR, and
-  stack VM, verified so `zownc run` matches the oracle on all conformance cases, and
-- the **WASM backend** (`zownc build`) — v0.1 and the v0.2 values (big, caps,
-  widths, vectors, results, moves, `??`, `ty`) compile to WebAssembly text
-  (`.wat`) **and** binary (`.wasm`). `conformance/wasm_parity.py` runs both
-  under `wasmtime`. Files, buffers, crypto, and lane operators are an explicit
-  skip, not a wrong answer.
+- **Python** (`zown`) is the oracle.
+- **Native** (`zownc run`, `zownc native`, `zownc llvm`) matches it, including
+  exclusive buffers, capability-scoped files, and the RFC crypto words
+  (ChaCha20-Poly1305, Ed25519, X25519).
+- **WebAssembly** (`zownc build`, then `wasmtime`) matches it for the language
+  core: checked 64-bit integers, big integers, IEEE floats, fixed widths,
+  vectors, capabilities, results, moves, `??`, and `ty`. Checked overflow is a
+  `.zerr`. A program that needs files, buffers, crypto, or lane operators is
+  refused at compile time; `conformance/wasm_parity.py` records that skip.
 
-The v0.2 design freeze (M7) is done: capabilities, fixed-width + SIMD numerics,
-and pattern matching run in the oracle (`conformance/v2.py`), and a static
-checker (`zown check`) already rejects unresolved names, malformed `??` arms, and
-capability requirements it can prove will fail (`conformance/check.py`).
+Also in the tree: `zown fmt` and `zown test`, a lexer and parser written in
+Zown (`zown stage`), a layout tree and PPM (`zown draw`), one BLAKE3 bundle
+exchanged over IPv6 (`zown mesh`), a sealed graph (`zown keep`), a logical
+control-plane log (`zown watch`), and a 512-byte boot sector (`zownc bare`).
 
-Still ahead, in dependency order (the milestone-by-milestone plan is in
-[`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md)):
-
-1. **Design freeze (M7) ✅** — the type, capability/security, network, and graphics
-   SPEC is frozen and validated in the oracle *before* the native compiler,
-   because those decisions shape the ABI ([`docs/SPEC.md`](docs/SPEC.md) Part II).
-2. **Safety core (M8) 🔄** — the static checker (names, match shape, capability
-   flow, result exhaustiveness, use-after-move ✅), check-before-run ✅, the
-   checked-int/`big` numeric model ✅, result values ✅, the no-UB catalogue ✅,
-   linear bindings ✅; **next: the Rust toolchain catching up to v0.2**
-   (`zownc check`, M8d). Fat pointers are specified here and enforced with the
-   native memory model (M9).
-3. **Native backend + perf (M9–M10)** — Cranelift→LLVM, SIMD, zero-copy I/O,
-   deterministic builds, dynamic fast lanes.
-4. **Batteries (M11)** — the zero-install stdlib: crypto, collections, full
-   numerics, testing/fmt/LSP/doc tools.
-5. **ZownNet (M12)** — IPv6 crypto-identity, a QUIC-equivalent transport, a P2P
-   DHT+gossip mesh, content addressing, offline mesh — every device a peer.
-6. **Native UI + GPU (M13)** — a typed declarative layout tree (no HTML/CSS),
-   ZownGPU, audio, input, accessibility, i18n.
-7. **Store + distribution (M14)** — the running slice is an in-memory graph
-   (`gv`, `ge`, `»`, `→`, `«`) and `zown keep` (an fsynced BLAKE3 bundle).
-   mmap, CRDTs, Ed25519, and hot-swap are not implemented.
-8. **AI control plane (M15)** — the running slice is a logical log (spans,
-   declared intent, and faults) and `zown watch`. A fleet, hot-swap, and
-   on-device ML are not implemented.
-9. **Self-hosting (M16, M19)** — the running slice is a lexer and a parser
-   written in Zown (`zown stage`, `zown stage parse`). A stage-2 compiler
-   binary is not implemented.
-10. **Bare metal (M17)** — `zownc bare` boots a print program in QEMU and
-    writes the VGA text buffer. A microkernel is not implemented.
-
-The whole vision — the "sovereign computing substrate" — is in
-[`docs/DESIGN.md`](docs/DESIGN.md); the high-level phases in
+**Next is M23:** a compiler written in Zown whose second stage emits the same
+bytes as the first. Signed bundles, QUIC, the store engine, GPU, and a kernel
+are later milestones. The map is [`docs/PLAN.md`](docs/PLAN.md); agents start
+at [`AGENTS.md`](AGENTS.md). The whole vision is
+[`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Design notes
