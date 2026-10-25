@@ -14,9 +14,16 @@ impl Vm {
         if let Value::Buf {
             alloc,
             exclusive: true,
-        } = v
+        } = &v
         {
             alloc.borrow_mut().data = None;
+        }
+        if let Value::Stm {
+            conn,
+            exclusive: true,
+        } = v
+        {
+            conn.close();
         }
     }
 

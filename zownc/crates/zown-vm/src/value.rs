@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::net::TcpStream;
 use std::rc::Rc;
 
 use zown_ast::Node;
@@ -108,11 +109,35 @@ pub enum Value {
     Ui(UiNode),
     /// A graph query cursor. Names are the vertices it currently sits on.
     Cur(Vec<String>),
+    /// A TCP stream on `[::1]`. Dropping the exclusive value closes it.
+    Stm {
+        conn: Rc<Conn>,
+        exclusive: bool,
+    },
     /// A heap buffer. `exclusive` may `bp`. Dropping that value frees `alloc`.
     Buf {
         alloc: Rc<RefCell<BufAlloc>>,
         exclusive: bool,
     },
+}
+
+/// The socket behind a stream. `None` means the exclusive owner closed it.
+pub struct Conn {
+    pub stream: RefCell<Option<TcpStream>>,
+}
+
+impl std::fmt::Debug for Conn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stm")
+    }
+}
+
+impl Conn {
+    pub fn close(&self) {
+        if let Some(sock) = self.stream.borrow_mut().take() {
+            drop(sock);
+        }
+    }
 }
 
 /// Bytes behind a `buf`. `None` means the exclusive owner was dropped.
@@ -178,6 +203,7 @@ impl Value {
             Value::Func { nodes, .. } => *nodes != 0,
             Value::Cap(_) | Value::Width(_) | Value::Color(_) | Value::Ui(_) => true,
             Value::Cur(names) => !names.is_empty(),
+            Value::Stm { .. } => true,
             Value::Buf { alloc, .. } => alloc.borrow().n > 0,
             Value::Vec(v) => !v.lanes.is_empty(),
             Value::Res(r) => r.ok,
@@ -198,6 +224,7 @@ impl Value {
             Value::Color(_) => "color",
             Value::Ui(_) => "node",
             Value::Cur(_) => "cur",
+            Value::Stm { .. } => "stm",
             Value::Buf { .. } => "buf",
         }
     }
@@ -231,6 +258,7 @@ impl Value {
                 }
             }
             Value::Cur(names) => format!("cur({})", names.len()),
+            Value::Stm { .. } => "stm".into(),
             Value::Buf { alloc, exclusive } => buf_text(alloc, *exclusive),
         }
     }
@@ -266,6 +294,7 @@ impl Value {
             Value::Color(c) => json_str(&format!("co:{} {} {}", c.r, c.g, c.b)),
             Value::Ui(n) => json_str(&format!("{}:{}", n.kind, n.children.len())),
             Value::Cur(names) => json_str(&format!("cur:{}", names.len())),
+            Value::Stm { .. } => json_str("stm"),
             Value::Buf { alloc, exclusive } => json_str(&buf_text(alloc, *exclusive)),
         }
     }
@@ -292,6 +321,7 @@ impl Value {
             (Value::Color(a), Value::Color(b)) => a == b,
             (Value::Ui(a), Value::Ui(b)) => ui_eq(a, b),
             (Value::Cur(a), Value::Cur(b)) => a == b,
+            (Value::Stm { conn: a, .. }, Value::Stm { conn: b, .. }) => Rc::ptr_eq(a, b),
             (
                 Value::Buf {
                     alloc: a,

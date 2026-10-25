@@ -143,11 +143,16 @@ mesh (see `DESIGN.md` §3). The running slice is SPEC §24.
       `[::1]`, which does not use the internet.
 - [ ] Crypto identity is an Ed25519 key whose IPv6 address is
       `BLAKE3(pubkey)`. Today `ua` is an IPv6 ULA from a BLAKE3 node id, not a key.
+- [x] TCP streams on `[::1]` (SPEC §14). `~o` connects, `~l` accepts and
+      registers a name, `~c` dials it, `~s` and `~r` move one UTF-8 frame,
+      and `~w` relays one frame each way. `` `t `` and `` `r `` gate them.
+      `zown mesh` announces the bundle hash in the hello before the fetch.
 - [ ] **ZownTransport** (QUIC-equivalent): encrypted-by-default, multiplexed,
-      0-RTT, mutual auth.
+      0-RTT, mutual auth. TCP on the loopback is not that transport.
 - [ ] Multicast `ff02::5a77` is the announce address. This host does not deliver
-      it. Kademlia and gossip are not started.
-- [ ] NAT traversal, relays, and `~l` as a shared-memory fast path.
+      it. A Kademlia DHT is not started.
+- [ ] NAT traversal, and `~l` as shared memory. `~w` on `[::1]` is not a
+      path off the machine.
 
 Hard problems still open: congestion control, DHT churn, relay incentives.
 

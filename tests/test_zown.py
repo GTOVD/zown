@@ -1160,6 +1160,93 @@ def test_two_peers_exchange_a_bundle():
     assert left.startswith("fd") and right.startswith("fd") and left != right
 
 
+def _stream_vm(src, args, mesh):
+    import io
+    os.environ["ZOWN_MESH"] = mesh
+    buf = io.StringIO()
+    vm = VM(file="<stream>", out=buf, args=args)
+    try:
+        vm.run_src(src)
+        return buf.getvalue(), None
+    except ZownError as e:
+        return buf.getvalue(), e
+
+
+def test_two_peers_exchange_frames_on_loopback():
+    import socket
+    import threading
+    mesh = tempfile.mkdtemp()
+    probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    probe.bind(("::1", 0))
+    port = str(probe.getsockname()[1])
+    probe.close()
+    server = """`r [ `t [
+  $echo$ $echo$ 0 ag n ~l :s
+  s ~r .
+  $pong$ ~s
+] gr ] gr
+"""
+    client = """`t [ `r [
+  $echo$ $echo$ ~c :s
+  s $ping$ ~s
+  ~r .
+] gr ] gr
+"""
+    got = {}
+    def run(name, src, args):
+        text, err = _stream_vm(src, args, mesh)
+        got[name] = (text, None if err is None else f"{err.code} {err.op}")
+    worker = threading.Thread(target=run, args=("srv", server, [port]))
+    worker.start()
+    run("cli", client, [])
+    worker.join(4)
+    assert got["srv"] == ("ping\n", None), got
+    assert got["cli"] == ("pong\n", None), got
+
+
+def test_relay_forwards_one_frame_each_way():
+    import socket
+    import threading
+    import time
+    mesh = tempfile.mkdtemp()
+    probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    probe.bind(("::1", 0))
+    port = str(probe.getsockname()[1])
+    probe.close()
+    relay = "`r [ `t [ 0 ag n ~w ] gr ] gr\n"
+    left = """`t [ `r [
+  $::1$ 0 ag n ~o :s
+  s $ping$ ~s
+  ~r .
+] gr ] gr
+"""
+    right = """`t [ `r [
+  $::1$ 0 ag n ~o :s
+  s ~r .
+  $pong$ ~s
+] gr ] gr
+"""
+    got = {}
+    def run(name, src):
+        text, err = _stream_vm(src, [port], mesh)
+        got[name] = (text, None if err is None else f"{err.code} {err.op} {err.msg}")
+    threads = [
+        threading.Thread(target=run, args=("rel", relay)),
+        threading.Thread(target=run, args=("a", left)),
+        threading.Thread(target=run, args=("b", right)),
+    ]
+    threads[0].start()
+    time.sleep(0.05)
+    threads[1].start()
+    time.sleep(0.05)
+    threads[2].start()
+    for thread in threads:
+        thread.join(4)
+    assert got["a"] == ("pong\n", None), got
+    assert got["b"] == ("ping\n", None), got
+    assert got["rel"][1] is None, got
+
+
 # --- layout (M13) --------------------------------------------------------------
 def test_layout_dump_and_low_contrast():
     out, _ = run("""255 255 255 co :fg

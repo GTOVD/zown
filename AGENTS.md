@@ -192,9 +192,12 @@ BLAKE3 bundle. `la` appends the body digest to a per-VM log, `lp` writes
 an inclusion proof, and `lr` is the root (`""` when the log is empty).
 `so` rejects a bad signature with `SIG_INVALID` and a bad proof with
 `INTEGRITY_FAIL`. A BLAKE3-only bundle still opens. Manifest `content`
-is the source hash; `sig` is set only from `ZOWN_SIGN`. Next is **M25**
-(local byte streams, then a named connect). The rest of the map is
-**M25–M32** in `docs/PLAN.md`.
+is the source hash; `sig` is set only from `ZOWN_SIGN`. **M25 ✅** —
+`~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. `` `t `` sends and
+`` `r `` receives. A name registered by `~l` is what `~c` dials. `~w`
+relays one frame each way. QUIC is not this transport. Next is **M26**
+(the graph in a file, then one table and one CRDT). The rest of the map
+is **M26–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M24: Ed25519 bundle trailer, transparency log, manifest content hash).
+Last updated: 2026-10-25 (M25: TCP streams on [::1], named connect, loopback relay).
 
 ---
 
@@ -77,7 +77,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M22 | WASM v0.2 | ✅ | Tags 4–8, `??`, `ty`, moves. Checked overflow is a `.zerr`. `inf`/`-inf`/`nan`/`1e+30`. Host, buf, crypto, and lanes stay explicit skips |
 | M23 | Stage-2 compiler binary | ✅ | `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the print-subset boot sector. The linked executable's image matches `zownc bare` and boots in QEMU |
 | M24 | Signed distribution | ✅ | `sl` adds an Ed25519 trailer. `la` `lp` `lr` are the log and its proof. A BLAKE3-only bundle still opens. Manifest `content` is the source hash; `sig` needs `ZOWN_SIGN` |
-| M25 | Streams and mesh | ⬜ | `~o` `~s` `~r`, then QUIC, DHT, `~c` `~l` `~w`. Needs M20 and M21 |
+| M25 | Streams and mesh | ✅ | `~o` `~s` `~r` `~c` `~l` `~w` are TCP on `[::1]`. A grant is required. `zown mesh` announces the bundle hash before the fetch. QUIC is not this transport |
 | M26 | Store engine | ⬜ | mmap, columnar data, CRDT sync. Needs M18 and M24 |
 | M27 | UI completion | ⬜ | Font, input, animation, then GPU and shaders. Needs M18 |
 | M28 | Collections and remaining numbers | ⬜ | One collection on `buf`, then the rest. `iz` `uz` `dc` `cx`. Needs M18 |
@@ -768,13 +768,13 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M20 and M21. SPEC §14, DESIGN §3.
 **Goal:** two peers move bytes, then the mesh finds peers.
 
-- [ ] **M25a.** `~o` opens a stream, `~s` sends, `~r` receives. Each requires the matching capability. The first host is TCP on `[::1]`, tested the way `zown mesh` is tested. QUIC replaces TCP only when the packets are real QUIC.
-- [ ] **M25b.** `~c` connects to a named interface. Two local peers register the same name. A missing name is `BOUNDS`.
-- [ ] **M25c.** A DHT on the node id, gossip of bundle addresses, and `~l` for same-machine handoff. `~w` is the relay, last.
-- [ ] **M25d.** Protocol compatibility is a static check when the two protocol shapes are literals, and a runtime `TYPE_MISMATCH` otherwise. Do not invent a second pattern syntax if `??` can carry it.
+- [x] **M25a.** `~o` connects to `[::1]`. `~s` sends one UTF-8 frame and `~r` reads it. `~o` and `~s` need `` `t ``. `~r` needs `` `r ``. The frame is a 4-byte length and the bytes. QUIC is not substituted.
+- [x] **M25b.** `$name$ $proto$ port ~l` registers the name and accepts one peer. `$name$ $proto$ ~c` connects. A missing name is `BOUNDS`. The directory is `ZOWN_MESH`.
+- [x] **M25c.** `~l` is the same-machine accept. `port ~w` accepts two peers and forwards one frame each way. `zown mesh` puts the bundle hash in the hello from the serving node id; the fetcher checks it before the fetch.
+- [x] **M25d.** A literal `$name$ $proto$ ~l` and a literal `$name$ $other$ ~c` in one program are `TYPE_MISMATCH` when the protocols differ. A protocol that is not a literal is checked when `~c` runs. `??` is unchanged.
 
-**Acceptance:** two local peers exchange bytes with `~s`/`~r`. A grant is required. The internet is not required for the golden.
-**Not this slice:** HTTP/3, a browser, or NAT traversal as the tested path.
+**Acceptance:** two local peers exchange bytes with `~s`/`~r`. A grant is required. The internet is not required. Met by `tests/test_zown.py` (pair and relay) and `conformance/stream_pair.py`.
+**Not this slice:** HTTP/3, a browser, or NAT traversal. QUIC replaces TCP only when the packets are real QUIC.
 
 ### M26 — Store engine
 **Depends on:** M18 and M24. SPEC §26, DESIGN §6.
@@ -891,6 +891,7 @@ memory type.)*
 | D19 | Crypto words are **RFC algorithms on `buf`** (2026-10-24). `ae`/`ad` are ChaCha20-Poly1305, `es`/`ev` are Ed25519, `xk` is X25519. `ni` stays the BLAKE3 node id. `Key` and `Sig` are not value kinds | SPEC §13, §23; M21 |
 | D20 | The M23 fixed point is the **print-subset boot sector**, not a Cranelift ELF (2026-10-25). `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the 512-byte image. Stage-0 compiles that program; the image matches `zownc bare` and boots in QEMU. The sector cannot host a second compiler | SPEC §28, §29; M23 |
 | D21 | The M24 log is **per VM and BLAKE3-Merkle** (2026-10-25). `sl` signs the bundle body. `la` appends that body's digest. `so` checks a carried proof against this VM's root. An empty log is `""`, not a hash. The manifest `sig` stays null unless `ZOWN_SIGN` is set. No hot-swap | SPEC §26; M24 |
+| D22 | M25 streams are **TCP on `[::1]`** (2026-10-25). `~o` connects, `~l` accepts and registers a name, `~c` dials that name, `~s`/`~r` move one UTF-8 frame, `~w` relays one frame each way. `` `t `` sends, `` `r `` receives. QUIC is not this transport | SPEC §14; M25 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -940,8 +941,9 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M25 — streams and mesh.** `~o` `~s` `~r` on TCP at `[::1]`, then a named
-   connect. QUIC replaces TCP only when the packets are real QUIC.
+1. **M26 — store engine.** Map the graph into a file a `buf` can reopen.
+   A columnar table gets its own word, named in SPEC first. Then one CRDT
+   whose merge both VMs print the same way.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

@@ -194,9 +194,33 @@ def op_tilde(vm, op: str, pos: Pos) -> None:
         from .mesh import fetch
         fetch(vm, pos)
         return
+    if name == "o":
+        from .stream import op_open
+        op_open(vm, pos)
+        return
+    if name == "l":
+        from .stream import op_listen
+        op_listen(vm, pos)
+        return
+    if name == "c":
+        from .stream import op_connect
+        op_connect(vm, pos)
+        return
+    if name == "s":
+        from .stream import op_send
+        op_send(vm, pos)
+        return
+    if name == "r":
+        from .stream import op_recv
+        op_recv(vm, pos)
+        return
+    if name == "w":
+        from .stream import op_relay
+        op_relay(vm, pos)
+        return
     raise vm.err("UNSUPPORTED", f"operator `{op}` is not implemented",
                  op=op, pos=pos,
-                 hint="~m and ~n are lanes; ~p publishes a bundle and ~f fetches it")
+                 hint="~m and ~n are lanes; ~o ~s ~r ~c ~l ~w are streams; ~p publishes and ~f fetches")
 
 
 def b_hw(vm, pos: Pos) -> None:

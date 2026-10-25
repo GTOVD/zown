@@ -136,6 +136,9 @@ def _snap(v: Any) -> Any:
         return f"{v.name}[{len(v.lanes)}]"
     if isinstance(v, Cursor):
         return f"cur:{len(v.names)}"
+    from .stream import Stream
+    if isinstance(v, Stream):
+        return "stm"
     if isinstance(v, Buf):
         return v.text()
     if isinstance(v, (int, float, str, bool)) or v is None:

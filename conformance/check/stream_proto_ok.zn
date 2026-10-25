@@ -1,0 +1,2 @@
+`r [ $echo$ $get$ 1 ~l ] gr
+`t [ $echo$ $get$ ~c ] gr

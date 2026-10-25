@@ -25,8 +25,8 @@ CASES = os.path.join(ROOT, "conformance", "cases")
 ERRORS = os.path.join(ROOT, "conformance", "errors")
 CASES_V2 = os.path.join(ROOT, "conformance", "cases_v2")
 ERRORS_V2 = os.path.join(ROOT, "conformance", "errors_v2")
-# v0.1 (20) + v0.2 (83). Drops if a program starts getting refused or diverges.
-MIN_PASS = 103
+# v0.1 (20) + v0.2 (88). Drops if a program starts getting refused or diverges.
+MIN_PASS = 108
 
 GREEN, RED, RST = "\033[32m", "\033[31m", "\033[0m"
 

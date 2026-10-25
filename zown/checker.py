@@ -79,7 +79,7 @@ Checks
 from __future__ import annotations
 
 from .builtins import BUILTINS
-from .errors import BAD_PATTERN, CAP_DENIED, NAME_UNRESOLVED, NO_MATCH, ZownError
+from .errors import BAD_PATTERN, CAP_DENIED, NAME_UNRESOLVED, NO_MATCH, TYPE_MISMATCH, ZownError
 from .vm import _PATTERN_TYPES, _RES_PATTERNS  # one vocabulary, static and runtime
 
 # Builtin words that invoke a block literal *inline*, in the caller's context.
@@ -90,11 +90,18 @@ _INVOKING_OPS = {"@", ";", "??"}
 _INVOKING_WORDS = {"gr", "ty", "gd"} | _VEC_CTORS | _BOX_CTORS
 # Host words that require a capability the way `rq` does (SPEC §23).
 _HOST_CAP = {"fr": "d", "fw": "d", "en": "v", "tm": "c"}
+_NET_CAP = {"~o": "t", "~s": "t", "~c": "t", "~l": "r", "~r": "r"}
 _HOST_HINT = {
     "fr": "grant a path: $path$ [ ... ] gd",
     "fw": "grant a path: $path$ [ ... ] gd",
     "en": "grant it: `v [ ... ] gr",
     "tm": "grant it: `c [ ... ] gr",
+    "~o": "grant it: `t [ ... ] gr",
+    "~s": "grant it: `t [ ... ] gr",
+    "~c": "grant it: `t [ ... ] gr",
+    "~l": "grant it: `r [ ... ] gr",
+    "~r": "grant it: `r [ ... ] gr",
+    "~w": "grant it: `r [ ... ] gr and `t [ ... ] gr",
 }
 
 # `known` authority: a frozenset of granted capability names when the set is
@@ -110,6 +117,8 @@ class Checker:
         # Capability names that could ever be granted (rule 2). Filled by
         # _collect_grantable; a name absent here is never grantable.
         self.grantable: set[str] = set()
+        # Literal name → protocols a `~l` in this program offers.
+        self.offers: dict[str, set[str]] = {}
         # Does the program use `ty`? Then an escaped block may run under it (its
         # faults caught), so the "never granted" rule cannot be applied to them.
         self.uses_at = False
@@ -119,8 +128,19 @@ class Checker:
         self._collect_binds(nodes)
         self._collect_grantable(nodes)
         self.uses_at = self._uses_word(nodes, "ty")
+        self._collect_offers(nodes)
         self._walk(nodes, frozenset(), in_at=False)  # top level: exactly zero authority
         return self.diags
+
+    def _collect_offers(self, nodes: list) -> None:
+        """Literal `$name$ $proto$ <port> ~l` offers that protocol for the name."""
+        for i, n in enumerate(nodes):
+            if n[0] == "blk":
+                self._collect_offers(n[1])
+            elif n[0] == "op" and n[1] == "~l" and i >= 3:
+                name, proto = nodes[i - 3], nodes[i - 2]
+                if name[0] == "str" and proto[0] == "str":
+                    self.offers.setdefault(name[1], set()).add(proto[1])
 
     def _uses_word(self, nodes: list, word: str) -> bool:
         for n in nodes:
@@ -223,6 +243,23 @@ class Checker:
                 nxt = self._at(nodes, i + 1)
                 if self._is_word(nxt, "rq") and not in_at:
                     self._check_require(n[1], nxt[2], known, "rq")
+            elif tag == "op":
+                sym = n[1]
+                if not in_at and sym in _NET_CAP:
+                    self._check_require(_NET_CAP[sym], n[2], known, sym)
+                elif not in_at and sym == "~w":
+                    self._check_require("r", n[2], known, sym)
+                    self._check_require("t", n[2], known, sym)
+                if sym == "~c" and i >= 2 and nodes[i - 1][0] == "str" and nodes[i - 2][0] == "str":
+                    name, proto = nodes[i - 2][1], nodes[i - 1][1]
+                    offered = self.offers.get(name)
+                    if offered is not None and proto not in offered:
+                        self._diag(
+                            TYPE_MISMATCH,
+                            f"`~c` protocol {proto} does not match the {name} listener",
+                            n[2], op="~c",
+                            hint="the listener's protocol literal and this one differ",
+                        )
             elif tag == "blk":
                 self._walk_block(nodes, i, known, in_at, moved)
             # Anything that runs code may have rebound any name: forget the marks.

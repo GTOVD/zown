@@ -5,7 +5,7 @@
 //! Patterns are read, never executed. See the Python module for the full
 //! contract; this file follows it branch for branch.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zown_ast::{Node, NodeKind, Pos};
 use zown_parser::{parse, ParseError};
@@ -15,15 +15,24 @@ const NAME_UNRESOLVED: &str = "NAME_UNRESOLVED";
 const CAP_DENIED: &str = "CAP_DENIED";
 const BAD_PATTERN: &str = "BAD_PATTERN";
 const NO_MATCH: &str = "NO_MATCH";
+const TYPE_MISMATCH: &str = "TYPE_MISMATCH";
 
 const PATTERN_TYPES: &[&str] = &[
-    "int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf",
+    "int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf", "stm",
 ];
 const RES_PATTERNS: &[&str] = &["ok", "err"];
 const VEC_CTORS: &[&str] = &["vf", "vd", "vi", "vu"];
 const BOX_CTORS: &[&str] = &["rw", "cm"];
 const INVOKING_OPS: &[&str] = &["@", ";", "??"];
 const INVOKING_WORDS: &[&str] = &["gr", "ty", "gd", "vf", "vd", "vi", "vu", "rw", "cm"];
+
+fn net_cap(op: &str) -> Option<&'static str> {
+    match op {
+        "~o" | "~s" | "~c" => Some("t"),
+        "~l" | "~r" => Some("r"),
+        _ => None,
+    }
+}
 
 fn host_cap(name: &str) -> Option<&'static str> {
     match name {
@@ -39,6 +48,9 @@ fn host_hint(op: &str) -> &'static str {
         "fr" | "fw" => "grant a path: $path$ [ ... ] gd",
         "en" => "grant it: `v [ ... ] gr",
         "tm" => "grant it: `c [ ... ] gr",
+        "~o" | "~s" | "~c" => "grant it: `t [ ... ] gr",
+        "~l" | "~r" => "grant it: `r [ ... ] gr",
+        "~w" => "grant it: `r [ ... ] gr and `t [ ... ] gr",
         _ => "run it inside a grant",
     }
 }
@@ -90,6 +102,7 @@ struct Checker {
     bound: BTreeSet<String>,
     grantable: BTreeSet<String>,
     uses_at: bool,
+    offers: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Checker {
@@ -100,6 +113,7 @@ impl Checker {
             bound: BTreeSet::new(),
             grantable: BTreeSet::new(),
             uses_at: false,
+            offers: BTreeMap::new(),
         }
     }
 
@@ -107,6 +121,7 @@ impl Checker {
         self.collect_binds(nodes);
         self.collect_grantable(nodes);
         self.uses_at = self.uses_word(nodes, "ty");
+        self.collect_offers(nodes);
         let none = BTreeSet::new();
         self.walk(nodes, Some(&none), false, None);
         self.diags
@@ -158,6 +173,22 @@ impl Checker {
             }
         }
         false
+    }
+
+    fn collect_offers(&mut self, nodes: &[Node]) {
+        for (i, n) in nodes.iter().enumerate() {
+            if let NodeKind::Blk(inner) = &n.kind {
+                self.collect_offers(inner);
+            } else if let NodeKind::Op(op) = &n.kind {
+                if op == "~l" && i >= 3 {
+                    if let (NodeKind::Str(name), NodeKind::Str(proto)) =
+                        (&nodes[i - 3].kind, &nodes[i - 2].kind)
+                    {
+                        self.offers.entry(name.clone()).or_default().insert(proto.clone());
+                    }
+                }
+            }
+        }
     }
 
     fn collect_binds(&mut self, nodes: &[Node]) {
@@ -263,6 +294,34 @@ impl Checker {
                     }
                 }
                 NodeKind::Blk(_) => self.walk_block(nodes, i, known, in_at, &moved),
+                NodeKind::Op(op) => {
+                    if !in_at {
+                        if let Some(cap) = net_cap(op) {
+                            self.check_require(cap, n.pos, known, op);
+                        } else if op == "~w" {
+                            self.check_require("r", n.pos, known, op);
+                            self.check_require("t", n.pos, known, op);
+                        }
+                    }
+                    if op == "~c" && i >= 2 {
+                        if let (NodeKind::Str(name), NodeKind::Str(proto)) =
+                            (&nodes[i - 2].kind, &nodes[i - 1].kind)
+                        {
+                            if let Some(offered) = self.offers.get(name) {
+                                if !offered.contains(proto) {
+                                    self.diag(
+                                        TYPE_MISMATCH,
+                                        format!("`~c` protocol {proto} does not match the {name} listener"),
+                                        n.pos,
+                                        Some("~c".into()),
+                                        None,
+                                        "the listener's protocol literal and this one differ",
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
             let invoking = match &n.kind {

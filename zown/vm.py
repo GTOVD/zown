@@ -363,7 +363,11 @@ class VM:
         if name in self.env:
             v = self.env[name]
             # A bare name is a borrow. The binding keeps the exclusive buf.
-            self.push(v.borrow() if isinstance(v, Buf) and v.exclusive else v)
+            if isinstance(v, Buf) and v.exclusive:
+                self.push(v.borrow())
+            else:
+                from .stream import Stream
+                self.push(v.borrow() if isinstance(v, Stream) and v.exclusive else v)
             return
         word = self.words.get(name)
         if word is not None:
@@ -429,6 +433,9 @@ def type_name(v: Any) -> str:
         return "node"
     if isinstance(v, Cursor):
         return "cur"
+    from .stream import Stream
+    if isinstance(v, Stream):
+        return "stm"
     if isinstance(v, Buf):
         return "buf"
     if isinstance(v, Big):
@@ -585,7 +592,8 @@ def op_dup(vm: VM, pos: Pos) -> None:
     if not vm.stack:
         raise vm.err(STACK_UNDERFLOW, "`=` (dup) needs a value", op="=", pos=pos)
     v = vm.stack[-1]
-    vm.push(v.borrow() if isinstance(v, Buf) else v)
+    from .stream import Stream
+    vm.push(v.borrow() if isinstance(v, (Buf, Stream)) else v)
 
 
 def op_drop(vm: VM, pos: Pos) -> None:
@@ -603,7 +611,8 @@ def op_over(vm: VM, pos: Pos) -> None:
     if len(vm.stack) < 2:
         raise vm.err(STACK_UNDERFLOW, "`&` (over) needs two values", op="&", pos=pos)
     v = vm.stack[-2]
-    vm.push(v.borrow() if isinstance(v, Buf) else v)
+    from .stream import Stream
+    vm.push(v.borrow() if isinstance(v, (Buf, Stream)) else v)
 
 
 def op_print(vm: VM, pos: Pos) -> None:
@@ -642,7 +651,7 @@ def op_while(vm: VM, pos: Pos) -> None:
 # result destructurer (`ok` / `err`, §16.1). `_` is negate and is not a pattern.
 # The checker imports these sets so
 # static and runtime pattern vocabularies agree.
-_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf"}
+_PATTERN_TYPES = {"int", "float", "str", "block", "cap", "width", "vec", "big", "res", "color", "node", "cur", "buf", "stm"}
 _RES_PATTERNS = {"ok", "err"}
 
 
@@ -748,6 +757,9 @@ def _as_str(v: Any) -> str:
         return f"{v.kind}({len(v.children)})"
     if isinstance(v, Cursor):
         return f"cur({len(v.names)})"
+    from .stream import Stream
+    if isinstance(v, Stream):
+        return "stm"
     if isinstance(v, Buf):
         return v.text()
     return str(v)

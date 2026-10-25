@@ -159,7 +159,7 @@ A user binding therefore shadows a stdlib word of the same name.
 | `^` | queue the block underneath on the compute pool |
 | `\|` | send the top value into the running lane's pipe |
 
-`||` is still logical or. The lexer takes the two-character operator first, so `|` is the pipe and `||` is or. Any `~name` other than `~m` and `~n` is one token and `UNSUPPORTED` at run time (§14).
+`||` is still logical or. The lexer takes the two-character operator first, so `|` is the pipe and `||` is or. A `~name` is one token. `~m` and `~n` are lanes. The stream and bundle operators are §14. Any other name is `UNSUPPORTED`.
 
 ---
 
@@ -567,9 +567,9 @@ Defaults are fixed and hard to misuse: BLAKE3 (hash), ChaCha20-Poly1305
 ## 14. Network primitives (`~` family) & protocol-as-type
 
 > `~m` and `~n` are the real-time lanes (§22). `~p` and `~f` publish and fetch
-> a BLAKE3-addressed bundle (§24). The rest of this family is not implemented:
-> streams, QUIC, and protocol-as-type checking stay design-only. A `~name`
-> outside that set is one token and traps `UNSUPPORTED`.
+> a BLAKE3-addressed bundle (§24). `~o` `~s` `~r` `~c` `~l` `~w` are TCP on
+> `[::1]` (M25). QUIC is not this transport. Any other `~name` is one token
+> and traps `UNSUPPORTED`.
 
 The reserved `~` family (Part I §5) becomes the network/lane surface. A connection
 targets an **interface**, not an IP; the runtime resolves which peer provides it
@@ -577,23 +577,31 @@ targets an **interface**, not an IP; the runtime resolves which peer provides it
 
 | Token | Meaning |
 |-------|---------|
-| `~o` | open a stream to a peer — *not implemented* |
-| `~s` | send on a stream (needs `` `t ``). The `~` makes this a different token from the word `s` — *not implemented* |
-| `~r` | recv from a stream (needs `` `r ``) — *not implemented* |
-| `~c` | connect to an interface (resolved via the mesh) — *not implemented* |
-| `~l` | local same-machine fast path (shared memory) — *not implemented* |
-| `~w` | world: tunnel/relay for legacy reach — *not implemented* |
+| `~o` | `$::1$ port ~o` connects. Needs `` `t ``. Any other host is `BOUNDS` |
+| `~s` | `stream $text$ ~s` sends one frame. Needs `` `t ``. The stream stays |
+| `~r` | `stream ~r` reads one frame and pushes the string. Needs `` `r ``. The stream stays |
+| `~c` | `$name$ $proto$ ~c` connects to a name `~l` registered. Needs `` `t `` |
+| `~l` | `$name$ $proto$ port ~l` listens on `[::1]` and accepts one peer. Needs `` `r `` |
+| `~w` | `port ~w` accepts two peers and forwards one frame each way. Needs `` `r `` and `` `t `` |
 | `~n` `~m` | network / input real-time lanes — **implemented** (§22). Not a stream send |
 | `~p` | publish a string bundle; push its BLAKE3 hex — **implemented** (§24) |
 | `~f` | fetch a bundle by that hex — **implemented** (§24) |
 
-**Protocols are types.** Two programs connect iff their protocol types are
-structurally compatible (checked at compile time, else at capability-grant time):
+A frame is a 4-byte big-endian length and then that many bytes. The length is at most 1048576. `~s` sends the UTF-8 of a string. `~r` pushes that text back; bytes that are not UTF-8 are `TYPE_MISMATCH`. A stream prints as `stm`. Its type name is `stm`. Dropping the exclusive value with `,` closes the socket. A bare name pushes a borrow, the way a `buf` does. A closed stream is `BOUNDS`. A missing capability is `CAP_DENIED` (kind `sec`) and is checked before the stack is touched.
+
+`~l` writes `name proto port` into the directory `ZOWN_MESH` (or `$TMPDIR/zown-mesh`) and then accepts. `~c` reads that line, waits up to one second, and connects. A name that does not appear is `BOUNDS`. A protocol that differs from the registered one is `TYPE_MISMATCH`. When one program contains both a literal `$name$ $proto$ <port> ~l` and a literal `$name$ $other$ ~c` for the same name, and the protocols differ, the checker reports `TYPE_MISMATCH` before the program runs. A protocol that is not a literal is checked only at run time.
+
+`~o`, `~l`, `~c`, and `~w` use TCP on `[::1]` only. A port outside `1..65535` is `BOUNDS`. A peer that does not answer within one second is `BOUNDS`. `~w` is a loopback relay for one frame in each direction. It is not a path off the machine.
+
+`zown mesh` still exchanges one bundle on UDP. The hello packet now carries that bundle's BLAKE3 from the serving node's id, and the fetcher checks the announcement before it asks for the bytes.
+
+QUIC, a DHT beyond that announcement, NAT traversal, and HTTP/3 are not this slice.
+
+**Protocols are types.** The dense form is the protocol word on `~l` and `~c`, not a second pattern syntax. `??` still matches values. Two peers connect when those words are the same string:
 
 ```
-# a protocol type (conceptual; dense form TBD)
-proto Store [ get:[Hash]->[val?]  put:[Hash val]->[ok|err] ]
-`t Store ~c :db        # connect to any peer that speaks Store
+`r [ $store$ $get$ 59771 ~l :db ] gr
+`t [ $store$ $get$ ~c :db ] gr
 ```
 
 Content addresses are written `$zown:<hash>$`; mutable refs are
@@ -705,7 +713,7 @@ Part I §5 keeps `( )`, `{ }`, and `#` open. Part II claims:
 | `` ` `` | capability sigil (§12) |
 | `'` | move sigil (§20) — **implemented** |
 | `"` | reserved for a future *mutable reference* sigil once heap values exist (§20) |
-| `~x` words | `~m` and `~n` are lanes (§22). Every other `~name` is still a network word (§14) and traps `UNSUPPORTED` |
+| `~x` words | `~m` `~n` are lanes (§22). `~p` `~f` are bundles (§24). `~o` `~s` `~r` `~c` `~l` `~w` are `[::1]` streams (§14). Any other `~name` traps `UNSUPPORTED` |
 | `» « →` | graph query (§26) — **implemented**. `»` opens a cursor, `→` follows one label, `«` joins the names |
 | `??` | pattern-match dispatch (§16). `?` stays select; `??` is not a second meaning of `?` |
 
@@ -773,7 +781,11 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `\|` outside a running lane | trap `TYPE_MISMATCH` | `errors_v2/pipe_outside` |
 | `rn` while a tick is already running | trap `TYPE_MISMATCH` | `errors_v2/tick_reenter` |
 | `lc` or `rn` given a negative int | trap `BOUNDS` | `errors_v2/lane_negative` (`rn` is the same rule) |
-| `~` name other than `~m` or `~n` | trap `UNSUPPORTED` | `errors_v2/lane_unknown` |
+| `~` name other than `~m` `~n` `~p` `~f` `~o` `~s` `~r` `~c` `~l` `~w` | trap `UNSUPPORTED` | `errors_v2/lane_unknown` |
+| `~s` `~r` `~o` `~c` `~l` `~w` without its capability | trap `CAP_DENIED` (kind `sec`) | `errors_v2/stream_send`, `stream_recv`, `stream_open` |
+| `~o` to a host other than `::1` | trap `BOUNDS` | `errors_v2/stream_host` |
+| `~c` when the name was not registered | trap `BOUNDS` | `errors_v2/stream_miss` |
+| `~c` protocol differs from the listener's | trap `TYPE_MISMATCH`, also static when both are literals | `check/stream_proto` |
 | a queued compute job skips a real-time lane | **impossible** — each tick runs every registered lane, then at most one job | `cases_v2/lanes` |
 | `ts` / `pp` body leaves a false value | trap `TEST_FAIL` | `errors_v2/test_fail` |
 | a graph name that is empty or contains whitespace | trap `TYPE_MISMATCH` | (unit test) |
@@ -934,9 +946,10 @@ also mean receive. The pipe holds 8 values. A send into a full pipe, or a pull
 from an empty one, is `BOUNDS`.
 
 `~` must be followed by a name or the lexer raises `REPAIR_SYNTAX`. `~m` and
-`~n` are the only implemented names. Any other `~name` (the network words in
-§14) is `UNSUPPORTED`. The checker treats a block consumed by `~m`, `~n`, or
-`^` as escaped: those operators are not inline invocations like `gr` or `ty`.
+`~n` are the lanes. The other implemented names are the streams and the
+bundle words in §14. Any name outside that set is `UNSUPPORTED`. The checker
+treats a block consumed by `~m`, `~n`, or `^` as escaped: those operators are
+not inline invocations like `gr` or `ty`.
 
 ### Ticks
 
@@ -1058,7 +1071,9 @@ at `[::1]:port` (default 59770): one binds it, the other announces, then fetches
 the bundle `hello bundle` by its BLAKE3 address and checks the hash. The same
 announce is offered to `ff02::5a77` on that port. A host that cannot deliver
 the group still completes the exchange on `[::1]`, which does not leave the
-machine. QUIC, the DHT, relays, and `~o`/`~s`/`~r` are not this command.
+machine. The hello packet carries the bundle hash from the serving node
+id, and the fetcher checks that announcement before it requests the bytes.
+QUIC and a DHT are not this command. Streams on `[::1]` are §14.
 
 ## 25. Layout — **implemented (M13, oracle + Rust VM)**
 

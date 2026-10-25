@@ -100,7 +100,9 @@ def exchange(payload: str, port: int = DEFAULT_PORT) -> tuple[str, str, str]:
                     continue
                 kind, _node, rest = parsed
                 if kind == ANN:
-                    sock.sendto(_pack(HELLO, node_a), addr)
+                    # The hello carries this node's content hash. The peer
+                    # checks it before the fetch (the gossip step).
+                    sock.sendto(_pack(HELLO, node_a, digest), addr)
                 elif kind == FETCH and len(rest) >= 32:
                     want = rest[:32]
                     if want == digest:
@@ -122,8 +124,8 @@ def exchange(payload: str, port: int = DEFAULT_PORT) -> tuple[str, str, str]:
             sock.sendto(_pack(ANN, node_b), ("::1", port))
             data, _addr = sock.recvfrom(1500)
             parsed = _parse(data)
-            if parsed is None or parsed[0] != HELLO:
-                err["e"] = "discovery did not answer"
+            if parsed is None or parsed[0] != HELLO or parsed[1] != node_a or parsed[2] != digest:
+                err["e"] = "discovery did not announce the bundle"
                 return
             sock.sendto(_pack(FETCH, node_b, digest), ("::1", port))
             data, _addr = sock.recvfrom(1500)

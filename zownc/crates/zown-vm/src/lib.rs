@@ -19,6 +19,7 @@ mod mesh;
 mod native;
 mod stdwords;
 mod store;
+mod stream;
 mod tele;
 mod ui;
 mod value;
@@ -450,6 +451,10 @@ impl Vm {
                     alloc: alloc.clone(),
                     exclusive: false,
                 },
+                Value::Stm { conn, .. } => Value::Stm {
+                    conn: conn.clone(),
+                    exclusive: false,
+                },
                 other => other.clone(),
             };
             self.push(v);
@@ -505,6 +510,12 @@ impl Vm {
             "→" => self.op_graph_follow(),
             "~p" => self.op_publish(),
             "~f" => self.op_fetch(),
+            "~o" => self.op_open_stream(),
+            "~s" => self.op_send_stream(),
+            "~r" => self.op_recv_stream(),
+            "~c" => self.op_connect_name(),
+            "~l" => self.op_listen(),
+            "~w" => self.op_relay(),
             other if other.starts_with('~') && other.len() > 1 => self.op_lane(&other[1..]),
             other => Err(self.err(
                 UNSUPPORTED,
@@ -760,6 +771,14 @@ impl Vm {
                 });
                 Ok(())
             }
+            Some(Value::Stm { conn, .. }) => {
+                let conn = conn.clone();
+                self.push(Value::Stm {
+                    conn,
+                    exclusive: false,
+                });
+                Ok(())
+            }
             Some(v) => {
                 let v = v.clone();
                 self.push(v);
@@ -800,6 +819,10 @@ impl Vm {
         let v = match &self.stack[self.stack.len() - 2] {
             Value::Buf { alloc, .. } => Value::Buf {
                 alloc: alloc.clone(),
+                exclusive: false,
+            },
+            Value::Stm { conn, .. } => Value::Stm {
+                conn: conn.clone(),
                 exclusive: false,
             },
             other => other.clone(),
@@ -1908,6 +1931,7 @@ fn is_type_pattern(s: &str) -> bool {
             | "node"
             | "cur"
             | "buf"
+            | "stm"
     )
 }
 

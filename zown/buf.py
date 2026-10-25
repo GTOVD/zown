@@ -47,9 +47,13 @@ class Buf:
 
 
 def release(v) -> None:
-    """Destroying an exclusive `buf` frees its bytes."""
+    """Destroying an exclusive `buf` frees its bytes. An exclusive stream closes."""
     if isinstance(v, Buf) and v.exclusive:
         v.alloc.free()
+        return
+    from .stream import Stream
+    if isinstance(v, Stream) and v.exclusive:
+        v.conn.close()
 
 
 def _plain_int(vm, op: str, pos, v, what: str):
