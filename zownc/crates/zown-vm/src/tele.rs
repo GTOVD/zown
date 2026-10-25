@@ -85,6 +85,24 @@ impl Telemetry {
             self.wants.push((name, value));
         }
     }
+
+    pub fn trace(&self) -> String {
+        self.trace.clone()
+    }
+
+    pub fn set_trace(&mut self, trace: String) {
+        self.trace = trace;
+    }
+
+    pub fn export_wants(&self) -> Vec<(String, String)> {
+        self.wants.clone()
+    }
+
+    pub fn import_wants(&mut self, pairs: Vec<(String, String)>) {
+        for (name, value) in pairs {
+            self.set_want(name, value);
+        }
+    }
 }
 
 impl Vm {

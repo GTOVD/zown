@@ -9,7 +9,7 @@ goal: fit *dramatically* more working code inside an LLM's context window, and
 run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
 boot sector.
 
-> Milestones **M0–M28** are in this tree. The Python package is the behavioral
+> Milestones **M0–M29** are in this tree. The Python package is the behavioral
 > oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
 > LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
 > [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
@@ -194,11 +194,12 @@ python3 conformance/wasm_parity.py   # needs wasmtime
 python3 conformance/stage2_parity.py # IR fixed point and boot-image bytes
 python3 conformance/stream_pair.py   # two peers on [::1]
 python3 conformance/map_reopen.py    # snapshot file, new process
+python3 conformance/fleet_pair.py   # trace id and drift across one socket
 ```
 
 ## Status
 
-**M0–M28 are done.** The same programs run three ways, held to one conformance
+**M0–M29 are done.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -225,9 +226,12 @@ map, set, queue, ring, B-tree, trie, bloom filter, priority queue, and
 bit vector are fat pointers. `iz` and `uz` are pointer widths. `dc` is
 a checked decimal and `cx` is a Gaussian integer.
 
-**Next is M29:** a signed block replaces a word only after its test
-passes, and one trace id crosses a socket. QUIC and a kernel are later.
-The map is
+`sw` replaces a word registered with `wd` only after its Ed25519
+signature checks and its test passes. A failure leaves the old word.
+Two peers on `[::1]` share a trace id and print the same drift.
+
+**Next is M30:** CI for the suite, then an editor protocol for
+`zown check` and `zown fmt`. QUIC and a kernel are later. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

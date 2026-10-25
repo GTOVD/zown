@@ -207,7 +207,11 @@ The "living software" + "AI manages every instance" layer (see `DESIGN.md` §8).
       content hash, a version, and a trace id. `wn` / `ob` / `df` are the
       declared want. `rm` remembers a note for a fault code. `zown watch`
       prints the log.
-- [ ] A fleet, traces that cross a network, hot-swap, semantic patches.
+- [x] Two peers on `[::1]`. `~s` carries the trace and the wants. `~r`
+      installs them. Both logs name the trace id, and `df` agrees.
+      `sw` replaces one `wd` word after the signature and the test.
+      A failure leaves the old word.
+- [ ] Semantic patches beyond one word, and a fleet of more than two peers.
 - [ ] On-device ML inference and federated updates.
       Not started. The note on a fault is not a patch.
 
@@ -245,7 +249,8 @@ local inference.
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md).
 Through M27 the tree has `buf`, host I/O, crypto, WASM tags, the
 print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
-file, the UI slice in SPEC §25, and the collections in §21. Next is M29.
+file, the UI slice in SPEC §25, the collections in §21, and the
+two-peer control plane in §27. Next is M30.
 
 ---
 

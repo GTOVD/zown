@@ -104,6 +104,7 @@ struct Checker {
     grantable: BTreeSet<String>,
     uses_at: bool,
     offers: BTreeMap<String, BTreeSet<String>>,
+    defined: BTreeSet<String>,
 }
 
 impl Checker {
@@ -115,6 +116,7 @@ impl Checker {
             grantable: BTreeSet::new(),
             uses_at: false,
             offers: BTreeMap::new(),
+            defined: BTreeSet::new(),
         }
     }
 
@@ -237,7 +239,19 @@ impl Checker {
         for (i, n) in nodes.iter().enumerate() {
             match &n.kind {
                 NodeKind::Name(name) => {
-                    if !self.bound.contains(name) && !is_builtin(name) {
+                    if name == "wd" && !self.bound.contains(name) {
+                        if let Some(Node {
+                            kind: NodeKind::Str(word),
+                            ..
+                        }) = at(nodes, i as isize - 1)
+                        {
+                            if wd_name(word) {
+                                self.defined.insert(word.clone());
+                            }
+                        }
+                    }
+                    if !self.bound.contains(name) && !is_builtin(name) && !self.defined.contains(name)
+                    {
                         self.diag(
                             NAME_UNRESOLVED,
                             format!("`{name}` is never bound and is not a builtin"),
@@ -622,6 +636,14 @@ impl Checker {
                 None
             }
         }
+    }
+}
+
+fn wd_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => chars.all(|c| c.is_ascii_alphanumeric()),
+        _ => false,
     }
 }
 

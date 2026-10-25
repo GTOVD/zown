@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M28: collections on a fat pointer, iz/uz, decimal, complex).
+Last updated: 2026-10-25 (M29: signed word swap, trace across one socket, shared drift).
 
 ---
 
@@ -81,7 +81,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M26 | Store engine | ✅ | `mm` `mo` `ml` reopen a snapshot file. `tc` `tu` `tq` are the column table. `mg` unions two snapshots and keeps both parents |
 | M27 | UI completion | ✅ | Bitmap glyphs, `pk`/`ky` on `bh`, `an` adds ticks to the width, `gp` readback. |
 | M28 | Collections and remaining numbers | ✅ | List, map, set, queue, ring, B-tree, trie, bloom, heap, bit vector. `iz` `uz` `dc` `cx`. |
-| M29 | Control plane completion | ⬜ | Hot-swap of a verified block, a trace that crosses a socket, fleet intent. Needs M23 and M25 |
+| M29 | Control plane completion | ✅ | `sw` replaces a `wd` word after the signature and the test. Two peers share a trace and a drift line. |
 | M30 | Tooling | ⬜ | CI, LSP, doc generator, package manifest. CI does not wait on the rest |
 | M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
 | M32 | Kernel | ⬜ | Long mode, one hardware IRQ, then a microkernel with capability isolation. Needs M23 |
@@ -814,9 +814,9 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M23 and M25. SPEC §27, DESIGN §8.
 **Goal:** a verified replacement of a running block, and intent that crosses one socket.
 
-- [ ] **M29a.** Hot-swap. A signed block (M24) replaces a word registered with `wd` only after `ev` succeeds and a `ts` block the program supplied passes. A failed test leaves the old word.
-- [ ] **M29b.** Two processes. A trace id set with `td` is sent with `~s` and appears in the other peer's `lg`. The golden pins both logs.
-- [ ] **M29c.** Fleet intent. One peer `wn`s a value. The other `ob`s it. `df` on each side reports the same drift or `ok`.
+- [x] **M29a.** Hot-swap. A signed block (M24) replaces a word registered with `wd` only after `ev` succeeds and a `ts` block the program supplied passes. A failed test leaves the old word.
+- [x] **M29b.** Two processes. A trace id set with `td` is sent with `~s` and appears in the other peer's `lg`. The golden pins both logs.
+- [x] **M29c.** Fleet intent. One peer `wn`s a value. The other `ob`s it. `df` on each side reports the same drift or `ok`.
 
 **Acceptance:** a bad signature does not swap. A good signature swaps only after the test block passes. The two logs name the same trace id.
 **Not this slice:** an on-device model, a learning loop, or more than two peers.
@@ -895,6 +895,7 @@ memory type.)*
 | D23 | The M26 map is **a `buf` of a snapshot file** (2026-10-25). `mm` fsyncs `gs`. `mo` and `ml` reject a short file. `tq` scans a column. `mg` is a sorted set-union that keeps both parents. No SQL, and no integer address | SPEC §26; M26 |
 | D24 | M27 UI is a **bitmap, a hit, a tick, and a software pipeline** (2026-10-25). `zown draw` paints 5×7 glyphs. `bh` stores a handler on a `bt`. `pk` and `ky` run it, or drop the event. `an` adds the tick count to the width of the shared node. `gp` fills a rectangle from a shader that must leave one color; a wrong shader is `TYPE_MISMATCH` and pushes nothing. Readback matches the CPU rectangle. A hardware device, a PDF exporter, and a widget set stay later | SPEC §25; M27 |
 | D25 | M28 collections are **fat pointers, and the remaining numbers stay checked** (2026-10-25). `ls` is the list. `gt` indexes it. `mp` `sc` `qu` `rg` `te` `ti` `bm` `pq` `bv` are the other DESIGN §10 structures, each with one golden. `iz` and `uz` are 64-bit pointer widths here. `dc` is a checked decimal. `cx` is a Gaussian integer. Neither shares a word with `float` or `b`. A block stays code | SPEC §11, §21; M28 |
+| D26 | M29 hot-swap is **one `wd` word, signed and tested** (2026-10-25). `cs` is the canonical text. `sw` checks an Ed25519 signature the way `ev` does, runs the test the way `ts` does, and restores the old word on failure. `~s` carries the trace and the wants. `~r` installs them. Two peers then `df` the same drift. No on-device model | SPEC §14, §27; M29 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -944,9 +945,10 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M29 — control plane completion.** A signed block replaces a `wd` word
-   only after `ev` and the program's `ts` block both pass. A trace id set
-   with `td` crosses one `~s`. Two peers `wn` and `ob`, and `df` agrees.
+1. **M30 — tooling.** One workflow runs the oracle, `cargo test`,
+   `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot` when
+   QEMU is present. LSP over stdio reports `zown check`, finds a binding,
+   and formats with `zown fmt`.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

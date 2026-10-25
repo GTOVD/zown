@@ -120,6 +120,8 @@ pub struct Vm {
     /// Auto-running words from `std/core.zn`, plus any `wd` in the program.
     /// A user binding shadows one.
     words: HashMap<String, stdwords::WordBody>,
+    /// Old bodies while `sw` is testing a replacement. Commit drops them.
+    swap_undo: Vec<(String, stdwords::WordBody)>,
     /// BLAKE3 hex -> bundle text. `~p` writes it, `~f` reads it.
     bundles: HashMap<String, String>,
     node_id: [u8; 32],
@@ -203,6 +205,7 @@ impl Vm {
             pos: None,
             lanes: lanes::LaneState::new(),
             words: HashMap::new(),
+            swap_undo: Vec::new(),
             bundles: HashMap::new(),
             node_id: mesh::node_id(),
             graph: store::Graph::default(),
@@ -213,6 +216,11 @@ impl Vm {
         };
         vm.load_std();
         vm
+    }
+
+    /// Exclusive `buf` of these bytes. Used by the native `cs` path.
+    pub fn push_bytes(&mut self, data: Vec<u8>) {
+        self.push_buf(data);
     }
 
     /// Parse + run a source string. Ungated: the checker (M8d-v) sits above this.
@@ -1179,6 +1187,8 @@ impl Vm {
             "es" => self.b_es(),
             "ev" => self.b_ev(),
             "xk" => self.b_xk(),
+            "cs" => self.b_cs(),
+            "sw" => self.b_sw(),
             "iz" => self.b_iz(),
             "uz" => self.b_uz(),
             "dc" => self.b_dc(),
@@ -2159,6 +2169,8 @@ pub fn is_builtin(name: &str) -> bool {
             | "hs"
             | "sk"
             | "px"
+            | "cs"
+            | "sw"
     )
 }
 

@@ -255,6 +255,37 @@ def op_connect(vm, pos) -> None:
     vm.push(Stream(_io(vm, "~c", pos, lambda: _connect(port))))
 
 
+def _pack_frame(trace: str, wants: list[tuple[str, str]], message: str) -> bytes:
+    lines = [trace, str(len(wants))]
+    lines.extend(f"{name} {value}" for name, value in wants)
+    lines.append(message)
+    return "\n".join(lines).encode("utf-8")
+
+
+def _unpack_frame(data: bytes) -> tuple[str, list[tuple[str, str]], str]:
+    text = data.decode("utf-8")
+    nl = text.find("\n")
+    if nl < 0:
+        raise ValueError("frame")
+    trace, rest = text[:nl], text[nl + 1:]
+    nl = rest.find("\n")
+    if nl < 0 or not rest[:nl].isdigit():
+        raise ValueError("frame")
+    count = int(rest[:nl])
+    rest = rest[nl + 1:]
+    wants: list[tuple[str, str]] = []
+    for _ in range(count):
+        nl = rest.find("\n")
+        if nl < 0:
+            raise ValueError("frame")
+        line, rest = rest[:nl], rest[nl + 1:]
+        name, sep, value = line.partition(" ")
+        if not sep or not name or not value or any(ch.isspace() for ch in name + value):
+            raise ValueError("frame")
+        wants.append((name, value))
+    return trace, wants, rest
+
+
 def op_send(vm, pos) -> None:
     _need(vm, "~s", "t", pos)
     msg = vm.pop("~s", pos)
@@ -262,14 +293,15 @@ def op_send(vm, pos) -> None:
     if not isinstance(msg, str):
         raise vm.err(TYPE_MISMATCH, f"`~s` expected a string, got {type_name(msg)}",
                      op="~s", pos=pos)
-    data = msg.encode("utf-8")
-    if len(data) > BUF_MAX:
+    payload = _pack_frame(vm.tele.trace, list(vm.tele.wants.items()), msg)
+    if len(payload) > BUF_MAX:
         raise vm.err(BOUNDS, "`~s` message is too large", op="~s", pos=pos)
     stm = _stream(vm, "~s", pos, vm.pop("~s", pos))
     try:
-        _io(vm, "~s", pos, lambda: _send_frame(stm.conn.sock, data))
+        _io(vm, "~s", pos, lambda: _send_frame(stm.conn.sock, payload))
     finally:
         vm.push(stm)
+    vm.tele.line("send", str(len(msg.encode("utf-8"))))
 
 
 def op_recv(vm, pos) -> None:
@@ -277,13 +309,20 @@ def op_recv(vm, pos) -> None:
     stm = _stream(vm, "~r", pos, vm.pop("~r", pos))
     try:
         data = _io(vm, "~r", pos, lambda: _recv_frame(stm.conn.sock))
-        text = data.decode("utf-8")
+        trace, wants, text = _unpack_frame(data)
     except UnicodeDecodeError:
         vm.push(stm)
         raise vm.err(TYPE_MISMATCH, "`~r` frame is not UTF-8", op="~r", pos=pos) from None
+    except ValueError:
+        vm.push(stm)
+        raise vm.err(TYPE_MISMATCH, "`~r` frame is not a trace frame", op="~r", pos=pos) from None
     except Exception:
         vm.push(stm)
         raise
+    vm.tele.trace = trace
+    for name, value in wants:
+        vm.tele.wants[name] = value
+    vm.tele.line("recv", str(len(text.encode("utf-8"))))
     vm.push(stm)
     vm.push(text)
 

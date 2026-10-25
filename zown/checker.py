@@ -112,6 +112,10 @@ _HOST_HINT = {
 UNKNOWN = None
 
 
+def _wd_name(s: str) -> bool:
+    return s.isascii() and len(s) >= 1 and s[0].isalpha() and s.isalnum()
+
+
 class Checker:
     def __init__(self, file: str | None = None):
         self.file = file
@@ -125,6 +129,8 @@ class Checker:
         # Does the program use `ty`? Then an escaped block may run under it (its
         # faults caught), so the "never granted" rule cannot be applied to them.
         self.uses_at = False
+        # Names registered by a literal `$name$ wd` earlier in this walk.
+        self.defined: set[str] = set()
 
     # --- entry -------------------------------------------------------------------
     def check(self, nodes: list) -> list[ZownError]:
@@ -216,11 +222,15 @@ class Checker:
             tag = n[0]
             if tag == "name":
                 name = n[1]
-                if name not in self.bound and name not in BUILTINS:
+                if name not in self.bound and name not in BUILTINS and name not in self.defined:
                     self._diag(NAME_UNRESOLVED,
                                f"`{name}` is never bound and is not a builtin",
                                n[2], op=name,
                                hint=f"bind it with :{name}, or check the stdlib word list")
+                if name == "wd" and name not in self.bound:
+                    prev = self._at(nodes, i - 1)
+                    if prev is not None and prev[0] == "str" and _wd_name(prev[1]):
+                        self.defined.add(prev[1])
                 elif name in moved and name not in BUILTINS and not in_at:
                     self._diag(NAME_UNRESOLVED,
                                f"`{name}` was moved out by '{name} above and not rebound",

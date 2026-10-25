@@ -598,7 +598,16 @@ targets an **interface**, not an IP; the runtime resolves which peer provides it
 | `~p` | publish a string bundle; push its BLAKE3 hex — **implemented** (§24) |
 | `~f` | fetch a bundle by that hex — **implemented** (§24) |
 
-A frame is a 4-byte big-endian length and then that many bytes. The length is at most 1048576. `~s` sends the UTF-8 of a string. `~r` pushes that text back; bytes that are not UTF-8 are `TYPE_MISMATCH`. A stream prints as `stm`. Its type name is `stm`. Dropping the exclusive value with `,` closes the socket. A bare name pushes a borrow, the way a `buf` does. A closed stream is `BOUNDS`. A missing capability is `CAP_DENIED` (kind `sec`) and is checked before the stack is touched.
+A frame is a 4-byte big-endian length and then that many bytes. The length is at most 1048576. The bytes are UTF-8:
+
+```
+<trace>
+<count>
+<name> <value>
+<message>
+```
+
+`<count>` is how many wants follow, in the order they were declared. Each want is one line, two words. `<message>` is the rest of the text and may contain newlines. `~s` sends the sender's trace (`-` until `td`) and its wants, then logs `send` with the message's byte length. `~r` sets the receiver's trace, installs those wants (an existing name keeps its place), logs `recv` with that length, and pushes the message. Bytes that are not UTF-8, or a body that is not this shape, are `TYPE_MISMATCH`. The program's string is only the message. A stream prints as `stm`. Its type name is `stm`. Dropping the exclusive value with `,` closes the socket. A bare name pushes a borrow, the way a `buf` does. A closed stream is `BOUNDS`. A missing capability is `CAP_DENIED` (kind `sec`) and is checked before the stack is touched.
 
 `~l` writes `name proto port` into the directory `ZOWN_MESH` (or `$TMPDIR/zown-mesh`) and then accepts. `~c` reads that line, waits up to one second, and connects. A name that does not appear is `BOUNDS`. A protocol that differs from the registered one is `TYPE_MISMATCH`. When one program contains both a literal `$name$ $proto$ <port> ~l` and a literal `$name$ $other$ ~c` for the same name, and the protocols differ, the checker reports `TYPE_MISMATCH` before the program runs. A protocol that is not a literal is checked only at run time.
 
@@ -820,6 +829,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `en` of a name that is not set | trap `BOUNDS` | `errors_v2/env_unset` |
 | `ad` tag does not match | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/crypt_tag` |
 | `ev` signature does not verify | trap `SIG_INVALID` (kind `sec`) | `errors_v2/crypt_sig` |
+| `sw` signature does not verify | trap `SIG_INVALID` (kind `sec`). The old word stays | `cases_v2/swap` |
+| `sw` test does not leave one truthy value | the test's trap (`TEST_FAIL` or `BOUNDS`). The old word stays | `cases_v2/swap` |
+| `sw` name was not registered with `wd` | trap `BOUNDS` | `errors_v2/swap_miss` |
 | `nt` given a string with a newline | trap `TYPE_MISMATCH` | (unit test) |
 | `ts` / `pp` body leaves a number of values other than one | trap `BOUNDS` | (unit test) |
 | `gp` shader leaves anything but one color | trap `TYPE_MISMATCH`. No buffer is pushed | `errors_v2/shader` |
@@ -1163,7 +1175,7 @@ A point hits a button when `x0 ≤ x < x0+w` and `y0 ≤ y < y0+h`, using the sa
 
 ## 26. The graph — **implemented (M14 bundle, M24 signature and log; oracle + Rust VM)**
 
-The store that runs is an in-memory graph, a text bundle, a snapshot file a `buf` can reopen, a column table, and a set-union merge. Vertices, edges, column names, and cells are single words: no whitespace, not empty. A duplicate vertex, edge, or column is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes, until `mg` sorts the union. A signed patch that hot-swaps code stays design-only (`DESIGN.md` §7).
+The store that runs is an in-memory graph, a text bundle, a snapshot file a `buf` can reopen, a column table, and a set-union merge. Vertices, edges, column names, and cells are single words: no whitespace, not empty. A duplicate vertex, edge, or column is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes, until `mg` sorts the union. A signed patch of the graph stays design-only (`DESIGN.md` §7). Replacing one running word is §27.
 
 | Word or op | Stack | Result |
 |------------|--------|--------|
@@ -1235,9 +1247,9 @@ The column table is not the graph. `tc` appends a column name. `tu` pops one cel
 
 `cases_v2/graph` is the two-hop query and its head. `cases_v2/signed` opens an unsigned bundle and the signed bundle of the same graph. `cases_v2/log` appends, proves, and opens. `cases_v2/map` writes the snapshot and loads it back. `cases_v2/table` scans two columns. `cases_v2/merge` unions two snapshots in either order. `errors_v2/bundle_bad` is a trailer of 64 zeros. `errors_v2/signed_bad` is a flipped signature. `errors_v2/include_bad` is a proof on an empty log. `errors_v2/proof_absent` is `lp` with nothing logged. `errors_v2/map_short` and `errors_v2/map_load` open a short file. `errors_v2/map_denied` is `mm` without `` `d ``.
 
-## 27. The control plane — **implemented (M15, oracle + Rust VM)**
+## 27. The control plane — **implemented (M15 log, M29 swap and two peers; oracle + Rust VM)**
 
-What runs is one VM's log. Events are numbered from 1 in the order the program causes them. There is no clock and no second machine, so the text is the same on every run. A fleet, a trace that crosses a network, a hot-swap, and on-device inference stay design-only (`DESIGN.md` §8).
+What runs is a numbered log, a signed replacement of one word, and two peers on `[::1]`. Events are numbered from 1 in the order the program causes them. There is no clock. On-device inference stays design-only (`DESIGN.md` §8).
 
 Each line is:
 
@@ -1260,6 +1272,14 @@ Until the program sets them, content, version, and trace are `-`. `ch` sets the 
 | `df` | `df` | push the drift report. One line `name want have` for each want that is unmet, in the order they were declared. A missing observation is `-`. Every want met, or no wants, pushes `ok` |
 | `rm` | `$code$ $note$ rm` | remember a one-word note for a fault code. It is not run |
 | `lg` | `lg` | push the log. Empty is `""` |
+| `cs` | `[body] cs` | exclusive `buf` of the body's canonical text |
+| `sw` | `$name$ seed sig [test] [body] sw` | replace the `wd` word `name` after the signature and the test |
+
+`cs` writes one line per node. A leaf is the tag, one space, and the payload: `int 1`, `str hi`, `name go`, `op .`. A string escapes `\`, CR, and LF. A nested block is a `blk` line, indented children, and `end`. The text ends with a newline when it is not empty.
+
+`sw` checks three things, in order. The name is a word `wd` already registered, else `BOUNDS`. The signature is Ed25519 over that canonical text, checked the way `ev` checks one, with the public key derived from the 32-byte seed. A bad signature is `SIG_INVALID` (kind `sec`) and the old word stays. The test then runs the way `ts` runs, with the new word already installed. If the test does not leave exactly one truthy value, the old word is restored and that trap propagates. A passing test keeps the new word and logs `swap name`.
+
+`~s` carries the sender's trace and wants (§14). `~r` installs them before the program continues, so a later `ob` on the receiver sees the sender's want. `df` on each side then reports the same drift, or `ok` when every want is met. `conformance/fleet_pair.py` runs that pair. Both logs name the trace id the client set with `td`.
 
 Every runtime fault is a log line `fault CODE op note`, written when the fault is raised. `op` is `-` when the fault has none. `note` is the `rm` note for that code, or `-`. A fault caught by `ty` is still in the log; `ty` itself still pushes `err(CODE)` and nothing else. The note is a record of a known response. It does not replace the running program.
 

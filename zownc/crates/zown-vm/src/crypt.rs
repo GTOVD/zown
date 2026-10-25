@@ -11,7 +11,7 @@ use super::value::{BufAlloc, Value};
 use super::{RunError, Vm};
 
 impl Vm {
-    pub(super) fn take_buf(&mut self, op: &str) -> Result<Vec<u8>, RunError> {
+    pub(crate) fn take_buf(&mut self, op: &str) -> Result<Vec<u8>, RunError> {
         match self.pop(op)? {
             Value::Buf { alloc, exclusive } => {
                 let data = {
@@ -46,7 +46,7 @@ impl Vm {
         }
     }
 
-    fn push_buf(&mut self, data: Vec<u8>) {
+    pub(crate) fn push_buf(&mut self, data: Vec<u8>) {
         let n = data.len();
         self.push(Value::Buf {
             alloc: Rc::new(RefCell::new(BufAlloc {
@@ -57,7 +57,7 @@ impl Vm {
         });
     }
 
-    pub(super) fn bad_len(&self, op: &str, what: &str, n: usize) -> RunError {
+    pub(crate) fn bad_len(&self, op: &str, what: &str, n: usize) -> RunError {
         self.err(
             TYPE_MISMATCH,
             format!("`{op}` expected {what} of {n} bytes"),
@@ -66,7 +66,7 @@ impl Vm {
         )
     }
 
-    pub(super) fn sec(&self, code: &'static str, op: &str, msg: String, hint: &'static str) -> RunError {
+    pub(crate) fn sec(&self, code: &'static str, op: &str, msg: String, hint: &'static str) -> RunError {
         let mut e = self.err(code, msg, Some(op.to_string()), hint);
         e.kind = "sec";
         e

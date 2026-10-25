@@ -1,0 +1,16 @@
+32 bf :seed
+[ $old$ . ] $go$ wd
+go
+[ $new$ . ] cs :msg
+seed = msg es
+0 0 bp :bad
+[ $go$ seed bad [ 1 ] [ $new$ . ] sw ] ty .
+go
+[ $new$ . ] cs :msg2
+seed = msg2 es :sig
+[ $go$ seed sig [ 0 ] [ $new$ . ] sw ] ty .
+go
+[ $new$ . ] cs :msg3
+seed = msg3 es :sig3
+$go$ seed sig3 [ 1 ] [ $new$ . ] sw
+go

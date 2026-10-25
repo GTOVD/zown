@@ -209,9 +209,13 @@ pushes nothing. The readback matches the CPU rectangle. **M28 ✅** —
 and an index outside the list is `BOUNDS`. `mp` `sc` `qu` `rg` `te`
 `ti` `bm` `pq` `bv` are the other collections, each with one golden.
 `iz` and `uz` are 64-bit pointer widths. `dc` is a checked decimal and
-`cx` is a Gaussian integer. Neither is `float` or `b`. Next is
-**M29** (a tested hot-swap, then one trace id across a socket). The
-rest of the map is **M29–M32** in `docs/PLAN.md`.
+`cx` is a Gaussian integer. Neither is `float` or `b`. **M29 ✅** —
+`cs` is the canonical text of a block. `sw` replaces a `wd` word only
+after an Ed25519 signature checks and the test leaves one truthy value.
+A bad signature or a failed test leaves the old word. `~s` carries the
+trace and the wants. `~r` installs them, so two peers `df` the same
+drift and both logs name the trace id. Next is **M30** (CI, then an
+LSP). The rest of the map is **M30–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

@@ -346,6 +346,96 @@ def b_wd(vm, pos: Pos) -> None:
     vm.words[name] = blk
 
 
+def _code_esc(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def code_text(nodes: list, depth: int = 0) -> str:
+    """Canonical text of a block body. `cs` and `sw` both use this."""
+    from .vm import _as_str
+    lines: list[str] = []
+    ind = "  " * depth
+    for node in nodes:
+        tag = node[0]
+        if tag == "blk":
+            lines.append(f"{ind}blk")
+            inner = code_text(node[1], depth + 1)
+            if inner:
+                lines.append(inner[:-1] if inner.endswith("\n") else inner)
+            lines.append(f"{ind}end")
+            continue
+        payload = node[1]
+        if tag == "str":
+            shown = _code_esc(payload)
+        elif tag == "float":
+            shown = _as_str(payload)
+        else:
+            shown = str(payload)
+        lines.append(f"{ind}{tag} {shown}")
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
+def b_cs(vm, pos: Pos) -> None:
+    """[body] cs -> exclusive buf of the body's canonical text."""
+    from .buf import Alloc, Buf
+    blk = vm.pop_block("cs", pos)
+    data = code_text(blk.nodes).encode("utf-8")
+    alloc = Alloc(len(data))
+    if data and alloc.data is not None:
+        alloc.data[:] = data
+    vm.push(Buf(alloc, True))
+
+
+def b_sw(vm, pos: Pos) -> None:
+    """$name$ seed sig [test] [body] sw. Replace a `wd` word after the signature
+    and the test both succeed. A failure leaves the old word."""
+    from .buf import Buf
+    from .edwards import public_key, verify
+    from .errors import SIG_INVALID
+    body = vm.pop_block("sw", pos)
+    test = vm.pop_block("sw", pos)
+    sig = vm.pop("sw", pos)
+    seed = vm.pop("sw", pos)
+    name = vm.pop("sw", pos)
+    if not isinstance(name, str) or not _word_name(name):
+        raise vm.err(TYPE_MISMATCH, "`sw` expected a word name (a letter, then letters or digits)",
+                     op="sw", pos=pos)
+    def _buf(v, what: str, n: int) -> bytes:
+        from .buf import release
+        from .vm import type_name
+        if not isinstance(v, Buf):
+            raise vm.err(TYPE_MISMATCH, f"`sw` expected {what}, got {type_name(v)}",
+                         op="sw", pos=pos)
+        if v.alloc.data is None:
+            raise vm.err(BOUNDS, "`sw` buffer was freed", op="sw", pos=pos)
+        data = bytes(v.alloc.data)
+        release(v)
+        if len(data) != n:
+            raise vm.err(TYPE_MISMATCH, f"`sw` expected {what} of {n} bytes", op="sw", pos=pos)
+        return data
+    sig_b = _buf(sig, "a signature", 64)
+    seed_b = _buf(seed, "a seed", 32)
+    if name not in vm.words:
+        raise vm.err(BOUNDS, f"`sw` has no word named {name}", op="sw", pos=pos,
+                     hint="register it with wd first")
+    message = code_text(body.nodes).encode("utf-8")
+    if not verify(public_key(seed_b), message, sig_b):
+        raise vm.err(SIG_INVALID, "`sw` signature is not valid", op="sw", pos=pos,
+                     kind="sec", hint="sign the canonical text from cs")
+    old = vm.words[name]
+    vm.words[name] = body
+    try:
+        depth = len(vm.stack)
+        vm.invoke(test, "sw", pos)
+        _finish_test(vm, "sw", pos, depth)
+    except Exception:
+        vm.words[name] = old
+        raise
+    vm.tele.line("swap", name)
+
+
 def _finish_test(vm, op: str, pos: Pos, depth: int) -> None:
     from .vm import truthy
     left = len(vm.stack) - depth
@@ -820,6 +910,8 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "hs": (b_hs, "has", "coll v hs -> 1 if present, else 0"),
     "sk": (b_sk, "scan", "coll sk -> the canonical text; the collection stays"),
     "px": (b_px, "prefix", "trie prefix px -> keys with that prefix, one per line"),
+    "cs": (b_cs, "code", "[body] cs -> exclusive buf of the body's canonical text"),
+    "sw": (b_sw, "swap", "$name$ seed sig [test] [body] sw -> replace a wd word after ev and the test"),
 }
 
 # fixed-width integer type tags (i8..ix, u8..ux): each pushes a WidthTag value.

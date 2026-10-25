@@ -219,8 +219,11 @@ impl Vm {
                 ));
             }
         };
-        let data = text.into_bytes();
-        if data.len() > BUF_MAX {
+        let payload = {
+            let tele = self.tele.borrow();
+            pack_frame(&tele.trace(), &tele.export_wants(), &text)
+        };
+        if payload.len() > BUF_MAX {
             return Err(self.err(
                 BOUNDS,
                 "`~s` message is too large".into(),
@@ -228,6 +231,7 @@ impl Vm {
                 "",
             ));
         }
+        let msg_len = text.len();
         let stm = self.pop_stream("~s")?;
         let sent = if let Value::Stm { conn, .. } = &stm {
             let result = (|| {
@@ -240,13 +244,16 @@ impl Vm {
                         "",
                     )
                 })?;
-                write_frame(sock, &data).map_err(|e| self.net_err("~s", e))
+                write_frame(sock, &payload).map_err(|e| self.net_err("~s", e))
             })();
             result
         } else {
             Ok(())
         };
         self.push(stm);
+        if sent.is_ok() {
+            self.tele.borrow_mut().line("send", &msg_len.to_string());
+        }
         sent
     }
 
@@ -282,18 +289,25 @@ impl Vm {
                 return Err(e);
             }
         };
-        let text = match String::from_utf8(data) {
-            Ok(text) => text,
-            Err(_) => {
+        let parsed = match unpack_frame(&data) {
+            Ok(parsed) => parsed,
+            Err(utf8) => {
                 self.push(stm);
-                return Err(self.err(
-                    TYPE_MISMATCH,
-                    "`~r` frame is not UTF-8".into(),
-                    Some("~r".into()),
-                    "",
-                ));
+                let msg = if utf8 {
+                    "`~r` frame is not UTF-8"
+                } else {
+                    "`~r` frame is not a trace frame"
+                };
+                return Err(self.err(TYPE_MISMATCH, msg.into(), Some("~r".into()), ""));
             }
         };
+        let (trace, wants, text) = parsed;
+        {
+            let mut tele = self.tele.borrow_mut();
+            tele.set_trace(trace);
+            tele.import_wants(wants);
+            tele.line("recv", &text.len().to_string());
+        }
         self.push(stm);
         self.push(Value::Str(text));
         Ok(())
@@ -370,6 +384,45 @@ fn read_frame(sock: &mut TcpStream) -> std::io::Result<Vec<u8>> {
         ));
     }
     read_exact(sock, n)
+}
+
+fn pack_frame(trace: &str, wants: &[(String, String)], message: &str) -> Vec<u8> {
+    let mut text = format!("{trace}\n{}\n", wants.len());
+    for (name, value) in wants {
+        text.push_str(name);
+        text.push(' ');
+        text.push_str(value);
+        text.push('\n');
+    }
+    text.push_str(message);
+    text.into_bytes()
+}
+
+/// `Ok` is `(trace, wants, message)`. `Err(true)` is bad UTF-8. `Err(false)` is a bad frame.
+fn unpack_frame(data: &[u8]) -> Result<(String, Vec<(String, String)>, String), bool> {
+    let text = std::str::from_utf8(data).map_err(|_| true)?;
+    let (trace, rest) = text.split_once('\n').ok_or(false)?;
+    let (count_s, rest) = rest.split_once('\n').ok_or(false)?;
+    if count_s.is_empty() || !count_s.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(false);
+    }
+    let count: usize = count_s.parse().map_err(|_| false)?;
+    let mut rest = rest;
+    let mut wants = Vec::with_capacity(count);
+    for _ in 0..count {
+        let (line, next) = rest.split_once('\n').ok_or(false)?;
+        let (name, value) = line.split_once(' ').ok_or(false)?;
+        if name.is_empty()
+            || value.is_empty()
+            || name.chars().any(|c| c.is_whitespace())
+            || value.chars().any(|c| c.is_whitespace())
+        {
+            return Err(false);
+        }
+        wants.push((name.to_string(), value.to_string()));
+        rest = next;
+    }
+    Ok((trace.to_string(), wants, rest.to_string()))
 }
 
 fn write_frame(sock: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {

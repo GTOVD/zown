@@ -249,6 +249,7 @@ fn refused(name: &str) -> bool {
             | "iz" | "uz" | "dc" | "cx"
             | "ls" | "mp" | "sc" | "qu" | "rg" | "te" | "ti" | "bm" | "pq" | "bv"
             | "ps" | "po" | "gt" | "pt" | "hs" | "sk" | "px"
+            | "cs" | "sw"
             | "hw" | "lc" | "rn" | "pm" | "pn" | "ws" | "sg"
     )
 }

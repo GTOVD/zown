@@ -294,6 +294,8 @@ pub unsafe extern "C" fn rt_load(rt: *mut Rt, ptr: *const u8, len: usize) -> i32
             "vi" => return vec_ctor(rt, "vi", 4, false, true, 32),
             "vu" => return vec_ctor(rt, "vu", 16, false, false, 8),
             "wd" => return exec_wd(rt),
+            "cs" => return exec_cs(rt),
+            "sw" => return exec_sw(rt),
             _ => {}
         }
         if let Some(id) = (*rt).vm.func_word(&name) {
@@ -614,6 +616,82 @@ pub unsafe extern "C" fn rt_match(rt: *mut Rt) -> i32 {
     }
     let e = (*rt).vm.unmatched(&subject);
     fail(&mut *rt, e)
+}
+
+fn code_esc(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('\r', "\\r").replace('\n', "\\n")
+}
+
+fn render_line(out: &mut String, ind: &str, tag: &str, shown: &str) {
+    out.push_str(ind);
+    out.push_str(tag);
+    out.push(' ');
+    out.push_str(shown);
+    out.push('\n');
+}
+
+fn render_ops(rt: &Rt, id: u32, depth: usize) -> String {
+    let ind = "  ".repeat(depth);
+    let mut out = String::new();
+    for op in rt.desc(id) {
+        match op {
+            NatOp::Block(inner) => {
+                out.push_str(&ind);
+                out.push_str("blk\n");
+                out.push_str(&render_ops(rt, inner, depth + 1));
+                out.push_str(&ind);
+                out.push_str("end\n");
+            }
+            NatOp::Int(n) => render_line(&mut out, &ind, "int", &n.to_string()),
+            NatOp::Float(f) => render_line(&mut out, &ind, "float", &format!("{f}")),
+            NatOp::Str(s) => render_line(&mut out, &ind, "str", &code_esc(&s)),
+            NatOp::Name(s) => render_line(&mut out, &ind, "name", &s),
+            NatOp::Op(s) => render_line(&mut out, &ind, "op", &s),
+            NatOp::Cap(s) => render_line(&mut out, &ind, "cap", &s),
+            NatOp::Bind(s) => render_line(&mut out, &ind, "bind", &s),
+            NatOp::Move(s) => render_line(&mut out, &ind, "move", &s),
+        }
+    }
+    out
+}
+
+unsafe fn exec_cs(rt: *mut Rt) -> i32 {
+    let id = match (*rt).vm.pop_func_id("cs") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let text = render_ops(&*rt, id, 0);
+    (*rt).vm.push_bytes(text.into_bytes());
+    0
+}
+
+unsafe fn exec_sw(rt: *mut Rt) -> i32 {
+    let body = match (*rt).vm.pop_func_id("sw") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let test = match (*rt).vm.pop_func_id("sw") {
+        Ok(id) => id,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    let message = render_ops(&*rt, body, 0);
+    let name = match (*rt).vm.begin_swap(message.as_bytes()) {
+        Ok(name) => name,
+        Err(e) => return fail(&mut *rt, e),
+    };
+    (*rt).vm.install_func(&name, body);
+    let depth = (*rt).vm.stack.len();
+    let code = call_block(rt, test, "sw");
+    if code != 0 {
+        (*rt).vm.rollback_swap();
+        return 1;
+    }
+    if let Err(e) = (*rt).vm.finish_test("sw", depth) {
+        (*rt).vm.rollback_swap();
+        return fail(&mut *rt, e);
+    }
+    (*rt).vm.commit_swap();
+    0
 }
 
 /// `[body] $name$ wd` for a compiled body. The name is on top of the function.
