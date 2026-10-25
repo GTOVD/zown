@@ -80,10 +80,11 @@ automatically vs. what you (or an AI) fill in:
 - **Lean by design:** the v2 fields attach to **user symbols only**; builtin words
   keep the compact v1 shape, since their semantics live in the stdlib, not per
   program.
-- **Never fabricated:** the `module` block's crypto fields (`content`, `author`,
-  `sig`, …) stay `null`. A graph bundle's BLAKE3 is `gh` and `zown keep`
-  (SPEC §26). That hash is not written into this block, and nothing here is
-  signed.
+- **Computed, not invented:** `module.content` is `zown:` plus the BLAKE3 of
+  the source bytes. `module.sig` stays `null` unless `ZOWN_SIGN` is a 64-hex
+  Ed25519 seed; then it is `ed25519:` plus the signature of those same bytes.
+  `module.log` stays empty. A manifest does not claim the source was entered
+  in a transparency log. `author` is still yours to write.
 
 ### Per-symbol additions
 

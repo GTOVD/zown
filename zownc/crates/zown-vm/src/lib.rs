@@ -122,6 +122,8 @@ pub struct Vm {
     node_id: [u8; 32],
     /// In-memory graph. The durable copy is a sealed bundle (SPEC §26).
     graph: store::Graph,
+    /// Append-only transparency log. Each leaf is the raw BLAKE3 of a sealed body.
+    log: Vec<[u8; 32]>,
     /// Logical control-plane log (SPEC §27). `err` appends faults through it.
     tele: RefCell<tele::Telemetry>,
 }
@@ -198,6 +200,7 @@ impl Vm {
             bundles: HashMap::new(),
             node_id: mesh::node_id(),
             graph: store::Graph::default(),
+            log: Vec::new(),
             tele: RefCell::new(tele::Telemetry::default()),
         };
         vm.load_std();
@@ -945,6 +948,10 @@ impl Vm {
             "gh" => self.b_gh(),
             "sb" => self.b_sb(),
             "so" => self.b_so(),
+            "sl" => self.b_sl(),
+            "la" => self.b_la(),
+            "lp" => self.b_lp(),
+            "lr" => self.b_lr(),
             "ch" => self.b_ch(),
             "vr" => self.b_vr(),
             "td" => self.b_td(),
@@ -1856,6 +1863,10 @@ pub fn is_builtin(name: &str) -> bool {
             | "gh"
             | "sb"
             | "so"
+            | "sl"
+            | "la"
+            | "lp"
+            | "lr"
             | "ch"
             | "vr"
             | "td"

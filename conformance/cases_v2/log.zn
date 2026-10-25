@@ -1,0 +1,10 @@
+# An empty log is not a root. Three appends, then the proof of the latest.
+lr .
+$a$ gv
+la .
+$b$ gv
+la .
+$c$ gv
+la .
+sb lp ct so .
+lr .

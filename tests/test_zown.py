@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from zown.errors import (
     STACK_UNDERFLOW, ZownError, REPAIR_SYNTAX, DIV_ZERO, NAME_UNRESOLVED,
     CAP_DENIED, TYPE_MISMATCH, OVERFLOW, BOUNDS, NO_MATCH, BAD_PATTERN, UB_TRAP,
-    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED, TEST_FAIL, INTEGRITY_FAIL,
+    STACK_OVERFLOW, NOT_CALLABLE, UNSUPPORTED, TEST_FAIL, INTEGRITY_FAIL, SIG_INVALID,
 )
 from zown.lexer import lex, T_INT, T_STR, T_OP, T_BIND, T_CAP, INT_MAX, INT_MIN
 from zown.vm import VM, Big, Block, Cap, Res, WidthTag, Vec
@@ -845,6 +845,7 @@ def test_cli_check_exit_codes():
 # --- manifest v2 (v0.2) --------------------------------------------------------
 def _gen_manifest(src, prior=None):
     from zown.manifest import generate, manifest_path
+    os.environ.pop("ZOWN_SIGN", None)
     d = tempfile.mkdtemp()
     znp = os.path.join(d, "app.zn")
     open(znp, "w", encoding="utf-8").write(src)
@@ -856,9 +857,13 @@ def _gen_manifest(src, prior=None):
 def test_manifest_v2_scaffolds_fields():
     m = _gen_manifest("[ `s rq `r rq $hi$ . ]:get  5:n")
     assert m["language"] == "Zown v0.2"
-    # module provenance block exists with crypto fields unset (never fabricated)
+    # content is the source hash. sig stays null until ZOWN_SIGN is set.
     assert set(m["module"]) >= {"content", "author", "sig", "ver", "deps"}
-    assert m["module"]["content"] is None and m["module"]["ver"] == "0.0.0"
+    from zown.blake3 import blake3_hex
+    src = "[ `s rq `r rq $hi$ . ]:get  5:n"
+    assert m["module"]["content"] == "zown:" + blake3_hex(src.encode())
+    assert m["module"]["sig"] is None and m["module"]["log"] == ""
+    assert m["module"]["ver"] == "0.0.0"
     get = m["symbols"]["get"]
     assert get["type"] == "block"
     assert get["caps"] == ["`r", "`s"]              # discovered from the block body
@@ -879,7 +884,7 @@ def test_manifest_never_clobbers_and_merges_caps():
     prior = {
         "language": "Zown v0.2",
         "source": "app.zn",
-        "module": {"author": "zown:node:abc", "ver": "1.2.0"},
+        "module": {"author": "zown:node:abc", "ver": "1.2.0", "sig": "ed25519:kept"},
         "symbols": {
             "get": {
                 "type": "block",
@@ -901,6 +906,8 @@ def test_manifest_never_clobbers_and_merges_caps():
     assert get["i18n"] == {"keys": ["err.timeout"]}
     assert m["module"]["author"] == "zown:node:abc"  # authored provenance preserved
     assert m["module"]["ver"] == "1.2.0"
+    assert m["module"]["sig"] == "ed25519:kept"      # no ZOWN_SIGN, so the authored sig stays
+    assert m["module"]["content"].startswith("zown:")
 
 
 # --- errors --------------------------------------------------------------------
@@ -1559,6 +1566,55 @@ r 1 bg .
     _fails("1048577 bf", BOUNDS, "bf")
     out, _ = run("4 bf :e 'e 0 7 bp 0 bg .\n")
     assert out == "7\n"
+
+
+# --- signed bundle and transparency log (M24) ---------------------------------
+def test_signed_bundle_matches_its_golden():
+    for name in ("signed", "log"):
+        src = open(os.path.join("conformance", "cases_v2", name + ".zn"), encoding="utf-8").read()
+        want = open(os.path.join("conformance", "cases_v2", name + ".out"), encoding="utf-8").read()
+        got, _vm = run(src)
+        assert got == want, name
+
+
+def test_bad_signature_leaves_the_graph():
+    buf = io.StringIO()
+    vm = VM(file="<signed>", out=buf)
+    try:
+        vm.run_src(open(os.path.join("conformance", "errors_v2", "signed_bad.zn"), encoding="utf-8").read())
+        assert False, "a flipped signature opened"
+    except ZownError as e:
+        assert e.code == SIG_INVALID and e.kind == "sec" and e.op == "so"
+    assert vm.graph.snapshot() == "v a\n"
+
+
+def test_manifest_sig_is_a_real_signature():
+    from zown.blake3 import blake3_hex
+    from zown.edwards import public_key, verify
+    from zown.manifest import generate
+    src = "$a$ gv\n"
+    seed = bytes(range(32))
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "app.zn")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    os.environ["ZOWN_SIGN"] = seed.hex()
+    try:
+        signed = generate(path)
+    finally:
+        os.environ.pop("ZOWN_SIGN", None)
+    assert signed["module"]["content"] == "zown:" + blake3_hex(src.encode())
+    raw = bytes.fromhex(signed["module"]["sig"].split(":", 1)[1])
+    assert verify(public_key(seed), src.encode(), raw)
+    os.environ["ZOWN_SIGN"] = "nope"
+    try:
+        try:
+            generate(path)
+            assert False, "a bad ZOWN_SIGN was accepted"
+        except ZownError as e:
+            assert e.code == TYPE_MISMATCH and e.op == "manifest"
+    finally:
+        os.environ.pop("ZOWN_SIGN", None)
 
 
 # --- stage-2 compiler (M23) ----------------------------------------------------

@@ -9,7 +9,7 @@ goal: fit *dramatically* more working code inside an LLM's context window, and
 run that code as a Python oracle, a native binary, WebAssembly, or a 512-byte
 boot sector.
 
-> Milestones **M0–M23** are in this tree. The Python package is the behavioral
+> Milestones **M0–M24** are in this tree. The Python package is the behavioral
 > oracle. `zownc` is the Rust toolchain: checker, virtual machine, Cranelift,
 > LLVM, WebAssembly, and a real-mode boot sector. The milestone map is
 > [`docs/PLAN.md`](docs/PLAN.md). The whole-machine architecture is
@@ -196,7 +196,7 @@ python3 conformance/stage2_parity.py # IR fixed point and boot-image bytes
 
 ## Status
 
-**M0–M23 are done.** The same programs run three ways, held to one conformance
+**M0–M24 are done.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -211,13 +211,14 @@ suite:
 
 Also in the tree: `zown fmt` and `zown test`, a lexer, parser, and lowering
 written in Zown (`zown stage`), a layout tree and PPM (`zown draw`), one
-BLAKE3 bundle exchanged over IPv6 (`zown mesh`), a sealed graph (`zown keep`),
+BLAKE3 bundle exchanged over IPv6 (`zown mesh`), a sealed graph (`zown keep`,
+with an Ed25519 trailer and an inclusion proof when the program asks),
 a logical control-plane log (`zown watch`), and a 512-byte boot sector. Stage-0
 writes that sector with `zownc bare`. `zown stage emit` writes the same bytes
 from Zown, and the executable `zownc native -o` links does too.
 
-**Next is M24:** a bundle signed with Ed25519, then an inclusion proof. QUIC,
-the store engine, GPU, and a kernel are later milestones. The map is
+**Next is M25:** local peers exchange bytes, then find each other by name.
+QUIC, the store engine, GPU, and a kernel are later milestones. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

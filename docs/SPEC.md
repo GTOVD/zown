@@ -778,6 +778,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `ts` / `pp` body leaves a false value | trap `TEST_FAIL` | `errors_v2/test_fail` |
 | a graph name that is empty or contains whitespace | trap `TYPE_MISMATCH` | (unit test) |
 | `so` on a bundle whose BLAKE3 trailer does not match the bytes | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/bundle_bad` |
+| `so` on a well-formed Ed25519 trailer that does not verify | trap `SIG_INVALID` (kind `sec`) | `errors_v2/signed_bad` |
+| `so` on an inclusion proof that does not match this VM's log | trap `INTEGRITY_FAIL` (kind `sec`) | `errors_v2/include_bad` |
+| `lp` when this bundle's digest is not in the log | trap `BOUNDS` | `errors_v2/proof_absent` |
 | `so` on text that is not a `zown-sync` bundle | trap `TYPE_MISMATCH` | (unit test) |
 | `se` when no span is open | trap `TYPE_MISMATCH` | `errors_v2/span_empty` |
 | `ch` given a string that is not 64 hex digits | trap `TYPE_MISMATCH` | (unit test) |
@@ -1078,7 +1081,7 @@ rectangles, not a GPU, a font, or an audio graph. Those stay design-only (§15).
 
 `zown draw file.zn` runs the program and paints the one node it leaves. The root must have area. The file is a binary `P6` PPM: boxes fill their rectangle with their color, then children paint over them; a leaf fills its rectangle with its own color. Animation, input delivery, shaders, and audio are not in this picture.
 
-## 26. The graph — **implemented (M14, oracle + Rust VM)**
+## 26. The graph — **implemented (M14 bundle, M24 signature and log; oracle + Rust VM)**
 
 The store that runs is an in-memory graph plus a text bundle. Vertices and edges are single words: no whitespace, not empty. A duplicate vertex or edge is a no-op and does not move the one that is already there. Insertion order is the order a snapshot writes. This is not a memory map, not a column store, and not a CRDT. Those, and a signed patch that hot-swaps code, stay design-only (`DESIGN.md` §6–§7).
 
@@ -1093,7 +1096,11 @@ The store that runs is an in-memory graph plus a text bundle. Vertices and edges
 | `→` | `cursor label →` | follow `label` from each name in the cursor. Edge order is insertion order. A destination is kept once, the first time it is seen |
 | `«` | `cursor «` | pop the cursor and push its names joined by one space. An empty cursor pushes `""` |
 | `sb` | `sb` | push the sealed bundle |
+| `sl` | `seed sl` | push that bundle plus an Ed25519 trailer. `seed` is a 32-byte `buf` |
 | `so` | `bundle so` | check the seal, replace the graph, push the new `gh` |
+| `la` | `la` | append this bundle's digest to the transparency log and push the new size |
+| `lp` | `lp` | push one `include` line for this bundle. `BOUNDS` when it is not in the log |
+| `lr` | `lr` | push the log root, 64 hex digits. An empty log pushes `""` |
 
 A name that is not a string, or a string that is empty or contains whitespace, is `TYPE_MISMATCH`. `→` and `«` on a value that is not a cursor are `TYPE_MISMATCH`. The cursor's type name is `cur`. It is truthy when it holds at least one name. It prints as `cur(n)`, where `n` is how many names it holds.
 
@@ -1107,19 +1114,33 @@ e a knows b
 
 Each line ends with `\n`. An empty graph is the empty string. `gh` of that empty graph is BLAKE3 of zero bytes: `af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262`.
 
-The bundle is the snapshot with a header and a trailer. The header is the line `zown-sync 1`. The trailer is the line `blake3` plus the BLAKE3 of every byte before it, including the newline that ends the body:
+The bundle is the snapshot with a header and trailers. The header is the line `zown-sync 1`. The first trailer is the line `blake3` plus the BLAKE3 of every byte before it, including the newline that ends the body. Two more trailers may follow, in this order: an `ed25519` line, then an `include` line. A BLAKE3-only bundle is still a bundle.
 
 ```
 zown-sync 1
 v a
 blake3 <64 hex digits>
+ed25519 <64 hex public key> <128 hex signature>
+include <index> <size> <64 hex sibling>...
 ```
 
-`so` finds the last line that starts with `blake3 `, hashes the bytes before that line, and compares. A trailer that is not 64 hex digits, a missing header, or a snapshot line the parser cannot read is `TYPE_MISMATCH`. A trailer that does not match the bytes is `INTEGRITY_FAIL` with kind `sec`. The graph is left unchanged. The check is a hash, not a signature. `SIG_INVALID` is still not produced, because nothing here is signed.
+`so` finds the last line that starts with `blake3 `, hashes the bytes before that line, and compares. A trailer that is not 64 hex digits, a missing header, a trailer in the wrong order, or a snapshot line the parser cannot read is `TYPE_MISMATCH`. A hash that does not match the bytes is `INTEGRITY_FAIL` with kind `sec`. The graph is left unchanged.
 
-`zown keep export file.zn -o out.sync` checks the program, runs it, and writes the bundle. It fsyncs the file and the directory that holds it. A crash after that command returns still has those bytes. A crash in the middle of the write can leave a short file; `verify` then rejects it. `zown keep verify out.sync` opens the bundle in a fresh VM and prints `ok` and the head. It does not apply a patch to running code.
+The `ed25519` line is a signature of those same body bytes. The public key and the signature are lowercase hex when `sl` writes them; `so` accepts either case. A line that is not a 32-byte key and a 64-byte signature is `TYPE_MISMATCH`. A well-formed signature that does not verify is `SIG_INVALID` with kind `sec`. Removing the line leaves the BLAKE3 bundle, which still opens and does not claim an author.
 
-`cases_v2/graph` is the two-hop query and its head. `errors_v2/bundle_bad` is a trailer of 64 zeros.
+The transparency log is a list on this VM. `la` appends the raw 32-byte BLAKE3 of the current body. It does not write the log into the bundle. `lr` of an empty log is `""`, not the hash of an empty tree, so an absent log is not a root. `lp` pushes the inclusion proof of the first time that digest was appended:
+
+```
+include <index> <size> <sibling> <sibling>...
+```
+
+`index` and `size` are decimal with no leading zero. `size` is the leaf count. The siblings are the audit path, each 64 hex digits. The tree is the RFC 6962 shape with BLAKE3 instead of SHA-256. The leaf hash is BLAKE3 of `0x00` followed by the 32-byte digest. A node hash is BLAKE3 of `0x01` followed by the left child and the right child. For `n > 1`, `k` is the largest power of two strictly less than `n`, and the parent is the node hash of the left `k` leaves and the right `n - k` leaves. The path is that recursion's sibling hashes, inner proof first. A one-leaf tree has an empty path. `so` rebuilds the root from the bundle's digest, the index, and the siblings, and compares it to `lr`. The proof's `size` must be this log's length. A proof that does not match is `INTEGRITY_FAIL` with kind `sec`. A bundle with no `include` line does not consult the log and does not claim inclusion. `lp` before any matching `la` is `BOUNDS`.
+
+`zown keep export file.zn -o out.sync` checks the program, runs it, and writes the bundle. It fsyncs the file and the directory that holds it. A crash after that command returns still has those bytes. A crash in the middle of the write can leave a short file; `verify` then rejects it. `zown keep verify out.sync` opens the bundle in a fresh VM and prints `ok` and the head. That VM's log is empty, so a bundle that carries an `include` line does not verify there. It does not apply a patch to running code.
+
+The manifest `module` block's `content` is `zown:` plus the BLAKE3 of the source bytes. `sig` is `ed25519:` plus the signature of those bytes when `ZOWN_SIGN` is a 64-hex seed, and null otherwise. `log` stays empty. An absent proof is not written down as if it were valid.
+
+`cases_v2/graph` is the two-hop query and its head. `cases_v2/signed` opens an unsigned bundle and the signed bundle of the same graph. `cases_v2/log` appends, proves, and opens. `errors_v2/bundle_bad` is a trailer of 64 zeros. `errors_v2/signed_bad` is a flipped signature. `errors_v2/include_bad` is a proof on an empty log. `errors_v2/proof_absent` is `lp` with nothing logged.
 
 ## 27. The control plane — **implemented (M15, oracle + Rust VM)**
 

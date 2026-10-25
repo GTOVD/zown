@@ -21,7 +21,7 @@ from .blake3 import blake3_hex
 from .lanes import b_hw, b_lc, b_pm, b_pn, b_rn, b_sg, b_ws
 from .mesh import ula
 from .buf import b_bf, b_bg, b_bp, release
-from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_sb, b_so
+from .store import b_ge, b_gh, b_gl, b_gs, b_gv, b_la, b_lp, b_lr, b_sb, b_sl, b_so
 from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
@@ -677,6 +677,10 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "gh": (b_gh, "graph_head", "push BLAKE3 of the snapshot bytes"),
     "sb": (b_sb, "sync_bundle", "push the graph sealed as a zown-sync bundle"),
     "so": (b_so, "sync_open", "bundle so -> verify the seal, replace the graph, push the head"),
+    "sl": (b_sl, "sync_sign", "seed sl -> the sealed bundle plus an Ed25519 trailer"),
+    "la": (b_la, "log_append", "append this bundle's digest to the transparency log and push the new size"),
+    "lp": (b_lp, "log_proof", "push an inclusion-proof line for this bundle, or BOUNDS if it was not logged"),
+    "lr": (b_lr, "log_root", "push the log root as 64 hex digits, or \"\" when the log is empty"),
     "ch": (b_ch, "content", "64-hex ch -> tag later log lines with that content hash"),
     "vr": (b_vr, "version", "word vr -> tag later log lines with that version"),
     "td": (b_td, "trace", "word td -> tag later log lines with that trace id"),

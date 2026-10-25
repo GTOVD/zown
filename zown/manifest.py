@@ -10,9 +10,9 @@ As of v0.2 (PLAN M7b) the manifest also carries *authority*, *provenance*, and
   * per user symbol: `caps` (capabilities the code touches, partly discovered
     from the source), `sec` (constant-time / secret flags), `tele` (telemetry the
     runtime emits), `i18n` (translation keys);
-  * a module-level `module` provenance block (content hash, author, signature,
-    version chain) — scaffolded with nulls until the M14 distribution layer fills
-    it in with real signed values.
+  * a module-level `module` provenance block. `content` is the BLAKE3 of the
+    source bytes. `sig` stays null unless `ZOWN_SIGN` is a real Ed25519 seed.
+    `log` stays empty: generating a manifest does not claim log inclusion.
 
 `generate` scans a source file, discovers every binding and every builtin word it
 uses (plus the capabilities each bound block references), and merges that into an
@@ -26,7 +26,9 @@ import json
 import os
 from typing import Any
 
+from .blake3 import blake3_hex
 from .builtins import WORDS
+from .errors import TYPE_MISMATCH, ZownError
 from .parser import parse
 
 MANIFEST_VERSION = "0.2"
@@ -78,17 +80,32 @@ def _merge_caps(prior: list, discovered: set[str]) -> list[str]:
     return sorted(set(prior) | disc)
 
 
-def _module_block(prior: dict[str, Any]) -> dict[str, Any]:
-    """Scaffold the signed provenance block, preserving any authored values.
+def _module_block(prior: dict[str, Any], src: str) -> dict[str, Any]:
+    """Provenance from the source bytes. The hash is always computed.
 
-    Crypto fields stay null until the M14 distribution layer computes a real
-    BLAKE3 content hash and Ed25519 signature — we never fabricate provenance.
+    `sig` stays null unless `ZOWN_SIGN` is a 64-hex Ed25519 seed, in which
+    case it is the signature of those same bytes. An authored sig is kept
+    when no seed is set. `log` stays empty: a manifest does not claim that
+    the source was included in a transparency log.
     """
+    content = "zown:" + blake3_hex(src.encode("utf-8"))
+    sig = prior.get("sig")
+    seed_hex = os.environ.get("ZOWN_SIGN")
+    if seed_hex is not None and seed_hex != "":
+        cleaned = seed_hex.strip().lower()
+        if len(cleaned) != 64 or any(c not in "0123456789abcdef" for c in cleaned):
+            raise ZownError(
+                TYPE_MISMATCH,
+                "ZOWN_SIGN must be 64 hex digits",
+                op="manifest",
+            )
+        from .edwards import sign
+        sig = "ed25519:" + sign(bytes.fromhex(cleaned), src.encode("utf-8")).hex()
     return {
-        "content": prior.get("content"),       # zown:<blake3>  (filled by M14)
+        "content": content,
         "parent": prior.get("parent"),          # previous version (null = genesis)
         "author": prior.get("author"),          # zown:node:<pubkey>
-        "sig": prior.get("sig"),                # ed25519:<sig>
+        "sig": sig,
         "ver": prior.get("ver", "0.0.0"),
         "ts": prior.get("ts"),
         "log": prior.get("log", ""),
@@ -150,7 +167,7 @@ def generate(src_file: str) -> dict[str, Any]:
     return {
         "language": f"Zown v{MANIFEST_VERSION}",
         "source": os.path.basename(src_file),
-        "module": _module_block(existing.get("module", {}) or {}),
+        "module": _module_block(existing.get("module", {}) or {}, src),
         "symbols": symbols,
     }
 

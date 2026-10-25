@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M23: Zown lowering, and a boot image whose bytes match stage-0).
+Last updated: 2026-10-25 (M24: Ed25519 bundle trailer, transparency log, manifest content hash).
 
 ---
 
@@ -76,7 +76,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M21 | Crypto | ✅ | `ae` `ad` ChaCha20-Poly1305. `es` `ev` Ed25519. `xk` X25519. RFC vectors. `native_parity` 98/98 |
 | M22 | WASM v0.2 | ✅ | Tags 4–8, `??`, `ty`, moves. Checked overflow is a `.zerr`. `inf`/`-inf`/`nan`/`1e+30`. Host, buf, crypto, and lanes stay explicit skips |
 | M23 | Stage-2 compiler binary | ✅ | `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the print-subset boot sector. The linked executable's image matches `zownc bare` and boots in QEMU |
-| M24 | Signed distribution | ⬜ | Ed25519 on the sync bundle, transparency log, inclusion proofs. Needs M21 |
+| M24 | Signed distribution | ✅ | `sl` adds an Ed25519 trailer. `la` `lp` `lr` are the log and its proof. A BLAKE3-only bundle still opens. Manifest `content` is the source hash; `sig` needs `ZOWN_SIGN` |
 | M25 | Streams and mesh | ⬜ | `~o` `~s` `~r`, then QUIC, DHT, `~c` `~l` `~w`. Needs M20 and M21 |
 | M26 | Store engine | ⬜ | mmap, columnar data, CRDT sync. Needs M18 and M24 |
 | M27 | UI completion | ⬜ | Font, input, animation, then GPU and shaders. Needs M18 |
@@ -757,12 +757,12 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M21. SPEC §13 and §26, DESIGN §7.
 **Goal:** a bundle can be signed, and a log can prove inclusion.
 
-- [ ] **M24a.** `so` accepts an Ed25519 trailer in addition to the BLAKE3 seal. A bad signature is `SIG_INVALID`. The BLAKE3-only bundle from M14 still opens.
-- [ ] **M24b.** An append-only transparency log. A bundle carries an inclusion proof the opener checks. A proof that does not match the log is `INTEGRITY_FAIL`.
-- [ ] **M24c.** The manifest `module` block's `content` and `sig` are filled from those bytes. They stay null until the signature is real.
+- [x] **M24a.** `so` accepts an Ed25519 trailer in addition to the BLAKE3 seal. `sl` writes it from a 32-byte seed. A bad signature is `SIG_INVALID`. The BLAKE3-only bundle from M14 still opens.
+- [x] **M24b.** An append-only transparency log on the VM. `la` appends the sealed body's digest. `lp` writes an inclusion proof. `lr` is the root, and an empty log is `""`. A proof that does not match the log is `INTEGRITY_FAIL`. A bundle with no proof does not claim inclusion.
+- [x] **M24c.** The manifest `module` block's `content` is `zown:` plus the BLAKE3 of the source. `sig` is the Ed25519 signature of those bytes when `ZOWN_SIGN` is a 64-hex seed, and null otherwise. `log` stays empty.
 
-**Acceptance:** a tampered signed bundle is rejected. A valid proof opens. An absent proof does not pretend to be valid.
-**Not this slice:** four-tier auto-apply, or hot-swap of running code.
+**Acceptance:** a tampered signed bundle is rejected. A valid proof opens. An absent proof does not pretend to be valid. Met by `cases_v2/signed`, `cases_v2/log`, `errors_v2/signed_bad`, `errors_v2/include_bad`, and `errors_v2/proof_absent`.
+**Not this slice:** four-tier auto-apply, or hot-swap of running code. The log is not distributed and is not stored in the bundle.
 
 ### M25 — Streams and mesh
 **Depends on:** M20 and M21. SPEC §14, DESIGN §3.
@@ -890,6 +890,7 @@ memory type.)*
 | D18 | Host I/O is **capability-scoped** (2026-10-24). Disk is `` `d `` plus a `gd` path root, not a second `` `f ``. Env lookup is `` `v `` and one name. Arguments are the program vector after `--`, default empty. `ZOWN_TICK` and `ZOWN_WALL` pin `tm` | SPEC §12, §23; M20 |
 | D19 | Crypto words are **RFC algorithms on `buf`** (2026-10-24). `ae`/`ad` are ChaCha20-Poly1305, `es`/`ev` are Ed25519, `xk` is X25519. `ni` stays the BLAKE3 node id. `Key` and `Sig` are not value kinds | SPEC §13, §23; M21 |
 | D20 | The M23 fixed point is the **print-subset boot sector**, not a Cranelift ELF (2026-10-25). `lower.zn` matches `zownc ir`, including on its own source. `emit.zn` writes the 512-byte image. Stage-0 compiles that program; the image matches `zownc bare` and boots in QEMU. The sector cannot host a second compiler | SPEC §28, §29; M23 |
+| D21 | The M24 log is **per VM and BLAKE3-Merkle** (2026-10-25). `sl` signs the bundle body. `la` appends that body's digest. `so` checks a carried proof against this VM's root. An empty log is `""`, not a hash. The manifest `sig` stays null unless `ZOWN_SIGN` is set. No hot-swap | SPEC §26; M24 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -939,8 +940,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M24 — signed distribution.** `so` accepts an Ed25519 trailer (`es` / `ev`
-   already run). A bad signature is `SIG_INVALID`. Then an inclusion proof.
+1. **M25 — streams and mesh.** `~o` `~s` `~r` on TCP at `[::1]`, then a named
+   connect. QUIC replaces TCP only when the packets are real QUIC.
 2. **Carry-over:** CI (Python oracle + `cargo test` + `native_parity` +
    `stage_parity` + `parse_parity`); Ryu/Grisu `$fmt_f64` for non-dyadic
    fractions; WASM lane ops (refused today); auto-discover `tele.errors`.

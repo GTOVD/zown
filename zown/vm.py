@@ -242,6 +242,9 @@ class VM:
         self.node_id: bytes = node_id_from_material(material)
         # In-memory graph. The durable copy is a sealed bundle, not this object.
         self.graph = Graph()
+        # Append-only transparency log: raw BLAKE3 digests of sealed bodies.
+        # Empty is not a root. An inclusion proof is checked against this list.
+        self.log: list[bytes] = []
         # Logical control-plane log. `err` appends each fault as it is raised.
         self.tele = Telemetry()
         self.file = file

@@ -1,0 +1,9 @@
+# Flip the last signature digit. The hash still matches; the signature does not.
+$a$ gv
+32 bf
+0 :i
+[ i 32 < ] [ i i bp i 1 + :i ] ;
+sl :b
+b rv tl :r
+r hd $0$ == [ $1$ r tl ct ] [ $0$ r tl ct ] ? @
+$\n$ \ ct rv so

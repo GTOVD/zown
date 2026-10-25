@@ -11,7 +11,7 @@ use super::value::{BufAlloc, Value};
 use super::{RunError, Vm};
 
 impl Vm {
-    fn take_buf(&mut self, op: &str) -> Result<Vec<u8>, RunError> {
+    pub(super) fn take_buf(&mut self, op: &str) -> Result<Vec<u8>, RunError> {
         match self.pop(op)? {
             Value::Buf { alloc, exclusive } => {
                 let data = {
@@ -57,7 +57,7 @@ impl Vm {
         });
     }
 
-    fn bad_len(&self, op: &str, what: &str, n: usize) -> RunError {
+    pub(super) fn bad_len(&self, op: &str, what: &str, n: usize) -> RunError {
         self.err(
             TYPE_MISMATCH,
             format!("`{op}` expected {what} of {n} bytes"),
@@ -66,7 +66,7 @@ impl Vm {
         )
     }
 
-    fn sec(&self, code: &'static str, op: &str, msg: String, hint: &'static str) -> RunError {
+    pub(super) fn sec(&self, code: &'static str, op: &str, msg: String, hint: &'static str) -> RunError {
         let mut e = self.err(code, msg, Some(op.to_string()), hint);
         e.kind = "sec";
         e

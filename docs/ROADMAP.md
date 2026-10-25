@@ -174,8 +174,12 @@ Drop the external DB; make the mesh the version-control system (see `DESIGN.md`
       `gs` `gl` `gh` `sb` `so`. `zown keep` fsyncs a BLAKE3 bundle and rejects
       a changed one.
 - [ ] Memory-mapped graph and columnar stores; lazy schema evolution; CRDTs.
-- [ ] Signed module-version chain, transparency log, inclusion proofs.
-- [ ] Semantic patch protocol, four-tier trust, signed bundles, hot-swap.
+- [x] Ed25519 on the sync bundle and an in-VM transparency log (SPEC §26).
+      `sl` signs. `la` `lp` `lr` append, prove, and show the root. A bundle
+      with no proof does not claim inclusion. The manifest records the source
+      hash, and a signature only when `ZOWN_SIGN` is set.
+- [ ] A signed module-version chain (parents and forks), semantic patches,
+      four-tier trust, and hot-swap.
       Not started. The seal that runs is a hash, not a signature.
 
 Hard problems: mmap crash-consistency; transparency-log scaling.

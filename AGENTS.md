@@ -187,8 +187,14 @@ crypto, and lanes with the compiler's reason. **M23 ✅** —
 own source. `zown/std/emit.zn` writes the 512-byte print-subset boot sector.
 `zownc native` and the executable it links emit the same bytes as
 `zownc bare`, and QEMU boots that image (`stage2_parity`). The sector does
-not recompile Zown. Next is **M24** (a signed bundle and an inclusion proof).
-The rest of the map is **M24–M32** in `docs/PLAN.md`.
+not recompile Zown. **M24 ✅** — `sl` adds an Ed25519 trailer to the
+BLAKE3 bundle. `la` appends the body digest to a per-VM log, `lp` writes
+an inclusion proof, and `lr` is the root (`""` when the log is empty).
+`so` rejects a bad signature with `SIG_INVALID` and a bad proof with
+`INTEGRITY_FAIL`. A BLAKE3-only bundle still opens. Manifest `content`
+is the source hash; `sig` is set only from `ZOWN_SIGN`. Next is **M25**
+(local byte streams, then a named connect). The rest of the map is
+**M25–M32** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

@@ -1,16 +1,17 @@
-"""Append-only graph log and a BLAKE3-sealed bundle (SPEC §26).
+"""Graph, BLAKE3 bundle, Ed25519 trailer, and transparency log (SPEC §26).
 
-The durable form is the bundle text, not a memory map. `sb` seals the
-snapshot; `so` refuses it when the digest does not match. Ed25519 signatures
-and CRDTs are not this log.
+`sb` seals a snapshot. `sl` adds an Ed25519 trailer. `la` appends the sealed
+body's digest to this VM's log, and `lp` writes an inclusion proof for it.
+`so` checks the hash, then the signature if one is present, then the proof
+if one is present. A BLAKE3-only bundle still opens. CRDTs are not this log.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .blake3 import blake3_hex
-from .errors import INTEGRITY_FAIL, TYPE_MISMATCH
+from .blake3 import blake3, blake3_hex
+from .errors import BOUNDS, INTEGRITY_FAIL, SIG_INVALID, TYPE_MISMATCH
 
 HEADER = "zown-sync 1\n"
 
@@ -134,22 +135,120 @@ def op_close(vm, pos) -> None:
     vm.push(" ".join(cur.names))
 
 
+def body_of(graph: Graph) -> str:
+    return HEADER + graph.snapshot()
+
+
 def seal(graph: Graph) -> str:
-    body = HEADER + graph.snapshot()
+    body = body_of(graph)
     return body + "blake3 " + blake3_hex(body.encode("utf-8")) + "\n"
 
 
+def _digest(body: str) -> bytes:
+    return blake3(body.encode("utf-8"))
+
+
+def _k_below(n: int) -> int:
+    """Largest power of two strictly less than n. n is at least 2."""
+    k = 1
+    while (k << 1) < n:
+        k <<= 1
+    return k
+
+
+def _leaf(digest: bytes) -> bytes:
+    return blake3(b"\x00" + digest)
+
+
+def _node(left: bytes, right: bytes) -> bytes:
+    return blake3(b"\x01" + left + right)
+
+
+def _mth(leaves: list[bytes]) -> bytes:
+    n = len(leaves)
+    if n == 1:
+        return _leaf(leaves[0])
+    k = _k_below(n)
+    return _node(_mth(leaves[:k]), _mth(leaves[k:]))
+
+
+def log_root(leaves: list[bytes]) -> bytes | None:
+    if not leaves:
+        return None
+    return _mth(leaves)
+
+
+def _path(leaves: list[bytes], index: int) -> list[bytes]:
+    n = len(leaves)
+    if n == 1:
+        return []
+    k = _k_below(n)
+    if index < k:
+        return _path(leaves[:k], index) + [_mth(leaves[k:])]
+    return _path(leaves[k:], index - k) + [_mth(leaves[:k])]
+
+
+def _fold(digest: bytes, index: int, size: int, path: list[bytes]) -> tuple[bytes, list[bytes]] | None:
+    if size == 1:
+        if index != 0:
+            return None
+        return _leaf(digest), path
+    k = _k_below(size)
+    if index < k:
+        inner = _fold(digest, index, k, path)
+        if inner is None or not inner[1]:
+            return None
+        acc, path = inner
+        return _node(acc, path[0]), path[1:]
+    inner = _fold(digest, index - k, size - k, path)
+    if inner is None or not inner[1]:
+        return None
+    acc, path = inner
+    return _node(path[0], acc), path[1:]
+
+
+def proof_ok(digest: bytes, index: int, size: int, path: list[bytes], root: bytes) -> bool:
+    if size <= 0 or index < 0 or index >= size:
+        return False
+    folded = _fold(digest, index, size, path)
+    return folded is not None and folded[1] == [] and folded[0] == root
+
+
+def _hex64(text: str) -> bool:
+    return len(text) == 64 and all(c in "0123456789abcdefABCDEF" for c in text)
+
+
+def _hex_n(text: str, n: int) -> bool:
+    return len(text) == n and all(c in "0123456789abcdefABCDEF" for c in text)
+
+
+def _dec(text: str) -> int | None:
+    if not text.isdigit() or (len(text) > 1 and text[0] == "0"):
+        return None
+    return int(text)
+
+
+def _shape(vm, pos):
+    raise vm.err(TYPE_MISMATCH, "`so` expected a zown-sync bundle",
+                 op="so", pos=pos, hint="seal the graph with sb")
+
+
 def open_bundle(vm, pos, text: str) -> Graph:
-    marker = "\nblake3 "
-    idx = text.rfind(marker)
-    if idx < 0 or not text.endswith("\n"):
-        raise vm.err(TYPE_MISMATCH, "`so` expected a zown-sync bundle",
-                     op="so", pos=pos, hint="seal the graph with sb")
-    body = text[:idx + 1]
-    claimed = text[idx + len(marker):-1]
-    if len(claimed) != 64 or any(c not in "0123456789abcdef" for c in claimed.lower()):
+    if not text.endswith("\n"):
+        _shape(vm, pos)
+    lines = text[:-1].split("\n")
+    idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("blake3 "):
+            idx = i
+    if idx is None:
+        _shape(vm, pos)
+    body = "\n".join(lines[:idx]) + "\n"
+    claimed = lines[idx][len("blake3 "):]
+    if not _hex64(claimed):
         raise vm.err(TYPE_MISMATCH, "`so` expected a blake3 trailer",
                      op="so", pos=pos)
+    digest = _digest(body)
     if blake3_hex(body.encode("utf-8")) != claimed.lower():
         raise vm.err(INTEGRITY_FAIL, "`so` bundle hash does not match its bytes",
                      op="so", pos=pos, kind="sec",
@@ -157,7 +256,108 @@ def open_bundle(vm, pos, text: str) -> Graph:
     if not body.startswith(HEADER):
         raise vm.err(TYPE_MISMATCH, "`so` expected a zown-sync 1 header",
                      op="so", pos=pos)
+    rest = lines[idx + 1:]
+    signed = None
+    included = None
+    if rest and rest[0].startswith("ed25519 "):
+        signed = rest.pop(0)
+    if rest and rest[0].startswith("include "):
+        included = rest.pop(0)
+    if rest:
+        raise vm.err(TYPE_MISMATCH, "`so` expected only an ed25519 line and an include line after blake3",
+                     op="so", pos=pos)
+    if signed is not None:
+        _check_sig(vm, pos, body, signed)
+    if included is not None:
+        _check_proof(vm, pos, digest, included)
     return _parse_snapshot(vm, "so", pos, body[len(HEADER):])
+
+
+def _check_sig(vm, pos, body: str, line: str) -> None:
+    parts = line.split(" ")
+    if len(parts) != 3 or not _hex_n(parts[1], 64) or not _hex_n(parts[2], 128):
+        raise vm.err(TYPE_MISMATCH, "`so` expected an ed25519 public key and signature",
+                     op="so", pos=pos)
+    from .edwards import verify
+    pub = bytes.fromhex(parts[1])
+    sig = bytes.fromhex(parts[2])
+    if not verify(pub, body.encode("utf-8"), sig):
+        raise vm.err(SIG_INVALID, "`so` signature is not valid",
+                     op="so", pos=pos, kind="sec",
+                     hint="the signature, bundle, or public key does not match")
+
+
+def _check_proof(vm, pos, digest: bytes, line: str) -> None:
+    parts = line.split(" ")
+    if len(parts) < 3 or parts[0] != "include":
+        raise vm.err(TYPE_MISMATCH, "`so` expected an include proof",
+                     op="so", pos=pos)
+    index = _dec(parts[1])
+    size = _dec(parts[2])
+    if index is None or size is None:
+        raise vm.err(TYPE_MISMATCH, "`so` expected an include index and tree size",
+                     op="so", pos=pos)
+    path: list[bytes] = []
+    for token in parts[3:]:
+        if not _hex64(token):
+            raise vm.err(TYPE_MISMATCH, "`so` expected include siblings as 64 hex digits",
+                         op="so", pos=pos)
+        path.append(bytes.fromhex(token))
+    if size < 1 or index >= size:
+        raise vm.err(TYPE_MISMATCH, "`so` expected an include index inside the tree",
+                     op="so", pos=pos)
+    root = log_root(vm.log)
+    if root is None or size != len(vm.log) or not proof_ok(digest, index, size, path, root):
+        raise vm.err(INTEGRITY_FAIL, "`so` inclusion proof does not match the log",
+                     op="so", pos=pos, kind="sec",
+                     hint="the proof, the leaf, or this VM's log does not agree")
+
+
+def b_sl(vm, pos) -> None:
+    from .buf import Buf, release
+    from .edwards import public_key, sign
+    from .vm import type_name
+    seed_v = vm.pop("sl", pos)
+    if not isinstance(seed_v, Buf):
+        raise vm.err(TYPE_MISMATCH, f"`sl` expected a buf, got {type_name(seed_v)}",
+                     op="sl", pos=pos, hint="the seed is a buf of 32 bytes")
+    if seed_v.alloc.data is None:
+        raise vm.err(BOUNDS, "`sl` buffer was freed",
+                     op="sl", pos=pos, hint="the exclusive owner was dropped with `,`")
+    seed = bytes(seed_v.alloc.data)
+    release(seed_v)
+    if len(seed) != 32:
+        raise vm.err(TYPE_MISMATCH, "`sl` expected a seed of 32 bytes",
+                     op="sl", pos=pos)
+    body = body_of(vm.graph)
+    raw = body.encode("utf-8")
+    sig = sign(seed, raw)
+    pub = public_key(seed)
+    vm.push(seal(vm.graph) + f"ed25519 {pub.hex()} {sig.hex()}\n")
+
+
+def b_la(vm, pos) -> None:
+    vm.log.append(_digest(body_of(vm.graph)))
+    vm.push(len(vm.log))
+
+
+def b_lp(vm, pos) -> None:
+    digest = _digest(body_of(vm.graph))
+    try:
+        index = vm.log.index(digest)
+    except ValueError:
+        raise vm.err(BOUNDS, "`lp` has no log entry for this bundle",
+                     op="lp", pos=pos, hint="append it with la first") from None
+    siblings = _path(vm.log, index)
+    line = f"include {index} {len(vm.log)}"
+    if siblings:
+        line += " " + " ".join(item.hex() for item in siblings)
+    vm.push(line + "\n")
+
+
+def b_lr(vm, pos) -> None:
+    root = log_root(vm.log)
+    vm.push("" if root is None else root.hex())
 
 
 def _parse_snapshot(vm, op: str, pos, text: str) -> Graph:
