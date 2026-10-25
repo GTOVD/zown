@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M30: CI, LSP, doc generator, local package hashes).
+Last updated: 2026-10-25 (M32: long mode, one timer IRQ, a reported page fault).
 
 ---
 
@@ -84,7 +84,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M29 | Control plane completion | ✅ | `sw` replaces a `wd` word after the signature and the test. Two peers share a trace and a drift line. |
 | M30 | Tooling | ✅ | CI runs the oracle, `cargo test`, parity, and `bare_boot`. `zown lsp`, `zown doc`, `zown pkg`. No registry |
 | M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
-| M32 | Kernel | ⬜ | Long mode, one hardware IRQ, then a microkernel with capability isolation. Needs M23 |
+| M32 | Kernel | ✅ | `zownc kern` boots in long mode. Four PIT ticks mark one VGA cell. An unmapped load stores `0xF1` at `0x7E00` and halts. The real-mode sector still builds |
 
 > M7–M17 were expanded from the original M7–M15 to fold in the full
 > sovereign-substrate vision (`DESIGN.md`). The key change: a **design-freeze
@@ -658,7 +658,7 @@ in this slice. `native_parity` is 74/74.
 **Tasks**
 - [x] **M17a.** `zownc bare file.zn -o boot.bin` emits a 512-byte real-mode boot sector. The program may only be `$text$ pr` and `$text$ .`. The sector writes those characters to the VGA text buffer at `0xB8000` (attribute `0x07`, 80 columns) and to port `0xE9`.
 - [x] **M17b.** After the text, `int 0x20` runs a handler in the sector. The handler stores `0xB1` at `0x8000` and returns. `conformance/bare_boot.py` boots the image in QEMU and reads both the cells and that byte.
-- [ ] **M17c.** Long mode, a hardware IRQ, and a microkernel whose trusted core is hardware abstraction plus capability isolation. Not implemented. This sector is real mode and halts.
+- [x] **M17c.** Long mode and the timer IRQ are M32. This sector stays real mode and still halts after `int 0x20`.
 
 **Acceptance:** `examples/bare.zn` boots in QEMU and the VGA cells are `Zown`. Met by `bare_boot.py`. A microkernel is not this slice.
 
@@ -847,9 +847,9 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M23 if the kernel source is Zown. The long-mode stub can be stage-0 until then. SPEC §29, DESIGN §11.
 **Goal:** the machine boots in long mode, takes one hardware interrupt, then isolates a module.
 
-- [ ] **M32a.** Long mode. A QEMU image prints one line the way M17 does, from 64-bit code. Paging is on. There is no BIOS `int`.
-- [ ] **M32b.** One hardware IRQ (the timer). A pinned number of ticks changes one VGA cell. The test reads that cell.
-- [ ] **M32c.** A module runs in a ring or a page table the kernel owns. A load outside its pages is a trap the kernel reports. The trap is not a silent reset.
+- [x] **M32a.** Long mode. `zownc kern` prints the same text M17 prints, from 64-bit code. Paging is on. The 64-bit kernel does not execute `int`. The loader may still read the floppy.
+- [x] **M32b.** One hardware IRQ (the timer). The fourth tick stores `4` at row 24, column 0. `kern_boot.py` reads that cell.
+- [x] **M32c.** The kernel switches to a page table that leaves `0x5000` unmapped. The load is `#PF`. The handler stores `0xF1` at `0x7E00` and halts. It does not reset.
 
 **Acceptance:** QEMU shows the line, the tick cell, and the faulting module's trap. The M17 real-mode sector still builds.
 **Not this slice:** a driver zoo, SMP, or a user shell.
@@ -897,6 +897,7 @@ memory type.)*
 | D25 | M28 collections are **fat pointers, and the remaining numbers stay checked** (2026-10-25). `ls` is the list. `gt` indexes it. `mp` `sc` `qu` `rg` `te` `ti` `bm` `pq` `bv` are the other DESIGN §10 structures, each with one golden. `iz` and `uz` are 64-bit pointer widths here. `dc` is a checked decimal. `cx` is a Gaussian integer. Neither shares a word with `float` or `b`. A block stays code | SPEC §11, §21; M28 |
 | D26 | M29 hot-swap is **one `wd` word, signed and tested** (2026-10-25). `cs` is the canonical text. `sw` checks an Ed25519 signature the way `ev` does, runs the test the way `ts` does, and restores the old word on failure. `~s` carries the trace and the wants. `~r` installs them. Two peers then `df` the same drift. No on-device model | SPEC §14, §27; M29 |
 | D27 | M30 tooling is **CI plus three commands** (2026-10-25). One workflow runs the five oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot`. `bare_boot` skips only when `qemu-system-i386` is absent. `zown lsp` reports the checker's human text, finds a user `:name`, and formats with `zown fmt`. `zown doc` prints stored manifest fields and does not invent `sig`. `zown pkg` resolves `zown:` hashes in a directory. No hosted registry. `tele.errors` stays authored | SPEC §9; `.github/workflows/ci.yml`; M30 |
+| D28 | M32 is a **long-mode floppy**, not a microkernel (2026-10-25). `zownc kern` prints from 64-bit code with paging on. Four PIT ticks mark row 24. An unmapped load is `#PF`, reported at `0x7E00`, then `hlt`. The loader may use `int 0x13`. The 64-bit kernel does not execute `int`. `zownc bare` stays the real-mode sector. No ring 3, no SMP, no shell | SPEC §29; M32 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---

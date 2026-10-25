@@ -93,6 +93,9 @@ wasmtime run fib.wasm
 # a boot sector whose VGA text is the string this program prints
 ./zownc/target/debug/zownc bare examples/bare.zn -o zown.bin
 
+# the same print, from long mode: four timer ticks, then a reported page fault
+./zownc/target/debug/zownc kern examples/bare.zn -o kern.bin
+
 # an exclusive buffer, a stored byte, and a borrow's read
 python3 bin/zown examples/buf.zn
 
@@ -199,14 +202,15 @@ python3 conformance/stream_pair.py   # two peers on [::1]
 python3 conformance/map_reopen.py    # snapshot file, new process
 python3 conformance/fleet_pair.py   # trace id and drift across one socket
 python3 conformance/bare_boot.py    # QEMU; skips only when qemu-system-i386 is absent
+python3 conformance/kern_boot.py    # long mode; skips only when qemu-system-x86_64 is absent
 ```
 
 The same oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_parity`,
-`parse_parity`, and `bare_boot` run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+`parse_parity`, `bare_boot`, and `kern_boot` run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Status
 
-**M0–M30 are done.** The same programs run three ways, held to one conformance
+**M0–M30 and M32 are done. M31 is not.** The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -242,8 +246,11 @@ user binding, and formats with `zown fmt`. `zown doc` prints the manifest
 fields a file has, and leaves `sig` null when nothing signed it. `zown pkg`
 resolves a dependency named by its BLAKE3 in a local directory.
 
-**Next is M31:** Opus decode, then one AV1 frame. QUIC and a kernel are
-later. The map is
+`zownc kern` boots that print in long mode. Four timer ticks mark row 24.
+A load of an unmapped page stores `0xF1` at `0x7E00` and halts. The
+real-mode sector is still `zownc bare`.
+
+**Next is M31:** Opus decode, then one AV1 frame. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

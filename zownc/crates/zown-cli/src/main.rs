@@ -34,6 +34,10 @@ COMMANDS:
                       A 512-byte real-mode boot sector. The program may only
                       print string literals. The sector writes the VGA text
                       buffer and then runs int 0x20
+    kern <file.zn> -o kern.bin
+                      A long-mode floppy. The same print subset runs from
+                      64-bit code with paging on. Four timer ticks mark one
+                      VGA cell. A load of an unmapped page is a reported fault
     llvm <file.zn> -o exe  Compile via LLVM IR with clang -O2
                       -o <path.exe> writes a standalone executable instead
     version           Print version
@@ -87,7 +91,8 @@ fn main() -> ExitCode {
 
     // shorthand: `zownc file.zn` == `zownc run file.zn`
     let known = [
-        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "bare", "llvm", "version", "help",
+        "run", "check", "lex", "ast", "ir", "irast", "wat", "build", "native", "bare", "kern",
+        "llvm", "version", "help",
     ];
     if let Some(first) = args.first() {
         if !first.starts_with('-') && !known.contains(&first.as_str()) {
@@ -158,6 +163,22 @@ fn main() -> ExitCode {
             Some(path) => cmd_native(path, zerr, unchecked, fast, out_path.as_deref(), prog_args),
             None => {
                 eprintln!("zownc native: missing <file.zn>\n\n{USAGE}");
+                ExitCode::FAILURE
+            }
+        },
+        "kern" => match args.get(1) {
+            Some(path) => {
+                let out = match out_path {
+                    Some(p) => p,
+                    None => {
+                        eprintln!("zownc kern: -o <kern.bin> is required\n\n{USAGE}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                cmd_kern(path, unchecked, &out)
+            }
+            None => {
+                eprintln!("zownc kern: missing <file.zn>\n\n{USAGE}");
                 ExitCode::FAILURE
             }
         },
@@ -251,6 +272,49 @@ fn cmd_run(path: &str, zerr: bool, unchecked: bool, prog_args: Vec<String>) -> E
             } else {
                 eprintln!("{}", d.render_human(Some(path)));
             }
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_kern(path: &str, unchecked: bool, out: &str) -> ExitCode {
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zownc: cannot read {path:?}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if !unchecked {
+        match check_src(&src, Some(path)) {
+            Err(e) => {
+                eprintln!(
+                    "zerr[{}] {path}:{}:{} ({}): {}",
+                    e.code, e.pos.line, e.pos.col, e.kind, e.msg
+                );
+                return ExitCode::FAILURE;
+            }
+            Ok(diags) if !diags.is_empty() => {
+                eprint!("{}", render_lines(&diags));
+                eprintln!(
+                    "rejected: {path} — {} issue(s) found by the static checker; not booted (--unchecked overrides)",
+                    diags.len()
+                );
+                return ExitCode::from(2);
+            }
+            Ok(_) => {}
+        }
+    }
+    match zown_bare::kern_image(&src) {
+        Ok(bytes) => match std::fs::write(out, bytes) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("zownc kern: cannot write {out:?}: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Err(msg) => {
+            eprintln!("zownc kern: {msg}");
             ExitCode::FAILURE
         }
     }
@@ -361,7 +425,9 @@ fn cmd_native(
                 ExitCode::SUCCESS
             }
             Err(zown_codegen::NativeError::Parse(e)) => report_parse(path, zerr, e),
-            Err(zown_codegen::NativeError::Unsupported(msg) | zown_codegen::NativeError::Link(msg)) => {
+            Err(
+                zown_codegen::NativeError::Unsupported(msg) | zown_codegen::NativeError::Link(msg),
+            ) => {
                 eprintln!("zownc native: {msg}");
                 ExitCode::FAILURE
             }

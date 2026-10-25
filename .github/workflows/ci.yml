@@ -39,3 +39,4 @@ jobs:
           python3 conformance/stage_parity.py
           python3 conformance/parse_parity.py
           python3 conformance/bare_boot.py
+          python3 conformance/kern_boot.py

@@ -1346,4 +1346,16 @@ An integer literal past the `int` range, a file the host lexer rejects, and a fi
 
 The sector runs in 16-bit real mode. The BIOS loads it at `0x7C00`. It writes each character to the VGA text buffer at `0xB8000` with attribute `0x07`, 80 columns to a row. A newline starts the next row. The same bytes, including newlines, are written to port `0xE9` so a host without a framebuffer can see them. After the text, the sector runs `int 0x20`. The handler stores `0xB1` at linear address `0x8000` and returns with `iret`. Then the CPU halts.
 
-This is the text on the screen and one software interrupt. It is not a long-mode kernel, not a hardware IRQ, and not a microkernel. Capability isolation and the rest of a Zown OS stay design-only. `examples/bare.zn` prints `Zown`. `conformance/bare_boot.py` boots that image in QEMU and reads the VGA cells back.
+This is the text on the screen and one software interrupt. It is not a long-mode kernel. `examples/bare.zn` prints `Zown`. `conformance/bare_boot.py` boots that image in QEMU and reads the VGA cells back.
+
+### Long mode — **implemented (M32, stage-0 image)**
+
+`zownc kern file.zn -o kern.bin` writes a floppy image of the same print subset. The real-mode loader may use `int 0x13` to read the rest of the disk. The kernel that runs afterwards does not execute `int`.
+
+It enters 64-bit mode with paging on. The first page tables identity-map the low 2 MiB as one page. The kernel writes the printed characters to `0xB8000` with attribute `0x07`, 80 columns to a row, and the same bytes to port `0xE9`. A newline starts the next row. Text that would reach row 24 is refused. A byte `0x64` at `0x7E01` means those instructions ran in long mode.
+
+The programmable interval timer is wired to IRQ 0, about 1 kHz. The fourth tick stores the character `4` at row 24, column 0. The count is also the qword at `0x7E08`.
+
+The kernel then installs a page table that leaves physical page `0x5000` not present and loads that address. The page-fault handler stores `0xF1` at `0x7E00`, the faulting address at `0x7E04`, and the character `F` in the next status cell. It halts. A reset is not the report. The module is that load, on a page table the kernel owns. It is not a separate privilege ring, not a shell, and not a driver.
+
+`conformance/kern_boot.py` boots the image in QEMU and reads the line, the tick cell, and the fault. `zownc bare` is unchanged.

@@ -1,8 +1,13 @@
-//! A 512-byte PC boot sector for a Zown program that only prints.
+//! Boot images for a Zown program that only prints.
 //!
-//! The sector runs in real mode. It writes the printed text into the VGA text
-//! buffer at `0xB8000` and the same bytes to port `0xE9`. Then it runs `int 0x20`.
-//! The handler stores `0xB1` at `0x8000` and returns. This is not a kernel.
+//! `image` is a 512-byte real-mode sector. It writes the text into the VGA
+//! buffer at `0xB8000` and then runs `int 0x20`. `kern_image` is the long-mode
+//! kernel: paging, one timer IRQ, and a reported page fault. The sector is
+//! not that kernel.
+
+mod kern;
+
+pub use kern::image as kern_image;
 
 use std::collections::HashMap;
 

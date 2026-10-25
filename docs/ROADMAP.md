@@ -244,15 +244,16 @@ local inference.
 - [x] `zownc bare` writes a 512-byte real-mode boot sector (SPEC §29).
       String prints land in the VGA text buffer. `int 0x20` stores `0xB1`
       at `0x8000`. QEMU reads both back.
-- [ ] Long mode, a hardware IRQ, and a microkernel.
-      Not started. The sector halts after the one software interrupt.
+- [x] Long mode, one timer IRQ, and a reported page fault (`zownc kern`,
+      SPEC §29). Four ticks mark row 24. An unmapped load stores `0xF1`
+      at `0x7E00` and halts. Not a shell, not SMP, not ring 3.
 
 The work after M17 is mapped as **M18–M32** in [`PLAN.md`](./PLAN.md).
 Through M30 the tree has `buf`, host I/O, crypto, WASM tags, the
 print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
 file, the UI slice in SPEC §25, the collections in §21, the two-peer
 control plane in §27, and the toolchain (`zown lsp`, `zown doc`,
-`zown pkg`, and CI). Next is M31.
+`zown pkg`, and CI). M32 is the long-mode image. Next is M31.
 
 ---
 

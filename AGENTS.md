@@ -66,7 +66,7 @@ python3 conformance/ast_parity.py && python3 conformance/vm_parity.py \
   && python3 conformance/ir_roundtrip.py && python3 conformance/wasm_parity.py \
   && python3 conformance/check_parity.py && python3 conformance/native_parity.py \
   && python3 conformance/stage_parity.py && python3 conformance/parse_parity.py \
-  && python3 conformance/bare_boot.py
+  && python3 conformance/bare_boot.py && python3 conformance/kern_boot.py
 ```
 
 All five oracle commands must end in `0 failed` (130 unit tests, 20 +
@@ -216,12 +216,16 @@ A bad signature or a failed test leaves the old word. `~s` carries the
 trace and the wants. `~r` installs them, so two peers `df` the same
 drift and both logs name the trace id. **M30 ✅** — `.github/workflows/ci.yml`
 runs the oracle, `cargo test`, `cargo build`, `native_parity`, `stage_parity`,
-`parse_parity`, and `bare_boot` (that boot skips only when
-`qemu-system-i386` is absent). `zown lsp` returns the checker's human
+`parse_parity`, `bare_boot` (that boot skips only when `qemu-system-i386`
+is absent), and `kern_boot` (that boot skips only when `qemu-system-x86_64`
+is absent). `zown lsp` returns the checker's human
 text, a user `:name`, and `zown fmt`. `zown doc` prints stored manifest
 fields and does not invent `sig`. `zown pkg` resolves a `zown:` content
-hash in a directory. Next is **M31** (Opus, then one AV1 frame). The
-rest of the map is **M31–M32** in `docs/PLAN.md`.
+hash in a directory. **M32 ✅** — `zownc kern` prints from 64-bit code
+with paging on. Four timer ticks store `4` on row 24. A load of unmapped
+`0x5000` stores `0xF1` at `0x7E00` and halts. `zownc bare` is still the
+real-mode sector. No ring 3, no SMP, no shell. Next is **M31** (Opus,
+then one AV1 frame). The rest of the map is **M31** in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.
