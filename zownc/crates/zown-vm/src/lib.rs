@@ -1139,6 +1139,7 @@ impl Vm {
             "av" => self.b_av(),
             "ve" => self.b_ve(),
             "op" => self.b_op(),
+            "oe" => self.b_oe(),
             "ni" => self.b_ni(),
             "ua" => self.b_ua(),
             "co" => self.b_co(),
@@ -2103,6 +2104,7 @@ pub fn is_builtin(name: &str) -> bool {
             | "av"
             | "ve"
             | "op"
+            | "oe"
             | "ni"
             | "ua"
             | "co"

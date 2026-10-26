@@ -871,6 +871,9 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `op` of a TOC other than config 18 mono code 0 | trap `UNSUPPORTED` | `errors_v2/op_toc` |
 | `op` of a config-18 packet with no payload | trap `INTEGRITY_FAIL` (kind `run`) | `errors_v2/op_short` |
 | `op` of the checked-in narrowband packet | the PCM BLAKE3 | `cases_v2/opus` |
+| empty `oe` buf | trap `BOUNDS` | `errors_v2/oe_empty` |
+| `oe` of a buf that is not 960 bytes | trap `UNSUPPORTED` | `errors_v2/oe_size` |
+| `oe` then `op` of the golden PCM | the PCM BLAKE3 | `cases_v2/opus_enc` |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
 `[ f @ ] :f [ f @ ] ty` yields `err(STACK_OVERFLOW)`. The oracle's limits are
@@ -1145,7 +1148,9 @@ conformance oracle.
 
 `cases_v2/av1` encodes the pixels of the checked-in still and decodes them. The printed line is BLAKE3 of those pixels.
 
-`op` pops one buf and pushes an exclusive buf of 960 bytes, s16le, mono, 48 kHz. The only packet is TOC config 18, mono, code 0 (a 10 ms narrowband CELT frame). Empty is `BOUNDS`. Another TOC is `UNSUPPORTED`. A payload the range coder cannot finish is `INTEGRITY_FAIL` with kind `run`. `cases_v2/opus` prints BLAKE3 of that PCM. The encode word is `oe` and is named in M33.
+`op` pops one buf and pushes an exclusive buf of 960 bytes, s16le, mono, 48 kHz. The only packet is TOC config 18, mono, code 0 (a 10 ms narrowband CELT frame). Empty is `BOUNDS`. Another TOC is `UNSUPPORTED`. A payload the range coder cannot finish is `INTEGRITY_FAIL` with kind `run`. `cases_v2/opus` prints BLAKE3 of that PCM.
+
+`oe` pops 960 bytes of that PCM and pushes an exclusive buf of one such packet. `op` of that packet is the same PCM. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`. A frame the transient narrowband codebook cannot reconstruct is `UNSUPPORTED`. `cases_v2/opus_enc` encodes the golden PCM and decodes it.
 
 ## 24. ZownNet — the slice that runs — **implemented (M12, oracle + Rust VM)**
 

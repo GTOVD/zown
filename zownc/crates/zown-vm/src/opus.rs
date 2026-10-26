@@ -8,6 +8,10 @@
 
 #[path = "opusdata.rs"]
 mod opusdata;
+#[path = "opusenc.rs"]
+mod opusenc;
+
+pub use opusenc::encode;
 
 use super::error::{BOUNDS, INTEGRITY_FAIL, UNSUPPORTED};
 
@@ -842,7 +846,22 @@ fn pulses2bits(band: usize, lm: i32, pulses: i64) -> i64 {
     cache_row(lm, band)[pulses as usize] as i64 + 1
 }
 
-fn interp_bits2pulses(
+trait RateDec {
+    fn bit_logp(&mut self, logp: u32) -> i32;
+    fn uint(&mut self, ft: i64) -> u32;
+}
+
+impl RateDec for EcDec {
+    fn bit_logp(&mut self, logp: u32) -> i32 {
+        EcDec::bit_logp(self, logp)
+    }
+
+    fn uint(&mut self, ft: i64) -> u32 {
+        EcDec::uint(self, ft)
+    }
+}
+
+fn interp_bits2pulses<D: RateDec>(
     start: usize,
     end: usize,
     skip_start: usize,
@@ -861,7 +880,7 @@ fn interp_bits2pulses(
     fine_priority: &mut [i64],
     c: i64,
     lm: i64,
-    dec: &mut EcDec,
+    dec: &mut D,
     encode: i64,
 ) -> (i64, i64, i64, i64) {
     let _ = encode;
@@ -1034,7 +1053,7 @@ struct Alloc {
     fine_priority: Vec<i64>,
 }
 
-fn clt_compute_allocation(
+fn clt_compute_allocation<D: RateDec>(
     start: usize,
     end: usize,
     offsets: &[i64],
@@ -1043,7 +1062,7 @@ fn clt_compute_allocation(
     mut total: i64,
     c: i64,
     lm: i64,
-    dec: &mut EcDec,
+    dec: &mut D,
 ) -> Alloc {
     total = max(total, 0);
     let mut skip_start = start;
@@ -2799,6 +2818,14 @@ mod tests {
 
     fn to_hex(data: &[u8]) -> String {
         data.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn encode_round_trip_matches_the_packet() {
+        let pcm = decode(&unhex(PACKET)).expect("decode");
+        let pkt = super::encode(&pcm).expect("encode");
+        assert_eq!(to_hex(&pkt), PACKET);
+        assert_eq!(decode(&pkt).unwrap(), pcm);
     }
 
     #[test]

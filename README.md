@@ -210,9 +210,9 @@ The same oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_p
 
 ## Status
 
-**M0–M32 are done. M33 is open.** `op` decodes one narrowband packet
-(`cases_v2/opus`). `ve` writes one lossless 16×16 still and `av` reads
-those pixels back (`cases_v2/av1`). The same programs run three ways, held to one conformance
+**M0–M33 are done.** `op` decodes one narrowband packet and `oe` writes
+it back (`cases_v2/opus`, `cases_v2/opus_enc`). `ve` writes one lossless
+16×16 still and `av` reads those pixels back (`cases_v2/av1`). The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.
@@ -252,8 +252,7 @@ resolves a dependency named by its BLAKE3 in a local directory.
 A load of an unmapped page stores `0xF1` at `0x7E00` and halts. The
 real-mode sector is still `zownc bare`.
 
-**Next is M33b:** `oe` encodes the golden 960-byte PCM so `op` reconstructs it.
-The map is
+**Next is M34:** ring 3 on the long-mode kernel. The map is
 [`docs/PLAN.md`](docs/PLAN.md); agents start at [`AGENTS.md`](AGENTS.md). The
 whole vision is [`docs/DESIGN.md`](docs/DESIGN.md), and the phases are
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

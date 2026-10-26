@@ -27,7 +27,7 @@ from .store import (
     b_tc, b_tq, b_tu,
 )
 from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
-from .media import b_av, b_op, b_ve
+from .media import b_av, b_oe, b_op, b_ve
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_ml, b_mm, b_mo, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_an, b_bh, b_bt, b_cm, b_co, b_gp, b_ky, b_ly, b_pk, b_rw, b_tx
@@ -826,6 +826,7 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "pp": (b_pp, "prop", "k [body] pp -> run body k times; each run leaves one truthy value"),
     "h3": (b_h3, "blake3", "str|buf h3 -> 64 hex digits of BLAKE3 (UTF-8, or the buf's raw bytes)"),
     "op": (b_op, "opus", "packet op -> exclusive buf of s16le PCM"),
+    "oe": (b_oe, "opus_encode", "960 s16le bytes oe -> exclusive buf of one narrowband Opus packet"),
     "av": (b_av, "av1", "obu av -> exclusive buf of 8-bit I420"),
     "ve": (b_ve, "av1_encode", "16x16 i420 ve -> exclusive buf of a raw AV1 OBU sequence"),
     "ni": (b_ni, "node_id", "push this VM's 32-byte node id as 64 hex digits"),

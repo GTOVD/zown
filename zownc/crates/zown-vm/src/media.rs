@@ -1,5 +1,5 @@
 //! `av` decodes one AV1 still. `ve` encodes one 16×16 4:2:0 frame.
-//! `op` decodes one narrowband Opus packet.
+//! `op` decodes one narrowband Opus packet. `oe` encodes one.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -65,6 +65,17 @@ impl Vm {
             _ => TYPE_MISMATCH,
         };
         self.err(code, msg, Some(op.to_string()), "")
+    }
+
+    pub(super) fn b_oe(&mut self) -> Result<(), RunError> {
+        let data = self.take_media("oe")?;
+        match opus::encode(&data) {
+            Ok(pkt) => {
+                self.push_media(pkt);
+                Ok(())
+            }
+            Err((code, msg)) => Err(self.media_fault("oe", code, msg)),
+        }
     }
 
     pub(super) fn b_op(&mut self) -> Result<(), RunError> {

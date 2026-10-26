@@ -2112,6 +2112,24 @@ def _buf_words(data: bytes) -> str:
 _OPUS = bytes.fromhex("907f144ef4125748bef98d0cddc8e97892c9d1a5")
 
 
+def test_opus_lossless_round_trip():
+    from zown.blake3 import blake3_hex
+    from zown.opus import decode
+    pcm = decode(_OPUS)
+    out, _vm = run(_buf_words(pcm) + "\noe op h3 .")
+    assert out.strip() == blake3_hex(pcm)
+    try:
+        run("0 bf oe .")
+        assert False, "empty encode ran"
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "oe"
+    try:
+        run("16 bf oe .")
+        assert False, "short pcm encoded"
+    except ZownError as e:
+        assert e.code == UNSUPPORTED and e.op == "oe"
+
+
 def test_opus_packet_hashes_pcm():
     from zown.blake3 import blake3_hex
     from zown.opus import decode

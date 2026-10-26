@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M31: `op` and `av` decode in both VMs. `oe` is still open).
+Last updated: 2026-10-25 (M33: `ve` and `oe` round-trip the two fixtures).
 
 ---
 
@@ -85,7 +85,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M30 | Tooling | ✅ | CI runs the oracle, `cargo test`, parity, and `bare_boot`. `zown lsp`, `zown doc`, `zown pkg`. No registry |
 | M31 | Media | ✅ | `op` decodes one narrowband packet. `av` decodes one still. Encode is M33 |
 | M32 | Kernel | ✅ | `zownc kern` boots in long mode. Four PIT ticks mark one VGA cell. An unmapped load stores `0xF1` at `0x7E00` and halts. The real-mode sector still builds |
-| M33 | Encode the two fixtures | ⬜ | `ve` writes a lossless 16×16 still and `av` reads it back. `oe` is the Opus side |
+| M33 | Encode the two fixtures | ✅ | `ve` round-trips the 16×16 still. `oe` round-trips the narrowband PCM |
 
 > M7–M17 were expanded from the original M7–M15 to fold in the full
 > sovereign-substrate vision (`DESIGN.md`). The key change: a **design-freeze
@@ -860,7 +860,7 @@ M31 media waits on bytes, files, and a stream.
 **Goal:** encode the golden 16×16 still and the golden Opus PCM, then decode them. The hashes match the fixtures.
 
 - [x] **M33a.** `ve` writes one 16×16 4:2:0 reduced still, qindex 0, 4×4 Walsh-Hadamard. `av` of that buf is the same I420. `cases_v2/av1` prints BLAKE3 of those pixels. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`.
-- [ ] **M33b.** `oe` writes one TOC config-18 mono 10 ms packet from 960 bytes of s16le. `op` of that packet is the same PCM. Empty is `BOUNDS`. Another length or TOC is `UNSUPPORTED`.
+- [x] **M33b.** `oe` writes one TOC config-18 mono 10 ms packet from 960 bytes of s16le. `op` of that packet is the same PCM. Empty is `BOUNDS`. Another length is `UNSUPPORTED`.
 
 **Acceptance:** both round trips match in both VMs. A second profile or packet size is `UNSUPPORTED`.
 **Not this slice:** a general encoder, rate control beyond the fixture, a camera, a player, QUIC, or ring 3.
@@ -909,7 +909,8 @@ memory type.)*
 | D26 | M29 hot-swap is **one `wd` word, signed and tested** (2026-10-25). `cs` is the canonical text. `sw` checks an Ed25519 signature the way `ev` does, runs the test the way `ts` does, and restores the old word on failure. `~s` carries the trace and the wants. `~r` installs them. Two peers then `df` the same drift. No on-device model | SPEC §14, §27; M29 |
 | D27 | M30 tooling is **CI plus three commands** (2026-10-25). One workflow runs the five oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_parity`, `parse_parity`, and `bare_boot`. `bare_boot` skips only when `qemu-system-i386` is absent. `zown lsp` reports the checker's human text, finds a user `:name`, and formats with `zown fmt`. `zown doc` prints stored manifest fields and does not invent `sig`. `zown pkg` resolves `zown:` hashes in a directory. No hosted registry. `tele.errors` stays authored | SPEC §9; `.github/workflows/ci.yml`; M30 |
 | D28 | M32 is a **long-mode floppy**, not a microkernel (2026-10-25). `zownc kern` prints from 64-bit code with paging on. Four PIT ticks mark row 24. An unmapped load is `#PF`, reported at `0x7E00`, then `hlt`. The loader may use `int 0x13`. The 64-bit kernel does not execute `int`. `zownc bare` stays the real-mode sector. No ring 3, no SMP, no shell | SPEC §29; M32 |
-| D29 | M33 AV1 encode is **one lossless 16×16 still** (2026-10-25). `ve` writes qindex 0 and a 4×4 Walsh-Hadamard. `av` reconstructs those pixels. The lossy q=80 fixture still decodes. Empty is `BOUNDS`. Any other size is `UNSUPPORTED`. `oe` is the Opus half and is not this decision | SPEC §19, §23; M33 |
+| D29 | M33 AV1 encode is **one lossless 16×16 still** (2026-10-25). `ve` writes qindex 0 and a 4×4 Walsh-Hadamard. `av` reconstructs those pixels. The lossy q=80 fixture still decodes. Empty is `BOUNDS`. Any other size is `UNSUPPORTED` | SPEC §19, §23; M33 |
+| D30 | M33 Opus encode is **one cold transient narrowband frame** (2026-10-25). `oe` writes TOC config 18, mono, code 0, from 960 s16le bytes. `op` reconstructs those samples. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`. No lookahead and no second packet size | SPEC §19, §23; M33 |
 | — | M8c-iii ownership *enforcement* re-sequenced into M9 (memory model) — the rules are specified now (2026-09-07) | SPEC §19/§20; M9 |
 
 ---
@@ -958,9 +959,8 @@ the milestone noted.
 
 ## Immediate next actions (pick up here)
 
-1. **M33b — Opus encode.** `oe` writes the golden 960-byte PCM as one
-   config-18 mono packet. `op` of that packet is the same PCM. `ve` already
-   round-trips the 16×16 still (`cases_v2/av1`).
+1. **M34 — ring 3.** CPL 3 and a TSS on the M32 kernel, same `0xF1` at
+   `0x7E00`. `ve` and `oe` already round-trip the two fixtures.
 2. **Carry-over:** Ryu/Grisu `$fmt_f64` for non-dyadic fractions; WASM lane
    ops (refused today). `tele.errors` stays authored; `zown doc` prints the
    field and does not infer codes from `ty`/`rq`/`??`.

@@ -253,8 +253,8 @@ Through M30 the tree has `buf`, host I/O, crypto, WASM tags, the
 print-subset boot image, the signed log, TCP on `[::1]`, the snapshot
 file, the UI slice in SPEC §25, the collections in §21, the two-peer
 control plane in §27, and the toolchain (`zown lsp`, `zown doc`,
-`zown pkg`, and CI). M32 is the long-mode image. `ve` round-trips one
-16×16 still. Next is `oe`.
+`zown pkg`, and CI). M32 is the long-mode image. `ve` and `oe` round-trip
+the 16×16 still and the narrowband PCM. Next is ring 3.
 
 ---
 

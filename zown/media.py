@@ -3,6 +3,7 @@
 `op` decodes one Opus packet into an exclusive `buf` of s16le PCM.
 `av` decodes one AV1 still into an exclusive `buf` of 8-bit I420.
 `ve` encodes one 16×16 4:2:0 frame into a raw OBU sequence.
+`oe` encodes 960 bytes of s16le into one narrowband Opus packet.
 A bare name passes a borrow, so the binding keeps the exclusive buffer.
 A camera, a microphone, and a player are not this slice.
 """
@@ -37,6 +38,18 @@ def _push(vm, data: bytes) -> None:
 def _fault(vm, op: str, pos: Pos, err: BaseException) -> None:
     code = getattr(err, "code", TYPE_MISMATCH)
     raise vm.err(code, str(err), op=op, pos=pos)
+
+
+def b_oe(vm, pos: Pos) -> None:
+    # pcm oe -> exclusive buf of one TOC config-18 mono packet
+    from .opus import Fault
+    from .opusenc import encode
+    data = _take(vm, "oe", pos)
+    try:
+        pkt = encode(data)
+    except Fault as err:
+        _fault(vm, "oe", pos, err)
+    _push(vm, pkt)
 
 
 def b_op(vm, pos: Pos) -> None:

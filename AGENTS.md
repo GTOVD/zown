@@ -226,10 +226,10 @@ with paging on. Four timer ticks store `4` on row 24. A load of unmapped
 `0x5000` stores `0xF1` at `0x7E00` and halts. `zownc bare` is still the
 real-mode sector. No ring 3, no SMP, no shell. **M31 ✅** — `op` decodes
 one config-18 mono packet to 960 s16le bytes, and `av` decodes one still.
-**M33a ✅** — `ve` writes a lossless 16×16 4:2:0 still (qindex 0, 4×4
-Walsh-Hadamard) and `av` returns those pixels. Empty is `BOUNDS`. Any other
-length is `UNSUPPORTED`. Next is **M33b** (`oe`, one config-18 mono packet).
-The map is in `docs/PLAN.md`.
+**M33 ✅** — `ve` writes a lossless 16×16 4:2:0 still and `av` returns
+those pixels. `oe` writes one config-18 mono packet and `op` returns the
+same 960 s16le bytes. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`.
+Next is **M34** (ring 3 on the M32 kernel). The map is in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.
