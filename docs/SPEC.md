@@ -863,6 +863,10 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `pk` or `ky` on a value that is not a node | trap `TYPE_MISMATCH` | (unit test) |
 | a pointer or key misses, or the button has no handler | the event is dropped | `cases_v2/click` |
 | resource exhaustion (a `big` too large, a non-terminating loop) | *implementation-defined limits*; not UB (the runtime may trap or keep running) | — |
+| empty `av` or `ve` buf | trap `BOUNDS` | `errors_v2/av_empty`, `ve_empty` |
+| `av` of an OBU whose size runs past the buffer | trap `INTEGRITY_FAIL` (kind `run`) | `errors_v2/av_trunc` |
+| `ve` of a buf that is not 384 bytes | trap `UNSUPPORTED` | `errors_v2/ve_size` |
+| `ve` then `av` of the 16×16 fixture | the I420 BLAKE3 | `cases_v2/av1` |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
 `[ f @ ] :f [ f @ ] ty` yields `err(STACK_OVERFLOW)`. The oracle's limits are
@@ -1128,6 +1132,14 @@ breaks kept, blank lines removed, a trailing newline. It is idempotent.
 the stdout golden, a sibling `.code` is the recovery code, and a file with
 neither passes when it runs without a trap. The runner is ungated, like the
 conformance oracle.
+
+### Media — **AV1 still (M31 decode, M33 encode)**
+
+`av` pops one buf and pushes an exclusive buf of 8-bit I420, Y then U then V. The input is a raw OBU sequence: a temporal delimiter, a profile-0 reduced still sequence header, and one frame. Empty is `BOUNDS`. A declared size past the buffer, or a tile the range coder cannot finish, is `INTEGRITY_FAIL` with kind `run`. Another profile, a frame larger than 64 pixels, CDEF, restoration, film grain, and a non-square partition are `UNSUPPORTED`.
+
+`ve` pops one buf of 16×16 4:2:0 I420 (384 bytes) and pushes an exclusive buf of a raw OBU sequence. The frame is lossless: qindex 0 and a 4×4 Walsh-Hadamard. `av` of that buf is the same 384 bytes. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`. A second profile is not encoded.
+
+`cases_v2/av1` encodes the pixels of the checked-in still and decodes them. The printed line is BLAKE3 of those pixels. Opus decode is `op`. Its encode word is `oe` and is named in M33.
 
 ## 24. ZownNet — the slice that runs — **implemented (M12, oracle + Rust VM)**
 

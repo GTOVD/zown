@@ -27,6 +27,7 @@ from .store import (
     b_tc, b_tq, b_tu,
 )
 from .crypt import b_ad, b_ae, b_es, b_ev, b_xk
+from .media import b_av, b_op, b_ve
 from .hostio import b_ac, b_ag, b_en, b_fr, b_fw, b_gd, b_ml, b_mm, b_mo, b_tm
 from .tele import b_ch, b_df, b_lg, b_nt, b_ob, b_rm, b_se, b_sp, b_td, b_vr, b_wn
 from .ui import b_an, b_bh, b_bt, b_cm, b_co, b_gp, b_ky, b_ly, b_pk, b_rw, b_tx
@@ -748,12 +749,22 @@ def _make_vbinop(op: str, fn):
 
 
 def b_h3(vm, pos: Pos) -> None:
-    text = vm.pop("h3", pos)
-    if not isinstance(text, str):
-        from .vm import type_name
-        raise vm.err(TYPE_MISMATCH, f"`h3` expected a string, got {type_name(text)}",
-                     op="h3", pos=pos, hint="BLAKE3 hashes the string's UTF-8 bytes")
-    vm.push(blake3_hex(text.encode("utf-8")))
+    v = vm.pop("h3", pos)
+    if isinstance(v, str):
+        vm.push(blake3_hex(v.encode("utf-8")))
+        return
+    from .buf import Buf
+    if isinstance(v, Buf):
+        if v.alloc.data is None:
+            raise vm.err(BOUNDS, "`h3` buffer was freed",
+                         op="h3", pos=pos, hint="the exclusive owner was dropped with `,`")
+        data = bytes(v.alloc.data)
+        release(v)
+        vm.push(blake3_hex(data))
+        return
+    from .vm import type_name
+    raise vm.err(TYPE_MISMATCH, f"`h3` expected a string or a buf, got {type_name(v)}",
+                 op="h3", pos=pos, hint="BLAKE3 hashes a string's UTF-8 bytes or a buf's raw bytes")
 
 
 def b_ni(vm, pos: Pos) -> None:
@@ -813,7 +824,10 @@ WORDS: dict[str, tuple[Callable[[Any, Pos], None], str, str]] = {
     "wd": (b_wd, "word", "[body] $name$ wd -> register body as an auto-running word"),
     "ts": (b_ts, "test", "[body] ts -> the body must leave exactly one truthy value"),
     "pp": (b_pp, "prop", "k [body] pp -> run body k times; each run leaves one truthy value"),
-    "h3": (b_h3, "blake3", "str h3 -> 64 hex digits of BLAKE3(UTF-8)"),
+    "h3": (b_h3, "blake3", "str|buf h3 -> 64 hex digits of BLAKE3 (UTF-8, or the buf's raw bytes)"),
+    "op": (b_op, "opus", "packet op -> exclusive buf of s16le PCM"),
+    "av": (b_av, "av1", "obu av -> exclusive buf of 8-bit I420"),
+    "ve": (b_ve, "av1_encode", "16x16 i420 ve -> exclusive buf of a raw AV1 OBU sequence"),
     "ni": (b_ni, "node_id", "push this VM's 32-byte node id as 64 hex digits"),
     "ua": (b_ua, "node_addr", "push this VM's IPv6 ULA (fd00::/8 from the node id)"),
     "co": (b_co, "color", "r g b co -> a color; each channel is an int in 0..255"),

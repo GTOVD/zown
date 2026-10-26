@@ -246,6 +246,7 @@ fn refused(name: &str) -> bool {
             | "gd" | "fr" | "fw" | "mm" | "mo" | "ml" | "ac" | "ag" | "en" | "tm"
             | "mg" | "tc" | "tu" | "tq"
             | "ae" | "ad" | "es" | "ev" | "xk"
+            | "op" | "av" | "ve"
             | "iz" | "uz" | "dc" | "cx"
             | "ls" | "mp" | "sc" | "qu" | "rg" | "te" | "ti" | "bm" | "pq" | "bv"
             | "ps" | "po" | "gt" | "pt" | "hs" | "sk" | "px"

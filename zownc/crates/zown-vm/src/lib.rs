@@ -5,6 +5,7 @@
 //! v0.2 words (`gr`/`rq`/`hv`, widths, vectors, `??`, `ty`, `'x`) landed in
 //! M8d-iii. Observable behavior matches the Python oracle.
 
+mod av1;
 mod bigint;
 mod blake3;
 mod buf;
@@ -17,6 +18,7 @@ mod error;
 mod hostio;
 mod sha512;
 mod lanes;
+mod media;
 mod mesh;
 mod native;
 mod stdwords;
@@ -1133,6 +1135,8 @@ impl Vm {
             "ts" => self.b_ts(),
             "pp" => self.b_pp(),
             "h3" => self.b_h3(),
+            "av" => self.b_av(),
+            "ve" => self.b_ve(),
             "ni" => self.b_ni(),
             "ua" => self.b_ua(),
             "co" => self.b_co(),
@@ -2094,6 +2098,8 @@ pub fn is_builtin(name: &str) -> bool {
             | "ts"
             | "pp"
             | "h3"
+            | "av"
+            | "ve"
             | "ni"
             | "ua"
             | "co"

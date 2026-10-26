@@ -1,8 +1,12 @@
 //! Local content store and node identity. The UDP exchange lives in `zown/mesh.py`;
 //! both VMs share the BLAKE3 address and the `~p` / `~f` store.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::blake3::{hash, hex};
 use super::error::{BOUNDS, TYPE_MISMATCH};
+use super::value::BufAlloc;
 use super::{RunError, Value, Vm};
 
 pub fn node_id() -> [u8; 32] {
@@ -40,6 +44,22 @@ pub fn ula(id: &[u8; 32]) -> String {
     out
 }
 
+fn buf_bytes(vm: &mut Vm, alloc: &Rc<RefCell<BufAlloc>>) -> Result<Vec<u8>, RunError> {
+    let borrowed = alloc.borrow();
+    match &borrowed.data {
+        Some(data) => Ok(data.clone()),
+        None => {
+            drop(borrowed);
+            Err(vm.err(
+                BOUNDS,
+                "`h3` buffer was freed".into(),
+                Some("h3".into()),
+                "the exclusive owner was dropped with `,`",
+            ))
+        }
+    }
+}
+
 fn parse_hash(text: &str) -> Option<String> {
     if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
@@ -55,13 +75,21 @@ impl Vm {
                 self.push(Value::Str(digest));
                 Ok(())
             }
+            Value::Buf { alloc, exclusive } => {
+                let data = buf_bytes(self, &alloc)?;
+                if exclusive {
+                    alloc.borrow_mut().data = None;
+                }
+                self.push(Value::Str(hex(&data)));
+                Ok(())
+            }
             other => {
                 let tn = other.type_name();
                 Err(self.err(
                     TYPE_MISMATCH,
-                    format!("`h3` expected a string, got {tn}"),
+                    format!("`h3` expected a string or a buf, got {tn}"),
                     Some("h3".into()),
-                    "BLAKE3 hashes the string's UTF-8 bytes",
+                    "BLAKE3 hashes a string's UTF-8 bytes or a buf's raw bytes",
                 ))
             }
         }

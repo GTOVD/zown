@@ -224,8 +224,10 @@ fields and does not invent `sig`. `zown pkg` resolves a `zown:` content
 hash in a directory. **M32 ✅** — `zownc kern` prints from 64-bit code
 with paging on. Four timer ticks store `4` on row 24. A load of unmapped
 `0x5000` stores `0xF1` at `0x7E00` and halts. `zownc bare` is still the
-real-mode sector. No ring 3, no SMP, no shell. Next is **M31** (Opus,
-then one AV1 frame). The rest of the map is **M31** in `docs/PLAN.md`.
+real-mode sector. No ring 3, no SMP, no shell. **M33a ✅** — `ve` writes a
+lossless 16×16 4:2:0 still (qindex 0, 4×4 Walsh-Hadamard) and `av` returns
+those pixels. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`. Next is
+**M33b** (`oe`, one config-18 mono packet). The map is in `docs/PLAN.md`.
 On Windows without Visual C++, `cargo` needs
 `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`. No maintainer decisions are
 open; the decision log is in `PLAN.md`.

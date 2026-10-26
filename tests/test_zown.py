@@ -2085,6 +2085,68 @@ def test_bare_boot_skips_only_when_qemu_is_absent():
     assert "qemu-system-i386 not found" in buf.getvalue()
 
 
+def test_h3_hashes_buf_bytes():
+    out, _vm = run("4 bf 0 1 bp 1 2 bp 2 3 bp 3 4 bp h3 .")
+    from zown.blake3 import blake3_hex
+    assert out.strip() == blake3_hex(bytes([1, 2, 3, 4]))
+    out, _vm = run("$hello$ h3 .")
+    assert out.strip() == blake3_hex(b"hello")
+
+
+_STILL = bytes.fromhex(
+    "12000a06180cffd80080325915000000500e38c8bc443dfd8e548a388c486185"
+    "f1e6c8710f49084b592b9181ce0481b245e9d503ee5d9f28bbe12a2226f2532a"
+    "78f1b0c62396b0cb04ce1c4098452f50183178a8e6fa4ae2c3fdd302e4b83fff"
+    "395615b990"
+)
+
+
+def _buf_words(data: bytes) -> str:
+    lines = [f"{len(data)} bf"]
+    for i, b in enumerate(data):
+        if b:
+            lines.append(f"{i} {b} bp")
+    return "\n".join(lines)
+
+
+def test_av1_still_hashes_i420():
+    from zown.av1 import decode
+    from zown.blake3 import blake3_hex
+    pic = decode(_STILL)
+    assert len(pic) == 384
+    assert blake3_hex(pic) == "5ee6fcf9d2da2062d3e72591a7ad2d1aa1623b3609d613025cf10edbb5d05462"
+    out, _vm = run(_buf_words(_STILL) + "\nav h3 .")
+    assert out.strip() == blake3_hex(pic)
+    try:
+        run("0 bf av .")
+        assert False, "empty AV1 ran"
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "av"
+    try:
+        run(_buf_words(_STILL[:-10]) + "\nav .")
+        assert False, "truncated AV1 ran"
+    except ZownError as e:
+        assert e.code == INTEGRITY_FAIL and e.op == "av"
+
+
+def test_av1_lossless_round_trip():
+    from zown.av1 import decode
+    from zown.blake3 import blake3_hex
+    pic = decode(_STILL)
+    out, _vm = run(_buf_words(pic) + "\nve av h3 .")
+    assert out.strip() == blake3_hex(pic)
+    try:
+        run("0 bf ve .")
+        assert False, "empty encode ran"
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "ve"
+    try:
+        run("16 bf ve .")
+        assert False, "short frame encoded"
+    except ZownError as e:
+        assert e.code == UNSUPPORTED and e.op == "ve"
+
+
 # --- runner --------------------------------------------------------------------
 def _main():
     tests = sorted(
