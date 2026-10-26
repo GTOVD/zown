@@ -19,7 +19,7 @@ root is the short operational version: environment, commands, and the rules.)
   nothing is lost between sessions. When you resolve one, move it into the SPEC or
   the milestone it belongs to.
 
-Last updated: 2026-10-25 (M33a: lossless 16×16 AV1 encode. `oe` is still open).
+Last updated: 2026-10-25 (M31: `op` and `av` decode in both VMs. `oe` is still open).
 
 ---
 
@@ -83,7 +83,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ next up · ⬜ not started
 | M28 | Collections and remaining numbers | ✅ | List, map, set, queue, ring, B-tree, trie, bloom, heap, bit vector. `iz` `uz` `dc` `cx`. |
 | M29 | Control plane completion | ✅ | `sw` replaces a `wd` word after the signature and the test. Two peers share a trace and a drift line. |
 | M30 | Tooling | ✅ | CI runs the oracle, `cargo test`, parity, and `bare_boot`. `zown lsp`, `zown doc`, `zown pkg`. No registry |
-| M31 | Media | ⬜ | Opus, then AV1. Needs M18, M20, and M25 |
+| M31 | Media | ✅ | `op` decodes one narrowband packet. `av` decodes one still. Encode is M33 |
 | M32 | Kernel | ✅ | `zownc kern` boots in long mode. Four PIT ticks mark one VGA cell. An unmapped load stores `0xF1` at `0x7E00` and halts. The real-mode sector still builds |
 | M33 | Encode the two fixtures | ⬜ | `ve` writes a lossless 16×16 still and `av` reads it back. `oe` is the Opus side |
 
@@ -838,8 +838,8 @@ M31 media waits on bytes, files, and a stream.
 **Depends on:** M18, M20, and M25. DESIGN §10.
 **Goal:** one audio codec, then one video codec. Decode a fixture. Do not claim a player.
 
-- [ ] **M31a.** Opus decode of a checked-in fixture into a `buf` of PCM. The golden is a hash of that PCM.
-- [ ] **M31b.** AV1 decode of one frame into a `buf`. The golden is a hash. Encode is a later slice of this milestone.
+- [x] **M31a.** Opus decode of a checked-in fixture into a `buf` of PCM. The golden is a hash of that PCM.
+- [x] **M31b.** AV1 decode of one frame into a `buf`. The golden is a hash. Encode is M33.
 
 **Acceptance:** the hash matches in both VMs. A truncated fixture is `INTEGRITY_FAIL` or `BOUNDS`, and the code is in §19.
 **Not this slice:** a camera, a microphone graph, or DRM.

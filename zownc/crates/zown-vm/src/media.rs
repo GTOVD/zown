@@ -1,9 +1,11 @@
 //! `av` decodes one AV1 still. `ve` encodes one 16×16 4:2:0 frame.
+//! `op` decodes one narrowband Opus packet.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::av1;
+use super::opus;
 use super::error::{BOUNDS, INTEGRITY_FAIL, TYPE_MISMATCH, UNSUPPORTED};
 use super::value::{BufAlloc, Value};
 use super::{RunError, Vm};
@@ -63,6 +65,17 @@ impl Vm {
             _ => TYPE_MISMATCH,
         };
         self.err(code, msg, Some(op.to_string()), "")
+    }
+
+    pub(super) fn b_op(&mut self) -> Result<(), RunError> {
+        let data = self.take_media("op")?;
+        match opus::decode(&data) {
+            Ok(pcm) => {
+                self.push_media(pcm);
+                Ok(())
+            }
+            Err((code, msg)) => Err(self.media_fault("op", code, msg)),
+        }
     }
 
     pub(super) fn b_av(&mut self) -> Result<(), RunError> {

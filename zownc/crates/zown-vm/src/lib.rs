@@ -6,6 +6,7 @@
 //! M8d-iii. Observable behavior matches the Python oracle.
 
 mod av1;
+mod opus;
 mod bigint;
 mod blake3;
 mod buf;
@@ -1137,6 +1138,7 @@ impl Vm {
             "h3" => self.b_h3(),
             "av" => self.b_av(),
             "ve" => self.b_ve(),
+            "op" => self.b_op(),
             "ni" => self.b_ni(),
             "ua" => self.b_ua(),
             "co" => self.b_co(),
@@ -2100,6 +2102,7 @@ pub fn is_builtin(name: &str) -> bool {
             | "h3"
             | "av"
             | "ve"
+            | "op"
             | "ni"
             | "ua"
             | "co"

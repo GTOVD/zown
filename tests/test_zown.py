@@ -2109,6 +2109,34 @@ def _buf_words(data: bytes) -> str:
     return "\n".join(lines)
 
 
+_OPUS = bytes.fromhex("907f144ef4125748bef98d0cddc8e97892c9d1a5")
+
+
+def test_opus_packet_hashes_pcm():
+    from zown.blake3 import blake3_hex
+    from zown.opus import decode
+    pcm = decode(_OPUS)
+    assert len(pcm) == 960
+    assert blake3_hex(pcm) == "7489f4f97e2179d2c4851627de498a6d5ae28b39f2280de15163a1d1c35c96e5"
+    out, _vm = run(_buf_words(_OPUS) + "\nop h3 .")
+    assert out.strip() == blake3_hex(pcm)
+    try:
+        run("0 bf op .")
+        assert False, "empty Opus ran"
+    except ZownError as e:
+        assert e.code == BOUNDS and e.op == "op"
+    try:
+        run("1 bf 0 0 bp op .")
+        assert False, "other TOC ran"
+    except ZownError as e:
+        assert e.code == UNSUPPORTED and e.op == "op"
+    try:
+        run("1 bf 0 144 bp op .")
+        assert False, "short Opus ran"
+    except ZownError as e:
+        assert e.code == INTEGRITY_FAIL and e.op == "op"
+
+
 def test_av1_still_hashes_i420():
     from zown.av1 import decode
     from zown.blake3 import blake3_hex

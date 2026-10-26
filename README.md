@@ -210,8 +210,9 @@ The same oracle commands, `cargo test`, `cargo build`, `native_parity`, `stage_p
 
 ## Status
 
-**M0–M30 and M32 are done. M33 is open.** `ve` writes one lossless 16×16
-still and `av` reads those pixels back (`cases_v2/av1`). The same programs run three ways, held to one conformance
+**M0–M32 are done. M33 is open.** `op` decodes one narrowband packet
+(`cases_v2/opus`). `ve` writes one lossless 16×16 still and `av` reads
+those pixels back (`cases_v2/av1`). The same programs run three ways, held to one conformance
 suite:
 
 - **Python** (`zown`) is the oracle.

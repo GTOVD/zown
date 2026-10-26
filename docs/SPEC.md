@@ -867,6 +867,10 @@ backend must reproduce the row or fail with `UNSUPPORTED` — never diverge sile
 | `av` of an OBU whose size runs past the buffer | trap `INTEGRITY_FAIL` (kind `run`) | `errors_v2/av_trunc` |
 | `ve` of a buf that is not 384 bytes | trap `UNSUPPORTED` | `errors_v2/ve_size` |
 | `ve` then `av` of the 16×16 fixture | the I420 BLAKE3 | `cases_v2/av1` |
+| empty `op` buf | trap `BOUNDS` | `errors_v2/op_empty` |
+| `op` of a TOC other than config 18 mono code 0 | trap `UNSUPPORTED` | `errors_v2/op_toc` |
+| `op` of a config-18 packet with no payload | trap `INTEGRITY_FAIL` (kind `run`) | `errors_v2/op_short` |
+| `op` of the checked-in narrowband packet | the PCM BLAKE3 | `cases_v2/opus` |
 
 Every trap above is a value when it happens inside `ty` (§16.1):
 `[ f @ ] :f [ f @ ] ty` yields `err(STACK_OVERFLOW)`. The oracle's limits are
@@ -1139,7 +1143,9 @@ conformance oracle.
 
 `ve` pops one buf of 16×16 4:2:0 I420 (384 bytes) and pushes an exclusive buf of a raw OBU sequence. The frame is lossless: qindex 0 and a 4×4 Walsh-Hadamard. `av` of that buf is the same 384 bytes. Empty is `BOUNDS`. Any other length is `UNSUPPORTED`. A second profile is not encoded.
 
-`cases_v2/av1` encodes the pixels of the checked-in still and decodes them. The printed line is BLAKE3 of those pixels. Opus decode is `op`. Its encode word is `oe` and is named in M33.
+`cases_v2/av1` encodes the pixels of the checked-in still and decodes them. The printed line is BLAKE3 of those pixels.
+
+`op` pops one buf and pushes an exclusive buf of 960 bytes, s16le, mono, 48 kHz. The only packet is TOC config 18, mono, code 0 (a 10 ms narrowband CELT frame). Empty is `BOUNDS`. Another TOC is `UNSUPPORTED`. A payload the range coder cannot finish is `INTEGRITY_FAIL` with kind `run`. `cases_v2/opus` prints BLAKE3 of that PCM. The encode word is `oe` and is named in M33.
 
 ## 24. ZownNet — the slice that runs — **implemented (M12, oracle + Rust VM)**
 
